@@ -5,6 +5,7 @@ const StableRng = preload("res://scripts/core/StableRng.gd")
 const SaveManager = preload("res://scripts/core/SaveManager.gd")
 const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
 const CollisionFactory = preload("res://scripts/factories/CollisionFactory.gd")
+const MapGenerator = preload("res://scripts/core/MapGenerator.gd")
 
 
 const GRID_SIZE: int = 224
@@ -1883,9 +1884,6 @@ func _load_map(world_id: String, map_id: String) -> void:
 	world_seed = int(map_record.get("seed", 12345))
 	_begin_generation_channel("map")
 	current_map_available_discoveries = 0
-	_moon_grid_scale = 1
-	if _is_current_map_moon():
-		_moon_grid_scale = 2
 	_clear_generated_map()
 	generated_root = Node3D.new()
 	generated_root.name = "GeneratedMap"
@@ -1894,37 +1892,28 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_setup_music()
 	_create_visible_sun()
 
+	var map_type: String = WorldGraph.map_type(map_record)
+	var gen := MapGenerator.new({
+		"world_seed": world_seed,
+		"graphics_level": graphics_level,
+		"density_level": density_level,
+		"map_type": map_type,
+	})
+	gen.generate(generated_root)
+
+	_spawn_player()
+
 	if _is_current_map_gate_room():
-		_create_gate_room_terrain()
-		_create_world_bounds()
-		_spawn_player()
 		_scatter_gate_room_gates()
 	elif _is_current_map_cave():
-		_create_cave_terrain()
-		_create_world_bounds()
-		_spawn_player()
 		_scatter_cave_items()
 	elif _is_current_map_map_nexus():
-		_create_map_nexus_terrain()
-		_create_world_bounds()
-		_spawn_player()
 		_scatter_map_nexus_gates()
 	else:
-		_apply_detail_counts()
-		_setup_noise()
-		_build_height_values()
-		_create_terrain_mesh()
-		_create_terrain_collision()
-		_create_world_bounds()
-		if not _is_current_map_moon():
-			_create_water()
+		if _is_current_map_water():
 			_setup_water_audio()
-			_create_sky_clouds()
-		else:
-			_create_moon_sky()
-			_setup_moon_audio()
-		_spawn_player()
 		if _is_current_map_moon():
+			_setup_moon_audio()
 			_scatter_moon_lichen()
 			_scatter_moon_glass_craters()
 			_scatter_moon_platforms()
