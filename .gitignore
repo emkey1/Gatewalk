@@ -1,0 +1,15 @@
+# Godot
+.godot/
+*.import
+*.translation
+export_presets.cfg
+icon.png
+icon.ico
+icon.svg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.godot
