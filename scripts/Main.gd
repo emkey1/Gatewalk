@@ -1880,8 +1880,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_set_last_world_id(world_id)
 	_save_world_data()
 
-		world_seed = int(map_record.get("seed", 12345))
-		_begin_generation_channel("map")
+	world_seed = int(map_record.get("seed", 12345))
+	_begin_generation_channel("map")
 	current_map_available_discoveries = 0
 	_moon_grid_scale = 1
 	if _is_current_map_moon():
@@ -3389,7 +3389,7 @@ func _create_moon_sky() -> void:
 
 	var earth := Node3D.new()
 	earth.name = "DistantBlueWorld"
-	earth.position = Vector3(500.0, 100.0, -240.0)
+	earth.position = Vector3(500.0, 100.0, -360.0)
 
 	var earth_mesh := SphereMesh.new()
 	earth_mesh.radius = 80.0
@@ -3872,11 +3872,10 @@ func _scatter_moon_lichen() -> void:
 		shape.radius = mesh.radius
 		shape_node.shape = shape
 		body.add_child(shape_node)
-			body.apply_impulse(Vector3(_randf_range(-0.8, 0.8), _randf_range(-0.15, 0.15), _randf_range(-0.8, 0.8)))
-			body.set_script(preload("res://scripts/FloatingLichen.gd"))
-			body.set("rng_seed", _randi())
-			body.add_to_group("floating_lichen")
-			_add_generated_child(body)
+		body.apply_impulse(Vector3(randf_range(-0.8, 0.8), randf_range(-0.15, 0.15), randf_range(-0.8, 0.8)))
+		body.set_script(preload("res://scripts/FloatingLichen.gd"))
+		body.add_to_group("floating_lichen")
+		_add_generated_child(body)
 
 
 func _scatter_moon_glass_craters() -> void:
@@ -4415,11 +4414,12 @@ func _scatter_bird_flocks() -> void:
 		var pos: Vector3 = _random_land_position(WATER_LEVEL + 1.0)
 		if pos.distance_to(Vector3.ZERO) < 60.0:
 			continue
-			var flock: Node3D = _BirdFlockScene.new()
-			flock.set("bird_count", _randi_range(8, 15))
-			flock.set("mesh_quality", graphics_level)
-			flock.set("rng_seed", _randi())
-			flock.position = Vector3(pos.x, _randf_range(8.0, 18.0), pos.z)
+
+		var flock: Node3D = _BirdFlockScene.new()
+		flock.set("bird_count", _randi_range(8, 15))
+		flock.set("mesh_quality", graphics_level)
+		flock.set("rng_seed", _randi())
+		flock.position = Vector3(pos.x, _randf_range(8.0, 18.0), pos.z)
 		_add_generated_child(flock)
 		placed += 1
 
@@ -4488,10 +4488,11 @@ func _scatter_fish_schools() -> void:
 			continue
 		if _river_distance(ground.x, ground.z) < 8.0:
 			continue
-			var school: Node3D = _FishSchoolScene.new()
-			school.set("fish_count", _randi_range(10, 18))
-			school.set("mesh_quality", graphics_level)
-			school.set("rng_seed", _randi())
+
+		var school: Node3D = _FishSchoolScene.new()
+		school.set("fish_count", _randi_range(10, 18))
+		school.set("mesh_quality", graphics_level)
+		school.set("rng_seed", _randi())
 		var water_depth: float = WATER_LEVEL - ground.y
 		var height_offset: float = _randf_range(0.3, 0.7)
 		school.position = Vector3(ground.x, ground.y + water_depth * height_offset, ground.z)
@@ -4895,8 +4896,8 @@ func _throw_lichen() -> void:
 	body.add_to_group("floating_lichen")
 
 	var lichen_script: Script = preload("res://scripts/FloatingLichen.gd")
-		body.set_script(lichen_script)
-		body.set("rng_seed", _randi())
+	body.set_script(lichen_script)
+	body.set("rng_seed", _randi())
 
 	var phys_mat := PhysicsMaterial.new()
 	phys_mat.bounce = 0.75
