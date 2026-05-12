@@ -42,8 +42,8 @@ func _ready() -> void:
 	shape.radius = 0.45
 	shape.height = 1.8
 	capsule.shape = shape
-	capsule.position.y = 0.9
 	add_child(capsule)
+	capsule.position.y = 0.9
 
 	camera = Camera3D.new()
 	camera.name = "PlayerCamera"

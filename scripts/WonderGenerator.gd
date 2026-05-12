@@ -1,37 +1,9 @@
 extends Node
 class_name WonderGenerator
 
+const StableRng = preload("res://scripts/core/StableRng.gd")
+
 const DEFAULT_WONDER_CELL_SIZE: float = 256.0
-
-
-class StableRng:
-	var state: int = 1
-
-	func _init(seed: int) -> void:
-		state = int(seed & 0xffffffff)
-		if state == 0:
-			state = 0x6d2b79f5
-
-	func next_u32() -> int:
-		state = int((1664525 * state + 1013904223) & 0xffffffff)
-		return state
-
-	func randf() -> float:
-		return float(next_u32()) / 4294967296.0
-
-	func randf_range(min_value: float, max_value: float) -> float:
-		return lerp(min_value, max_value, randf())
-
-	func randi_range(min_value: int, max_value: int) -> int:
-		var lo: int = min(min_value, max_value)
-		var hi: int = max(min_value, max_value)
-		return lo + int(next_u32() % int(hi - lo + 1))
-
-	func chance(probability: float) -> bool:
-		return randf() < probability
-
-	func pick(items: Array) -> Variant:
-		return items[randi_range(0, items.size() - 1)]
 
 
 static func cell_has_wonder(world_seed: int, cell_x: int, cell_z: int, chance: float = 0.18) -> bool:

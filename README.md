@@ -12,7 +12,7 @@ On macOS, Godot may restore stale window state during startup, so fullscreen is 
 
 The initial world is generated at runtime from a saved seed. It uses a larger terrain grid with layered height noise, a carved river valley, vertex-colored biomes, water, denser trees and rocks, wildflower patches, deterministic fantasy wonders, glowing crystal clusters, scattered ancient ruins, and world gates.
 
-Worlds are saved to `user://world_graphs.json`. On first launch the game creates and saves a default world, then reloads that saved world on later starts. The menu can create additional world slots, and each slot stores its generated maps plus the gate connections between those maps. A connected map is only generated and saved when its gate is first activated.
+Saves are organized as universes. A universe is a separate game instance with its own worlds, maps, atlas progress, achievements, settings, and inventory state. On first launch the game creates and saves a default universe and world, then reloads the active universe on later starts. Older `user://world_graphs.json` saves are migrated into the current slot. The menu can create additional save slots, universes, and worlds. Each universe stores its generated maps plus the gate connections between those maps. A connected map is only generated and saved when its gate is first activated.
 
 Trees, rocks, crystals, ruin pillars, ruin platforms, and gate posts are solid. You can run into them, and ruin platforms can be walked on.
 

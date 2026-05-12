@@ -1,8 +1,11 @@
 class_name BirdFlock
 extends Node3D
 
+const StableRng = preload("res://scripts/core/StableRng.gd")
+
 var bird_count: int = 10
 var mesh_quality: int = 0
+var rng_seed: int = 1
 
 var _bird_nodes: Array[Node3D] = []
 var _phases: Array[float] = []
@@ -13,16 +16,17 @@ var _time: float = 0.0
 
 
 func _ready() -> void:
+	var rng := StableRng.new(rng_seed)
 	var mesh: ArrayMesh = _create_bird_mesh() if mesh_quality < 2 else _create_bird_mesh_detailed()
 	for i in bird_count:
 		var bird := Node3D.new()
 		add_child(bird)
 		_bird_nodes.append(bird)
-		_phases.append(randf_range(0.0, TAU))
-		_y_offsets.append(randf_range(-2.0, 2.0))
-		_speeds.append(randf_range(0.4, 0.8))
-		_radii.append(randf_range(6.0, 14.0))
-		var s := randf_range(0.7, 1.3)
+		_phases.append(rng.randf_range(0.0, TAU))
+		_y_offsets.append(rng.randf_range(-2.0, 2.0))
+		_speeds.append(rng.randf_range(0.4, 0.8))
+		_radii.append(rng.randf_range(6.0, 14.0))
+		var s := rng.randf_range(0.7, 1.3)
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
 		bird.add_child(mi)

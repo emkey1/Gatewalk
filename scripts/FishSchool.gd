@@ -1,8 +1,11 @@
 class_name FishSchool
 extends Node3D
 
+const StableRng = preload("res://scripts/core/StableRng.gd")
+
 var fish_count: int = 8
 var mesh_quality: int = 0
+var rng_seed: int = 1
 
 var _fish_nodes: Array[Node3D] = []
 var _phases: Array[float] = []
@@ -13,19 +16,20 @@ var _time: float = 0.0
 
 
 func _ready() -> void:
+	var rng := StableRng.new(rng_seed)
 	var mesh: ArrayMesh = _create_fish_mesh() if mesh_quality < 2 else _create_fish_mesh_detailed()
 	for i in fish_count:
 		var fish := Node3D.new()
 		add_child(fish)
 		_fish_nodes.append(fish)
-		_phases.append(randf_range(0.0, TAU))
-		_y_offsets.append(randf_range(-0.4, 0.4))
-		_speeds.append(randf_range(0.3, 0.6))
-		_radii.append(randf_range(2.0, 5.0))
+		_phases.append(rng.randf_range(0.0, TAU))
+		_y_offsets.append(rng.randf_range(-0.4, 0.4))
+		_speeds.append(rng.randf_range(0.3, 0.6))
+		_radii.append(rng.randf_range(2.0, 5.0))
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
 		fish.add_child(mi)
-		var s := randf_range(0.6, 1.2)
+		var s := rng.randf_range(0.6, 1.2)
 		mi.scale = Vector3(s, s, s)
 
 
@@ -86,12 +90,11 @@ static func _create_fish_mesh() -> ArrayMesh:
 
 
 static func _fin_tri(st: SurfaceTool, color: Color, a: Vector3, b: Vector3, c: Vector3) -> void:
-	var n := Plane(a, b, c).normal
-	st.set_normal(n)
+	st.set_color(color)
 	st.add_vertex(a)
 	st.add_vertex(b)
 	st.add_vertex(c)
-	st.set_normal(-n)
+	st.set_color(color)
 	st.add_vertex(a)
 	st.add_vertex(c)
 	st.add_vertex(b)
