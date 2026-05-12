@@ -87,8 +87,14 @@ static func _create_fish_mesh() -> ArrayMesh:
 
 static func _fin_tri(st: SurfaceTool, color: Color, a: Vector3, b: Vector3, c: Vector3) -> void:
 	var n := Plane(a, b, c).normal
-	_tri(st, color, n, a, b, c)
-	_tri(st, color, -n, a, c, b)
+	st.set_normal(n)
+	st.add_vertex(a)
+	st.add_vertex(b)
+	st.add_vertex(c)
+	st.set_normal(-n)
+	st.add_vertex(a)
+	st.add_vertex(c)
+	st.add_vertex(b)
 
 
 static func _add_quad_fin(st: SurfaceTool, color: Color, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:

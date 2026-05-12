@@ -34,9 +34,11 @@ Going underwater now changes the visual atmosphere and movement feel. The water 
 
 The HUD shows atlas totals, local map discoveries, current position, distance to the map edge, and recent discoveries. Each generated map also has invisible edge barriers plus a fall recovery fallback in case the player gets outside the playable terrain.
 
-The HUD is one integrated panel with atlas progress, a slim sprint stamina bar, and an overhead minimap. The minimap shows the player plus discovered gates, ruins, and wonders for the current map.
+The HUD is one compact integrated panel (half the screen width/height of earlier versions) with atlas progress, a slim sprint stamina bar, and an overhead minimap. The minimap shows the player plus discovered gates, ruins, and wonders for the current map.
 
-Moon Gates lead to a shared moon map for the current world. The moon has no water, lower gravity, 4x jump strength, darker lunar terrain, a star field, a distant blue world on the horizon, subtle horizon glow, and floating benign lichen bodies that can be bumped and pushed around.
+Moon Gates lead to a shared moon map for the current world. The moon has no water, lower gravity, 4x jump strength, darker lunar terrain, a star field, a distant blue world on the horizon, subtle horizon glow, and floating benign lichen bodies that slowly drift in random directions. Glass craters are scattered across the lunar surface — translucent cyan basins ringed by rocky debris and crystal shards, each registered as an atlas discovery.
+
+Procedural ambient audio is generated at runtime: a low drone on the moon, a deep hum near water, and a shimmering spatial hum at each gate. Drop `.ogg`, `.mp3`, or `.wav` files into `audio/music/` for background music (selected randomly per map load).
 
 ## Setup
 

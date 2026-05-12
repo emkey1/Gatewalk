@@ -58,7 +58,7 @@ static func create_wonder(world_seed: int, map_position: Vector3, wonder_salt: i
 	var pz: int = int(round(map_position.z))
 	var key: int = _mix_seed(world_seed, px, pz, wonder_salt)
 	var rng := StableRng.new(key)
-	var archetypes: Array[String] = ["moon_gate", "crystal_spire", "runestone_circle", "floating_shrine"]
+	var archetypes: Array[String] = ["moon_gate", "crystal_spire", "runestone_circle", "floating_shrine", "gate_portal", "world_nexus"]
 	var archetype: String = str(rng.pick(archetypes))
 	var palette: Dictionary = _pick_palette(rng)
 
@@ -75,6 +75,10 @@ static func create_wonder(world_seed: int, map_position: Vector3, wonder_salt: i
 			_build_runestone_circle(root, rng, palette)
 		"floating_shrine":
 			_build_floating_shrine(root, rng, palette)
+		"gate_portal":
+			_build_gate_portal(root, rng, palette)
+		"world_nexus":
+			_build_world_nexus(root, rng, palette)
 		_:
 			_build_runestone_circle(root, rng, palette)
 
@@ -258,6 +262,77 @@ static func _add_mesh(parent: Node3D, name: String, mesh: Mesh, material: Materi
 	instance.scale = scale
 	parent.add_child(instance)
 	return instance
+
+
+static func _build_gate_portal(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
+	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 2.4)
+	var accent_mat: StandardMaterial3D = _mat(palette["accent"])
+
+	_add_mesh(root, "portal_base", _cylinder(3.5, 0.5, 24), stone_mat, Vector3(0.0, 0.25, 0.0))
+
+	var stone_count: int = rng.randi_range(8, 12)
+	for i in range(stone_count):
+		var angle: float = TAU * float(i) / float(stone_count) + rng.randf_range(-0.06, 0.06)
+		var dist: float = 4.2
+		var height: float = rng.randf_range(3.0, 5.0)
+		var w: float = rng.randf_range(0.5, 0.9)
+		var d: float = rng.randf_range(0.4, 0.7)
+		_add_mesh(root, "portal_stone_" + str(i), _box(Vector3(w, height, d)), stone_mat,
+			Vector3(cos(angle) * dist, height * 0.5, sin(angle) * dist),
+			Vector3(0.0, -rad_to_deg(angle) + 90.0 + rng.randf_range(-8.0, 8.0), rng.randf_range(-4.0, 4.0)))
+
+		var rune_y: float = height * rng.randf_range(0.35, 0.75)
+		_add_mesh(root, "portal_rune_" + str(i), _box(Vector3(0.08, height * 0.3, 0.08)), accent_mat,
+			Vector3(cos(angle) * (dist - 0.3), rune_y, sin(angle) * (dist - 0.3)),
+			Vector3(0.0, -rad_to_deg(angle) + 90.0, 0.0))
+
+	var arch_ring := TorusMesh.new()
+	arch_ring.outer_radius = 2.8
+	arch_ring.inner_radius = 2.2
+	_add_mesh(root, "portal_ring", arch_ring, glow_mat, Vector3(0.0, 3.0, 0.0), Vector3(90.0, 0.0, 0.0))
+
+	_add_mesh(root, "portal_orb", _sphere(0.6), glow_mat, Vector3(0.0, 2.0, 0.0))
+	_add_light(root, "portal_light", palette["glow"], Vector3(0.0, 2.8, 0.0), 3.5, 15.0)
+
+
+static func _build_world_nexus(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
+	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 2.8)
+	var accent_mat: StandardMaterial3D = _mat(palette["accent"], palette["glow"], 0.6)
+
+	_add_mesh(root, "nexus_base", _cylinder(5.0, 0.8, 32), stone_mat, Vector3(0.0, 0.4, 0.0))
+
+	var inner_ring := TorusMesh.new()
+	inner_ring.outer_radius = 4.2
+	inner_ring.inner_radius = 3.5
+	_add_mesh(root, "nexus_inner_ring", inner_ring, glow_mat, Vector3(0.0, 2.8, 0.0), Vector3(90.0, 0.0, 0.0))
+
+	var outer_ring := TorusMesh.new()
+	outer_ring.outer_radius = 5.5
+	outer_ring.inner_radius = 4.8
+	_add_mesh(root, "nexus_outer_ring", outer_ring, accent_mat, Vector3(0.0, 1.8, 0.0), Vector3(90.0, 0.0, 0.0))
+
+	var pillars: int = rng.randi_range(6, 9)
+	for i in range(pillars):
+		var angle: float = TAU * float(i) / float(pillars)
+		var height: float = rng.randf_range(4.0, 6.5)
+		var dist: float = 6.0
+		_add_mesh(root, "nexus_pillar_" + str(i), _box(Vector3(0.6, height, 0.6)), stone_mat,
+			Vector3(cos(angle) * dist, height * 0.5, sin(angle) * dist),
+			Vector3(0.0, -rad_to_deg(angle) + 90.0, rng.randf_range(-3.0, 3.0)))
+
+	var orb_count: int = rng.randi_range(4, 7)
+	for i in range(orb_count):
+		var angle: float = TAU * float(i) / float(orb_count)
+		var dist: float = rng.randf_range(3.0, 4.8)
+		var y: float = rng.randf_range(1.5, 3.5)
+		_add_mesh(root, "nexus_orb_" + str(i), _sphere(rng.randf_range(0.2, 0.4)), glow_mat,
+			Vector3(cos(angle) * dist, y, sin(angle) * dist))
+
+	var center := _sphere(0.5)
+	_add_mesh(root, "nexus_core", center, glow_mat, Vector3(0.0, 2.2, 0.0))
+	_add_light(root, "nexus_light", palette["glow"], Vector3(0.0, 2.5, 0.0), 4.0, 20.0)
 
 
 static func _add_light(parent: Node3D, name: String, color: Color, position: Vector3, energy: float, radius: float) -> OmniLight3D:

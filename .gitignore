@@ -6,6 +6,7 @@ export_presets.cfg
 icon.png
 icon.ico
 icon.svg
+Godot
 
 # OS
 .DS_Store

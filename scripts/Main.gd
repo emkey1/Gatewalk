@@ -48,6 +48,9 @@ var hud_label: Label
 var stamina_bar: ProgressBar
 var breath_bar: ProgressBar
 var minimap_panel: PanelContainer
+var atlas_layer: CanvasLayer
+var show_atlas: bool = false
+var show_hud: bool = true
 var minimap_marker_layer: Control
 var underwater_layer: CanvasLayer
 var underwater_overlay: ColorRect
@@ -69,6 +72,10 @@ var tree_materials: Dictionary = {}
 var show_fps: bool = false
 var fps_label: Label
 var _moon_grid_scale: int = 1
+var _cycle_time: float = 0.0
+var cycle_speed_multiplier: float = 1.0
+const CYCLE_HOURS_PER_SECOND: float = 1.0
+const CYCLE_LENGTH: float = 24.0 / CYCLE_HOURS_PER_SECOND
 
 
 func _ready() -> void:
@@ -99,6 +106,11 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if not _is_current_map_gate_room() and not _is_current_map_cave() and not _is_current_map_map_nexus():
+		_cycle_time += _delta * cycle_speed_multiplier
+		if _cycle_time >= CYCLE_LENGTH:
+			_cycle_time = fmod(_cycle_time, CYCLE_LENGTH)
+		_update_day_night_cycle()
 	_update_underwater_state()
 	_recover_fallen_player()
 	_update_hud()
@@ -166,7 +178,22 @@ func _input(event: InputEvent) -> void:
 				_show_main_menu()
 
 		if event.keycode == KEY_G:
-			_return_to_gate_room()
+			if Input.is_key_pressed(KEY_SHIFT):
+				_return_to_gate_room()
+			else:
+				if atlas_layer != null and atlas_layer.visible:
+					atlas_layer.visible = false
+					show_atlas = false
+				else:
+					show_atlas = true
+					_refresh_atlas_graph()
+					if atlas_layer != null:
+						atlas_layer.visible = true
+
+		if event.keycode == KEY_H:
+			show_hud = not show_hud
+			if hud_layer != null:
+				hud_layer.visible = show_hud
 
 		if event.keycode == KEY_C:
 			_try_grab_lichen()
@@ -226,6 +253,7 @@ func _load_save_data() -> void:
 
 	if not save_data.has("worlds"):
 		save_data = {"worlds": {}, "last_world_id": ""}
+	cycle_speed_multiplier = float(save_data.get("cycle_speed_multiplier", 1.0))
 	graphics_level = int(save_data.get("graphics_level", 0))
 	density_level = int(save_data.get("density_level", 2))
 	lichen_count = int(save_data.get("lichen_count", 0))
@@ -234,6 +262,7 @@ func _load_save_data() -> void:
 func _save_world_data() -> void:
 	save_data["lichen_count"] = lichen_count
 	save_data["density_level"] = density_level
+	save_data["cycle_speed_multiplier"] = cycle_speed_multiplier
 	var path: String = _slot_path(current_slot)
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
@@ -374,6 +403,19 @@ func _set_density_level(level: int) -> void:
 		_load_map(current_world_id, current_map_id)
 	else:
 		_show_main_menu()
+
+
+func _on_time_speed_changed(value: float) -> void:
+	cycle_speed_multiplier = value
+	_update_time_speed_label()
+
+
+func _update_time_speed_label() -> void:
+	if menu_layer == null:
+		return
+	var label := menu_layer.find_child("TimeSpeedLabel", true, false)
+	if label != null:
+		label.text = "%.2fx" % cycle_speed_multiplier
 
 
 func _show_main_menu() -> void:
@@ -541,6 +583,30 @@ func _show_main_menu() -> void:
 		btn2.pressed.connect(_set_density_level.bind(di))
 		dens_row.add_child(btn2)
 
+	var time_row := HBoxContainer.new()
+	time_row.add_theme_constant_override("separation", 6)
+	list.add_child(time_row)
+	var time_label := Label.new()
+	time_label.text = "Time Speed:"
+	time_label.add_theme_font_size_override("font_size", 12)
+	time_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	time_row.add_child(time_label)
+	var time_slider := HSlider.new()
+	time_slider.min_value = 0.01
+	time_slider.max_value = 2.0
+	time_slider.step = 0.01
+	time_slider.value = cycle_speed_multiplier
+	time_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	time_slider.value_changed.connect(_on_time_speed_changed)
+	time_row.add_child(time_slider)
+	var time_val := Label.new()
+	time_val.set("name", "TimeSpeedLabel")
+	time_val.text = "%.2fx" % cycle_speed_multiplier
+	time_val.add_theme_font_size_override("font_size", 12)
+	time_val.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	time_val.custom_minimum_size.x = 32
+	time_row.add_child(time_val)
+
 	var atlas := Label.new()
 	atlas.text = _atlas_summary_text()
 	atlas.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -552,8 +618,6 @@ func _show_main_menu() -> void:
 	atlas_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	atlas_title.add_theme_font_size_override("font_size", 18)
 	list.add_child(atlas_title)
-
-	list.add_child(_create_atlas_graph_view())
 
 	var ach_row := HBoxContainer.new()
 	ach_row.add_theme_constant_override("separation", 6)
@@ -570,7 +634,7 @@ func _show_main_menu() -> void:
 	ach_row.add_child(ach_btn)
 
 	var hint := Label.new()
-	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu | Achievements button at bottom | F10: windowed | F11: fullscreen"
+	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu | G: atlas graph | H: HUD | F10: windowed | F11: fullscreen"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 14)
 	list.add_child(hint)
@@ -1011,7 +1075,7 @@ func _load_world_from_menu(world_id: String) -> void:
 
 func _start_new_game() -> void:
 	_close_menu()
-	save_data = {"worlds": {}, "last_world_id": "", "graphics_level": graphics_level, "density_level": density_level}
+	save_data = {"worlds": {}, "last_world_id": "", "cycle_speed_multiplier": cycle_speed_multiplier, "graphics_level": graphics_level, "density_level": density_level}
 	var world_id: String = _new_id("world")
 	var root_map_id: String = _new_id("map")
 	var worlds: Dictionary = {}
@@ -1028,7 +1092,7 @@ func _create_new_slot() -> void:
 	slot_count += 1
 	current_slot = slot_count - 1
 	_save_slot_index()
-	save_data = {"worlds": {}, "last_world_id": "", "graphics_level": graphics_level, "density_level": density_level}
+	save_data = {"worlds": {}, "last_world_id": "", "cycle_speed_multiplier": cycle_speed_multiplier, "graphics_level": graphics_level, "density_level": density_level}
 	var world_id: String = _new_id("world")
 	var root_map_id: String = _new_id("map")
 	var worlds: Dictionary = {}
@@ -1271,19 +1335,51 @@ func _atlas_graph_text() -> String:
 	return "\n".join(lines)
 
 
-func _create_atlas_graph_view() -> SubViewportContainer:
+func _refresh_atlas_graph() -> void:
+	if atlas_layer != null:
+		atlas_layer.queue_free()
+
+	atlas_layer = CanvasLayer.new()
+	atlas_layer.name = "AtlasLayer"
+	atlas_layer.layer = 25
+	add_child(atlas_layer)
+
+	var overlay := ColorRect.new()
+	overlay.anchor_left = 0.0
+	overlay.anchor_top = 0.0
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_PASS
+	atlas_layer.add_child(overlay)
+
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -370.0
+	panel.offset_top = -150.0
+	panel.offset_right = 370.0
+	panel.offset_bottom = 150.0
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.04, 0.05, 0.07, 0.98)
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	panel.add_theme_stylebox_override("panel", panel_style)
+	atlas_layer.add_child(panel)
+
 	var container := SubViewportContainer.new()
-	container.custom_minimum_size = Vector2(700.0, 240.0)
 	container.stretch = true
+	container.anchors_preset = Control.PRESET_FULL_RECT
+	panel.add_child(container)
 
 	var viewport := SubViewport.new()
-	viewport.size = Vector2i(700, 240)
+	viewport.size = Vector2i(700, 260)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	viewport.transparent_bg = false
 	container.add_child(viewport)
-
-	var root := Node3D.new()
-	viewport.add_child(root)
 
 	var world_3d := World3D.new()
 	var env := Environment.new()
@@ -1293,6 +1389,9 @@ func _create_atlas_graph_view() -> SubViewportContainer:
 	env.ambient_light_color = Color(0.12, 0.16, 0.22)
 	world_3d.environment = env
 	viewport.world_3d = world_3d
+
+	var root := Node3D.new()
+	viewport.add_child(root)
 
 	var camera := Camera3D.new()
 	camera.position = Vector3(0.0, 17.0, 25.0)
@@ -1306,7 +1405,8 @@ func _create_atlas_graph_view() -> SubViewportContainer:
 	root.add_child(light)
 
 	_build_atlas_graph_3d(root)
-	return container
+
+	atlas_layer.visible = false
 
 
 func _build_atlas_graph_3d(root: Node3D) -> void:
@@ -1634,6 +1734,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 	add_child(generated_root)
 	_apply_map_atmosphere()
 	_setup_music()
+	_create_visible_sun()
 
 	if _is_current_map_gate_room():
 		_create_gate_room_terrain()
@@ -1660,6 +1761,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		if not _is_current_map_moon():
 			_create_water()
 			_setup_water_audio()
+			_create_sky_clouds()
 		else:
 			_create_moon_sky()
 			_setup_moon_audio()
@@ -1741,9 +1843,6 @@ func _setup_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.7, 0.78, 0.86)
 	env.ambient_light_energy = 0.8
-	env.fog_enabled = true
-	env.fog_density = 0.010
-	env.fog_light_color = Color(0.65, 0.75, 0.85)
 	world_environment = env
 
 	env_node.environment = env
@@ -1761,6 +1860,7 @@ func _apply_map_atmosphere() -> void:
 		minimap_marker_layer.custom_minimum_size = minimap_panel.custom_minimum_size
 
 	if _is_current_map_cave():
+		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.005, 0.004, 0.010)
 		world_environment.ambient_light_color = Color(0.08, 0.06, 0.14)
 		world_environment.ambient_light_energy = 0.25
@@ -1771,6 +1871,7 @@ func _apply_map_atmosphere() -> void:
 			sun_light.light_energy = 0.3
 			sun_light.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 	elif _is_current_map_gate_room() or _is_current_map_map_nexus():
+		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.004, 0.006, 0.012)
 		world_environment.ambient_light_color = Color(0.30, 0.22, 0.45)
 		world_environment.ambient_light_energy = 0.55
@@ -1785,6 +1886,7 @@ func _apply_map_atmosphere() -> void:
 				sun_light.light_energy = 1.2
 			sun_light.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 	elif _is_current_map_moon():
+		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.006, 0.008, 0.020)
 		world_environment.ambient_light_color = Color(0.20, 0.24, 0.34)
 		world_environment.ambient_light_energy = 0.38
@@ -1795,25 +1897,33 @@ func _apply_map_atmosphere() -> void:
 			sun_light.light_energy = 1.45
 			sun_light.rotation_degrees = Vector3(-28.0, -62.0, 0.0)
 	elif _is_current_map_water():
+		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.45, 0.65, 0.88)
 		world_environment.ambient_light_color = Color(0.55, 0.70, 0.82)
 		world_environment.ambient_light_energy = 0.75
-		world_environment.fog_density = 0.008
+		world_environment.fog_density = 0.002
 		world_environment.fog_light_color = Color(0.50, 0.68, 0.82)
 		if sun_light != null:
 			sun_light.light_color = _sun_color_for_world()
 			sun_light.light_energy = 2.6
 			sun_light.rotation_degrees = Vector3(-55.0, -30.0, 0.0)
 	else:
+		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.55, 0.72, 0.95)
 		world_environment.ambient_light_color = Color(0.7, 0.78, 0.86)
 		world_environment.ambient_light_energy = 0.8
-		world_environment.fog_density = 0.010
+		world_environment.fog_density = 0.002
 		world_environment.fog_light_color = Color(0.65, 0.75, 0.85)
 		if sun_light != null:
 			sun_light.light_color = _sun_color_for_world()
 			sun_light.light_energy = 3.0
 			sun_light.rotation_degrees = Vector3(-50.0, -35.0, 0.0)
+
+
+func _set_sky_cycle_colors(sky_top: Color, sky_horizon: Color, ground_horizon: Color) -> void:
+	if world_environment == null:
+		return
+	world_environment.background_color = sky_horizon
 
 
 func _sun_color_for_world() -> Color:
@@ -1829,6 +1939,96 @@ func _sun_color_for_world() -> Color:
 	if hue > 0.16 and hue < 0.50:
 		hue = 0.08 + float(abs(root_seed * 7) % 80) / 1000.0
 	return Color.from_hsv(hue, 0.25, 1.0)
+
+
+func _update_day_night_cycle() -> void:
+	if sun_light == null or world_environment == null:
+		return
+	if _is_current_map_moon() or _is_current_map_water():
+		return
+
+	var t: float = _cycle_time / CYCLE_LENGTH
+	var hour: float = t * 24.0
+
+	var sun_elevation: float
+	var is_night: bool = false
+	var is_dawn: bool = false
+	var is_dusk: bool = false
+
+	if hour < 5.5:
+		sun_elevation = -1.0 + (hour / 5.5)
+		is_night = true
+	elif hour < 7.0:
+		sun_elevation = lerp(-1.0, 0.0, (hour - 5.5) / 1.5)
+		is_dawn = true
+	elif hour < 17.0:
+		sun_elevation = sin(((hour - 7.0) / 10.0) * PI * 0.5)
+	elif hour < 18.5:
+		sun_elevation = cos(((hour - 17.0) / 1.5) * PI * 0.5)
+		is_dusk = true
+	else:
+		sun_elevation = -(hour - 18.5) / 5.5
+		if hour >= 21.5:
+			is_night = true
+
+	sun_elevation = clamp(sun_elevation, -1.0, 1.0)
+	sun_light.rotation_degrees.x = lerp(-90.0, 90.0, (sun_elevation + 1.0) * 0.5)
+
+	var sun_base: Color = _sun_color_for_world()
+
+	if is_night and not is_dawn:
+		sun_light.light_energy = 0.08
+		world_environment.ambient_light_energy = 0.08
+		world_environment.ambient_light_color = Color(0.04, 0.04, 0.08)
+		world_environment.fog_density = 0.002
+		world_environment.fog_light_color = Color(0.01, 0.01, 0.02)
+		_set_sky_cycle_colors(Color(0.005, 0.005, 0.02), Color(0.02, 0.02, 0.06), Color(0.01, 0.01, 0.02))
+		sun_light.light_color = Color(0.15, 0.18, 0.35)
+	elif is_dawn:
+		var p: float = 0.0
+		if hour >= 5.5 and hour < 6.0:
+			p = (hour - 5.5) / 0.5
+		elif hour >= 6.0 and hour < 7.0:
+			p = 0.5 + (hour - 6.0) * 0.5
+		else:
+			p = 1.0 if hour >= 7.0 else 0.0
+		p = clamp(p, 0.0, 1.0)
+		sun_light.light_energy = lerp(0.08, 2.8, p)
+		world_environment.ambient_light_energy = lerp(0.08, 0.65, p)
+		world_environment.ambient_light_color = Color(0.04, 0.04, 0.08).lerp(Color(0.65, 0.58, 0.52), p)
+		world_environment.fog_density = lerp(0.002, 0.002, p)
+		world_environment.fog_light_color = Color(0.01, 0.01, 0.02).lerp(Color(0.70, 0.55, 0.42), p)
+		_set_sky_cycle_colors(
+			Color(0.005, 0.005, 0.02).lerp(Color(0.72, 0.62, 0.55), p),
+			Color(0.005, 0.005, 0.02).lerp(Color(0.82, 0.72, 0.65), p),
+			Color(0.005, 0.005, 0.02).lerp(Color(0.70, 0.55, 0.42), p))
+		sun_light.light_color = Color(0.15, 0.18, 0.35).lerp(sun_base, p)
+	elif is_dusk:
+		var p: float = 1.0 - clamp((hour - 17.0) / 1.5, 0.0, 1.0)
+		p = 1.0 - p * p
+		sun_light.light_energy = lerp(3.0, 0.12, p)
+		world_environment.ambient_light_energy = lerp(0.72, 0.08, p)
+		world_environment.ambient_light_color = Color(0.65, 0.55, 0.48).lerp(Color(0.04, 0.04, 0.08), p)
+		world_environment.fog_density = lerp(0.002, 0.002, p)
+		world_environment.fog_light_color = Color(0.72, 0.50, 0.38).lerp(Color(0.01, 0.01, 0.02), p)
+		_set_sky_cycle_colors(
+			Color(0.65, 0.48, 0.38).lerp(Color(0.005, 0.005, 0.02), p),
+			Color(0.78, 0.58, 0.45).lerp(Color(0.005, 0.005, 0.02), p),
+			Color(0.72, 0.50, 0.38).lerp(Color(0.01, 0.01, 0.02), p))
+		sun_light.light_color = sun_base.lerp(Color(0.65, 0.30, 0.15), p)
+	else:
+		var midday: float = cos((hour - 12.0) * PI / 10.0) * 0.08
+		var energy: float = 2.5 + midday
+		sun_light.light_energy = energy
+		world_environment.ambient_light_energy = 0.65 + midday * 0.5
+		world_environment.ambient_light_color = Color(0.65, 0.68, 0.72)
+		world_environment.fog_density = 0.002
+		world_environment.fog_light_color = Color(0.65, 0.75, 0.85)
+		_set_sky_cycle_colors(
+			Color(0.55, 0.72, 0.95),
+			Color(0.72, 0.82, 0.90),
+			Color(0.65, 0.75, 0.85))
+		sun_light.light_color = sun_base
 
 
 func _setup_hud() -> void:
@@ -2718,46 +2918,286 @@ func _create_water() -> void:
 	var water := MeshInstance3D.new()
 	water.name = "RiverAndLakeWater"
 
+	var water_size: float = float(_effective_grid_size()) * CELL_SIZE * 0.94
+
 	var mesh := PlaneMesh.new()
-	mesh.size = Vector2(float(GRID_SIZE) * CELL_SIZE * 0.94, float(GRID_SIZE) * CELL_SIZE * 0.94)
+	mesh.size = Vector2(water_size, water_size)
+
+	if graphics_level <= 0:
+		mesh.subdivide_width = 32
+		mesh.subdivide_depth = 32
+	elif graphics_level == 1:
+		mesh.subdivide_width = 64
+		mesh.subdivide_depth = 64
+	else:
+		mesh.subdivide_width = 128
+		mesh.subdivide_depth = 128
+
 	water.mesh = mesh
 	water.position.y = WATER_LEVEL
 
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.12, 0.42, 0.75, 0.58)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.roughness = 0.18
-	mat.metallic = 0.0
-	if graphics_level >= 2:
-		mat.roughness = 0.05
-		mat.metallic = 0.1
-		mat.normal_enabled = true
-		mat.normal_scale = 0.5
-		var water_noise := FastNoiseLite.new()
-		water_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-		water_noise.frequency = 0.04
-		water_noise.seed = world_seed
-		var wn_tex := NoiseTexture2D.new()
-		wn_tex.noise = water_noise
-		wn_tex.normalize = true
-		mat.normal_texture = wn_tex
-	water.material_override = mat
+	var water_shader := Shader.new()
+	water_shader.code = """
+shader_type spatial;
 
+render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_burley, specular_schlick_ggx;
+
+uniform vec4 shallow_color : source_color = vec4(0.10, 0.34, 0.52, 0.34);
+uniform vec4 deep_color : source_color = vec4(0.03, 0.16, 0.32, 0.44);
+uniform vec3 sky_tint : source_color = vec3(0.34, 0.56, 0.82);
+
+uniform float wave_speed : hint_range(0.0, 5.0) = 0.65;
+uniform float wave_height : hint_range(0.0, 0.5) = 0.045;
+uniform float wave_scale : hint_range(0.1, 20.0) = 4.0;
+uniform float normal_strength : hint_range(0.0, 5.0) = 0.85;
+uniform float sheen_strength : hint_range(0.0, 1.0) = 0.28;
+uniform float alpha_boost : hint_range(0.0, 1.0) = 0.0;
+
+varying vec3 v_normal;
+varying vec3 v_world_position;
+
+float wave_value(vec2 p, float t) {
+	float a = sin(p.x * wave_scale + t * wave_speed);
+	float b = sin(p.y * wave_scale * 1.37 + t * wave_speed * 1.11);
+	float c = sin((p.x + p.y) * wave_scale * 0.71 + t * wave_speed * 0.63);
+	return (a + b + c * 0.65) / 2.65;
+}
+
+void vertex() {
+	float t = TIME;
+	vec2 p = VERTEX.xz * 0.08;
+
+	float h = wave_value(p, t) * wave_height;
+	VERTEX.y += h;
+
+	float e = 0.08;
+	float hx = wave_value(p + vec2(e, 0.0), t) * wave_height;
+	float hz = wave_value(p + vec2(0.0, e), t) * wave_height;
+
+	vec3 local_normal = normalize(vec3(
+		-(hx - h) * normal_strength,
+		1.0,
+		-(hz - h) * normal_strength
+	));
+
+	NORMAL = local_normal;
+	v_normal = normalize((MODEL_MATRIX * vec4(local_normal, 0.0)).xyz);
+	v_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+	vec3 n = normalize(v_normal);
+	vec3 view_dir = normalize(CAMERA_POSITION_WORLD - v_world_position);
+
+	float fresnel = pow(1.0 - clamp(dot(n, view_dir), 0.0, 1.0), 3.0);
+
+	float ripple = sin(v_world_position.x * 0.32 + TIME * wave_speed * 1.4)
+		* sin(v_world_position.z * 0.25 - TIME * wave_speed * 1.0);
+	ripple = ripple * 0.5 + 0.5;
+
+	vec3 base_color = mix(shallow_color.rgb, deep_color.rgb, 0.45);
+	base_color += vec3(ripple * 0.018);
+
+	// Do NOT add sky color directly. Mix toward it gently.
+	float sheen = clamp(fresnel * sheen_strength, 0.0, 0.35);
+	ALBEDO = mix(base_color, sky_tint, sheen);
+
+	ALPHA = mix(shallow_color.a, deep_color.a, 0.45) + fresnel * 0.08 + alpha_boost;
+	ALPHA = clamp(ALPHA, 0.24, 0.52);
+
+	ROUGHNESS = 0.18;
+	METALLIC = 0.0;
+	SPECULAR = 0.35;
+}
+"""
+
+	var mat := ShaderMaterial.new()
+	mat.shader = water_shader
+
+	if _is_current_map_water():
+		mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.36))
+		mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.48))
+		mat.set_shader_parameter("sky_tint", Color(0.32, 0.54, 0.82))
+		mat.set_shader_parameter("wave_height", 0.075 if graphics_level >= 2 else 0.045)
+		mat.set_shader_parameter("wave_speed", 0.90 if graphics_level >= 2 else 0.65)
+		mat.set_shader_parameter("wave_scale", 3.1)
+		mat.set_shader_parameter("normal_strength", 1.05 if graphics_level >= 2 else 0.75)
+		mat.set_shader_parameter("sheen_strength", 0.28)
+		mat.set_shader_parameter("alpha_boost", 0.02)
+	else:
+		mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.30))
+		mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.40))
+		mat.set_shader_parameter("sky_tint", Color(0.36, 0.60, 0.88))
+		mat.set_shader_parameter("wave_height", 0.045 if graphics_level >= 2 else 0.025)
+		mat.set_shader_parameter("wave_speed", 0.60 if graphics_level >= 2 else 0.40)
+		mat.set_shader_parameter("wave_scale", 4.4)
+		mat.set_shader_parameter("normal_strength", 0.85 if graphics_level >= 2 else 0.60)
+		mat.set_shader_parameter("sheen_strength", 0.32)
+		mat.set_shader_parameter("alpha_boost", 0.0)
+
+	water.material_override = mat
 	_add_generated_child(water)
 
 	var water_collision := StaticBody3D.new()
 	water_collision.name = "WaterCollision"
 	water_collision.collision_layer = 4
+	water_collision.collision_mask = 0
+
 	var water_shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	var water_size: float = float(GRID_SIZE) * CELL_SIZE * 0.94
 	box.size = Vector3(water_size, 0.2, water_size)
 	water_shape.shape = box
+
 	water_collision.add_child(water_shape)
 	water_collision.position.y = WATER_LEVEL
 	_add_generated_child(water_collision)
 
+func _create_sky_clouds() -> void:
+	if _is_current_map_moon() or _is_current_map_cave():
+		return
+	if graphics_level == 0:
+		return
+
+	var cloud_root := Node3D.new()
+	cloud_root.name = "SkyClouds"
+
+	var cloud_shader := Shader.new()
+	cloud_shader.code = """
+shader_type spatial;
+
+render_mode blend_mix, depth_draw_never, cull_disabled, unshaded;
+
+uniform float time_offset : hint_range(0.0, 1000.0) = 0.0;
+uniform float time_scale : hint_range(0.0, 1.0) = 0.025;
+uniform float density : hint_range(0.0, 1.0) = 0.38;
+uniform float coverage : hint_range(0.0, 1.0) = 0.55;
+uniform float softness : hint_range(0.0, 1.0) = 0.25;
+uniform vec3 cloud_color : source_color = vec3(1.0, 0.98, 0.92);
+uniform vec3 cloud_shadow_color : source_color = vec3(0.70, 0.74, 0.78);
+
+float hash2(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise2(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+
+	float a = hash2(i);
+	float b = hash2(i + vec2(1.0, 0.0));
+	float c = hash2(i + vec2(0.0, 1.0));
+	float d = hash2(i + vec2(1.0, 1.0));
+
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+	float v = 0.0;
+	float amp = 0.5;
+
+	for (int i = 0; i < 5; i++) {
+		v += amp * noise2(p);
+		p = p * 2.05 + vec2(13.2, 7.1);
+		amp *= 0.5;
+	}
+
+	return v;
+}
+
+void fragment() {
+	float t = TIME * time_scale + time_offset;
+
+	vec2 p = UV * 5.0;
+	p += vec2(t * 0.35, t * 0.10);
+
+	float large = fbm(p);
+	float detail = fbm(p * 2.7 + vec2(31.7, 19.4));
+	float cloud = large * 0.75 + detail * 0.25;
+
+	float threshold = 1.0 - coverage;
+	float alpha = smoothstep(threshold, threshold + softness, cloud) * density;
+
+	vec2 centered = UV * 2.0 - 1.0;
+	float edge = max(abs(centered.x), abs(centered.y));
+	alpha *= 1.0 - smoothstep(0.72, 1.0, edge);
+
+	vec3 color = mix(cloud_shadow_color, cloud_color, clamp(cloud + 0.12, 0.0, 1.0));
+
+	ALBEDO = color;
+	ALPHA = alpha;
+}
+"""
+
+	var near_clouds := MeshInstance3D.new()
+	near_clouds.name = "CloudLayerNear"
+	var near_mesh := PlaneMesh.new()
+	near_mesh.size = Vector2(900.0, 900.0)
+	near_clouds.mesh = near_mesh
+	near_clouds.position = Vector3(0.0, 115.0, 0.0)
+
+	var mat := ShaderMaterial.new()
+	mat.shader = cloud_shader
+	mat.set_shader_parameter("time_offset", float(world_seed % 1000))
+	mat.set_shader_parameter("time_scale", 0.025)
+	mat.set_shader_parameter("density", 0.42 if graphics_level >= 2 else 0.28)
+	mat.set_shader_parameter("coverage", 0.56)
+	mat.set_shader_parameter("softness", 0.25)
+	mat.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.92))
+	mat.set_shader_parameter("cloud_shadow_color", Color(0.70, 0.74, 0.78))
+	near_clouds.material_override = mat
+	cloud_root.add_child(near_clouds)
+
+	var far_clouds := MeshInstance3D.new()
+	far_clouds.name = "CloudLayerFar"
+	var far_mesh := PlaneMesh.new()
+	far_mesh.size = Vector2(1300.0, 1300.0)
+	far_clouds.mesh = far_mesh
+	far_clouds.position = Vector3(0.0, 170.0, 0.0)
+
+	var mat2 := ShaderMaterial.new()
+	mat2.shader = cloud_shader
+	mat2.set_shader_parameter("time_offset", float(world_seed % 1000) + 250.0)
+	mat2.set_shader_parameter("time_scale", 0.014)
+	mat2.set_shader_parameter("density", 0.22 if graphics_level >= 2 else 0.12)
+	mat2.set_shader_parameter("coverage", 0.62)
+	mat2.set_shader_parameter("softness", 0.35)
+	mat2.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.94))
+	mat2.set_shader_parameter("cloud_shadow_color", Color(0.72, 0.76, 0.82))
+	far_clouds.material_override = mat2
+	cloud_root.add_child(far_clouds)
+
+	_add_generated_child(cloud_root)
+
+
+func _create_visible_sun() -> void:
+	if sun_light == null:
+		return
+	if _is_current_map_cave() or _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return
+
+	var sun_disc := MeshInstance3D.new()
+	sun_disc.name = "VisibleSun"
+
+	var mesh := SphereMesh.new()
+	mesh.radius = 18.0
+	mesh.height = 36.0
+	mesh.radial_segments = 24
+	mesh.rings = 12
+	sun_disc.mesh = mesh
+
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.88, 0.55)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.75, 0.35)
+	mat.emission_energy_multiplier = 2.5
+	sun_disc.material_override = mat
+
+	var dir := -sun_light.global_transform.basis.z.normalized()
+	sun_disc.position = dir * 650.0
+
+	_add_generated_child(sun_disc)
 
 func _create_moon_sky() -> void:
 	var sky := Node3D.new()
