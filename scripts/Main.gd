@@ -2,6 +2,7 @@ extends Node3D
 
 const WonderGenerator = preload("res://scripts/WonderGenerator.gd")
 
+
 const GRID_SIZE: int = 224
 const CELL_SIZE: float = 2.0
 
@@ -9,24 +10,43 @@ const CELL_SIZE: float = 2.0
 const HEIGHT_SCALE: float = 15.0
 const WATER_LEVEL: float = -1.7
 
-const TREE_COUNT: int = 720
-const ROCK_COUNT: int = 260
-const FLOWER_COUNT: int = 520
-const CRYSTAL_COUNT: int = 42
-const RUIN_COUNT: int = 14
+var TREE_COUNT: int = 720
+var ROCK_COUNT: int = 260
+var FLOWER_COUNT: int = 520
+var CRYSTAL_COUNT: int = 42
+var RUIN_COUNT: int = 14
 const GATE_COUNT: int = 4
 const WONDER_CELL_SIZE: float = 96.0
 const WONDER_CHANCE: float = 0.20
-const SAVE_PATH: String = "user://world_graphs.json"
+
+const ACHIEVEMENT_DEFS := {
+	"first_wonder": {"name": "First Discovery", "desc": "Find your first wonder on any map"},
+	"all_wonders_map": {"name": "Map Scholar", "desc": "Find all wonders on a single map"},
+	"all_wonders_world": {"name": "World Scholar", "desc": "Find all wonders across a whole world"},
+	"lichen_catcher": {"name": "Frisbee Catcher", "desc": "Catch a thrown lichen"},
+	"moon_visitor": {"name": "Moon Visitor", "desc": "Travel to the moon"},
+	"gate_room_finder": {"name": "Gate Room Discoverer", "desc": "Find a gate room"},
+	"world_traveler": {"name": "World Traveler", "desc": "Visit 5 different maps"},
+	"cavern_explorer": {"name": "Cavern Explorer", "desc": "Discover a cave map"},
+	"island_hopper": {"name": "Island Hopper", "desc": "Discover a water map"},
+	"collector_50": {"name": "Lichensmith", "desc": "Collect 50 lichen"},
+	"moon_pilgrim": {"name": "Moon Pilgrim", "desc": "Complete all 9 moon shrines"},
+	"gate_crasher": {"name": "Gate Crasher", "desc": "Travel through your first gate"},
+}
+
+const SLOT_INDEX_PATH: String = "user://save_index.json"
 
 var noise: FastNoiseLite = FastNoiseLite.new()
 var world_seed: int = 12345
 var height_values: PackedFloat32Array = PackedFloat32Array()
 var generated_root: Node3D
 var menu_layer: CanvasLayer
+var dev_menu_layer: CanvasLayer
+var dev_menu_selected_world: String = ""
 var hud_layer: CanvasLayer
 var hud_label: Label
 var stamina_bar: ProgressBar
+var breath_bar: ProgressBar
 var minimap_panel: PanelContainer
 var minimap_marker_layer: Control
 var underwater_layer: CanvasLayer
@@ -40,6 +60,15 @@ var is_underwater: bool = false
 var last_discovery_text: String = ""
 var current_map_available_discoveries: int = 0
 var moon_map_return_map_id: String = ""
+var graphics_level: int = 0
+var density_level: int = 2
+var lichen_count: int = 0
+var current_slot: int = 0
+var slot_count: int = 0
+var tree_materials: Dictionary = {}
+var show_fps: bool = false
+var fps_label: Label
+var _moon_grid_scale: int = 1
 
 
 func _ready() -> void:
@@ -55,14 +84,16 @@ func _ready() -> void:
 	_setup_hud()
 	_setup_underwater_overlay()
 	randomize()
+	_load_slot_index()
 	_load_save_data()
+	_apply_graphics_level()
 	_ensure_default_world()
 	var last_world_id: String = str(save_data.get("last_world_id", ""))
 	if last_world_id != "":
 		_load_world_from_menu(last_world_id)
 	_show_main_menu()
 
-	print("Random World Explorer v6: worlds are saved to ", SAVE_PATH)
+	print("Random World Explorer v6: slot ", current_slot, " saved to ", _slot_path(current_slot))
 	print("Random World Explorer v6: press F11 to toggle fullscreen")
 	print("Random World Explorer v6: press F10 to force 1280x720 windowed mode")
 
@@ -123,13 +154,71 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_F10:
 			_configure_windowed()
 
+		if event.keycode == KEY_F3:
+			show_fps = not show_fps
+			if fps_label != null:
+				fps_label.visible = show_fps
+
 		if event.keycode == KEY_M:
-			_show_main_menu()
+			if menu_layer != null:
+				_close_menu()
+			else:
+				_show_main_menu()
+
+		if event.keycode == KEY_G:
+			_return_to_gate_room()
+
+		if event.keycode == KEY_C:
+			_try_grab_lichen()
+
+		if event.keycode == KEY_T:
+			_throw_lichen()
+
+		if event.keycode == KEY_S and event.shift_pressed:
+			_show_secret_login()
+
+
+func _slot_path(slot: int) -> String:
+	return "user://save_" + str(slot) + ".json"
+
+
+func _load_slot_index() -> void:
+	if FileAccess.file_exists(SLOT_INDEX_PATH):
+		var file := FileAccess.open(SLOT_INDEX_PATH, FileAccess.READ)
+		if file != null:
+			var parsed: Variant = JSON.parse_string(file.get_as_text())
+			if parsed is Dictionary:
+				current_slot = int(parsed.get("current", 0))
+				slot_count = int(parsed.get("count", 1))
+				return
+
+	if FileAccess.file_exists("user://world_graphs.json"):
+		var old_read := FileAccess.open("user://world_graphs.json", FileAccess.READ)
+		if old_read != null:
+			var old_text: String = old_read.get_as_text()
+			old_read.close()
+			var old_write := FileAccess.open(_slot_path(0), FileAccess.WRITE)
+			if old_write != null:
+				old_write.store_string(old_text)
+				old_write.close()
+			DirAccess.remove_absolute("user://world_graphs.json")
+
+	current_slot = 0
+	slot_count = 1
+
+
+func _save_slot_index() -> void:
+	var file := FileAccess.open(SLOT_INDEX_PATH, FileAccess.WRITE)
+	if file == null:
+		push_error("Could not open slot index: " + SLOT_INDEX_PATH)
+		return
+	file.store_string(JSON.stringify({"current": current_slot, "count": slot_count}, "\t"))
 
 
 func _load_save_data() -> void:
-	if FileAccess.file_exists(SAVE_PATH):
-		var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var path: String = _slot_path(current_slot)
+	if FileAccess.file_exists(path):
+		var file := FileAccess.open(path, FileAccess.READ)
 		if file != null:
 			var parsed: Variant = JSON.parse_string(file.get_as_text())
 			if parsed is Dictionary:
@@ -137,12 +226,18 @@ func _load_save_data() -> void:
 
 	if not save_data.has("worlds"):
 		save_data = {"worlds": {}, "last_world_id": ""}
+	graphics_level = int(save_data.get("graphics_level", 0))
+	density_level = int(save_data.get("density_level", 2))
+	lichen_count = int(save_data.get("lichen_count", 0))
 
 
 func _save_world_data() -> void:
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	save_data["lichen_count"] = lichen_count
+	save_data["density_level"] = density_level
+	var path: String = _slot_path(current_slot)
+	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
-		push_error("Could not open save file for writing: " + SAVE_PATH)
+		push_error("Could not open save file for writing: " + path)
 		return
 
 	file.store_string(JSON.stringify(save_data, "\t"))
@@ -161,6 +256,126 @@ func _ensure_default_world() -> void:
 	_save_world_data()
 
 
+func _apply_detail_counts() -> void:
+	var gmult: float = 1.0
+	if graphics_level == 1:
+		gmult = 1.5
+	elif graphics_level == 2:
+		gmult = 2.5
+	elif graphics_level == 3:
+		gmult = 4.0
+
+	var dmult: float = 1.0
+	match density_level:
+		0: dmult = 0.4
+		1: dmult = 0.7
+		2: dmult = 1.0
+
+	var mult: float = gmult * dmult
+	TREE_COUNT = int(720.0 * mult)
+	ROCK_COUNT = int(260.0 * mult)
+	FLOWER_COUNT = int(520.0 * mult)
+	CRYSTAL_COUNT = int(42.0 * mult)
+	RUIN_COUNT = int(14.0 * mult)
+
+
+func _apply_graphics_level() -> void:
+	if sun_light != null:
+		_configure_sun_shadows()
+
+	match graphics_level:
+		0:
+			get_viewport().msaa_3d = Viewport.MSAA_DISABLED
+			get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+			get_viewport().use_taa = false
+			if world_environment != null:
+				world_environment.glow_enabled = false
+				world_environment.ssao_enabled = false
+				world_environment.ssil_enabled = false
+				world_environment.ssr_enabled = false
+		1:
+			get_viewport().msaa_3d = Viewport.MSAA_2X
+			get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+			get_viewport().use_taa = false
+			if world_environment != null:
+				world_environment.glow_enabled = true
+				world_environment.glow_intensity = 0.6
+				world_environment.glow_strength = 0.8
+				world_environment.ssao_enabled = false
+				world_environment.ssil_enabled = false
+				world_environment.ssr_enabled = false
+		2:
+			get_viewport().msaa_3d = Viewport.MSAA_4X
+			get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_SMAA
+			get_viewport().use_taa = false
+			if world_environment != null:
+				world_environment.glow_enabled = true
+				world_environment.glow_intensity = 0.8
+				world_environment.glow_strength = 1.0
+				world_environment.ssao_enabled = true
+				world_environment.ssao_radius = 0.75
+				world_environment.ssao_intensity = 1.4
+				world_environment.ssil_enabled = true
+				world_environment.ssil_radius = 1.5
+				world_environment.ssil_intensity = 0.8
+				world_environment.ssr_enabled = true
+		3:
+			get_viewport().msaa_3d = Viewport.MSAA_8X
+			get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+			get_viewport().use_taa = true
+			if world_environment != null:
+				world_environment.glow_enabled = true
+				world_environment.glow_intensity = 1.0
+				world_environment.glow_strength = 1.2
+				world_environment.ssao_enabled = true
+				world_environment.ssao_radius = 1.0
+				world_environment.ssao_intensity = 1.6
+				world_environment.ssil_enabled = true
+				world_environment.ssil_radius = 2.0
+				world_environment.ssil_intensity = 1.0
+				world_environment.ssr_enabled = true
+
+
+func _configure_sun_shadows() -> void:
+	if sun_light == null:
+		return
+	var enable: bool = graphics_level >= 2
+	sun_light.shadow_enabled = enable
+	if enable:
+		sun_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+		sun_light.directional_shadow_max_distance = 140.0
+		sun_light.directional_shadow_split_1 = 0.08
+		sun_light.directional_shadow_split_2 = 0.2
+		sun_light.directional_shadow_split_3 = 0.45
+		sun_light.directional_shadow_blend_splits = true
+		if graphics_level >= 3:
+			sun_light.shadow_bias = 0.02
+			sun_light.directional_shadow_max_distance = 200.0
+		else:
+			sun_light.shadow_bias = 0.04
+
+
+func _set_graphics_level(level: int) -> void:
+	graphics_level = level
+	save_data["graphics_level"] = level
+	_save_world_data()
+	_apply_graphics_level()
+	if current_world_id != "" and current_map_id != "":
+		_load_map(current_world_id, current_map_id)
+	else:
+		_show_main_menu()
+
+
+func _set_density_level(level: int) -> void:
+	density_level = level
+	save_data["density_level"] = level
+	_save_world_data()
+	if current_world_id != "" and current_map_id != "":
+		_load_map(current_world_id, current_map_id)
+	else:
+		_show_main_menu()
+
+
 func _show_main_menu() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if menu_layer != null:
@@ -170,6 +385,16 @@ func _show_main_menu() -> void:
 	menu_layer.name = "WorldMenuLayer"
 	menu_layer.layer = 30
 	add_child(menu_layer)
+
+	var overlay := ColorRect.new()
+	overlay.name = "MenuOverlay"
+	overlay.color = Color(0.0, 0.0, 0.0, 0.55)
+	overlay.anchor_left = 0.0
+	overlay.anchor_top = 0.0
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_PASS
+	menu_layer.add_child(overlay)
 
 	var panel := PanelContainer.new()
 	panel.anchor_left = 0.5
@@ -196,9 +421,13 @@ func _show_main_menu() -> void:
 	margin.add_theme_constant_override("margin_bottom", 20)
 	panel.add_child(margin)
 
+	var scroller := ScrollContainer.new()
+	scroller.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(scroller)
+
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 10)
-	margin.add_child(list)
+	scroller.add_child(list)
 
 	var title := Label.new()
 	title.text = "Random World Explorer"
@@ -206,35 +435,111 @@ func _show_main_menu() -> void:
 	title.add_theme_font_size_override("font_size", 24)
 	list.add_child(title)
 
+	var slot_bar := HBoxContainer.new()
+	slot_bar.add_theme_constant_override("separation", 6)
+	list.add_child(slot_bar)
+
+	var slot_label := Label.new()
+	slot_label.text = "Slot " + str(current_slot + 1)
+	slot_label.add_theme_font_size_override("font_size", 14)
+	slot_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	slot_bar.add_child(slot_label)
+
+	var switch_btn := Button.new()
+	switch_btn.text = "Switch"
+	switch_btn.pressed.connect(_show_slot_picker)
+	slot_bar.add_child(switch_btn)
+
+	var new_slot_btn := Button.new()
+	new_slot_btn.text = "New Slot"
+	new_slot_btn.pressed.connect(_create_new_slot)
+	slot_bar.add_child(new_slot_btn)
+
 	var story := Label.new()
 	story.text = _backstory_text()
 	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	story.add_theme_font_size_override("font_size", 14)
+	story.add_theme_font_size_override("font_size", 12)
+	story.add_theme_constant_override("line_separation", -3)
 	list.add_child(story)
 
-	var button_row := HBoxContainer.new()
-	button_row.add_theme_constant_override("separation", 8)
-	list.add_child(button_row)
+	var world_header := Label.new()
+	world_header.text = "Worlds:"
+	world_header.add_theme_font_size_override("font_size", 13)
+	list.add_child(world_header)
 
-	var new_button := Button.new()
-	new_button.text = "Create New World"
-	new_button.pressed.connect(_create_new_world)
-	button_row.add_child(new_button)
+	var world_list := VBoxContainer.new()
+	world_list.add_theme_constant_override("separation", 4)
+	list.add_child(world_list)
 
 	var worlds: Dictionary = save_data.get("worlds", {})
-	for world_key in worlds.keys():
-		var world_id: String = str(world_key)
-		var world: Dictionary = worlds[world_id]
-		var button := Button.new()
-		button.text = "Load " + str(world.get("name", world_id))
-		button.pressed.connect(_load_world_from_menu.bind(world_id))
-		button_row.add_child(button)
+	if worlds.is_empty():
+		var empty_w := Label.new()
+		empty_w.text = "No worlds yet."
+		empty_w.add_theme_font_size_override("font_size", 11)
+		world_list.add_child(empty_w)
+	else:
+		for world_key in worlds.keys():
+			var world_id: String = str(world_key)
+			var world: Dictionary = worlds[world_id]
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 4)
+			world_list.add_child(row)
+
+			var is_current: bool = world_id == current_world_id
+			var load_btn := Button.new()
+			load_btn.text = ("> " if is_current else "  ") + str(world.get("name", world_id))
+			load_btn.pressed.connect(_load_world_from_menu.bind(world_id))
+			load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(load_btn)
+
+			var rename_btn := Button.new()
+			rename_btn.text = "R"
+			rename_btn.custom_minimum_size = Vector2(24, 0)
+			rename_btn.pressed.connect(_rename_world.bind(world_id, load_btn))
+			row.add_child(rename_btn)
 
 	if current_world_id != "":
 		var resume_button := Button.new()
 		resume_button.text = "Resume Current Map"
 		resume_button.pressed.connect(_close_menu)
-		button_row.add_child(resume_button)
+		world_list.add_child(resume_button)
+
+	var new_world_btn := Button.new()
+	new_world_btn.text = "New World"
+	new_world_btn.pressed.connect(_start_new_game)
+	world_list.add_child(new_world_btn)
+
+	var gfx_row := HBoxContainer.new()
+	gfx_row.add_theme_constant_override("separation", 6)
+	list.add_child(gfx_row)
+	var gfx_label := Label.new()
+	gfx_label.text = "Graphics:"
+	gfx_label.add_theme_font_size_override("font_size", 12)
+	gfx_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	gfx_row.add_child(gfx_label)
+	var gfx_names: Array[String] = ["Low", "Medium", "High", "Ultra"]
+	for gi in range(gfx_names.size()):
+		var btn := Button.new()
+		btn.text = gfx_names[gi]
+		btn.disabled = gi == graphics_level
+		btn.pressed.connect(_set_graphics_level.bind(gi))
+		gfx_row.add_child(btn)
+
+	var dens_row := HBoxContainer.new()
+	dens_row.add_theme_constant_override("separation", 6)
+	list.add_child(dens_row)
+	var dens_label := Label.new()
+	dens_label.text = "Density:"
+	dens_label.add_theme_font_size_override("font_size", 12)
+	dens_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	dens_row.add_child(dens_label)
+	var dens_names: Array[String] = ["Low", "Medium", "High"]
+	for di in range(dens_names.size()):
+		var btn2 := Button.new()
+		btn2.text = dens_names[di]
+		btn2.disabled = di == density_level
+		btn2.pressed.connect(_set_density_level.bind(di))
+		dens_row.add_child(btn2)
 
 	var atlas := Label.new()
 	atlas.text = _atlas_summary_text()
@@ -250,8 +555,22 @@ func _show_main_menu() -> void:
 
 	list.add_child(_create_atlas_graph_view())
 
+	var ach_row := HBoxContainer.new()
+	ach_row.add_theme_constant_override("separation", 6)
+	list.add_child(ach_row)
+	var ach_earned := 0
+	var saved_achs: Dictionary = save_data.get("achievements", {})
+	for ak in ACHIEVEMENT_DEFS.keys():
+		if saved_achs.has(ak):
+			ach_earned += 1
+	var ach_btn := Button.new()
+	ach_btn.text = "Achievements (" + str(ach_earned) + "/" + str(ACHIEVEMENT_DEFS.size()) + ")"
+	ach_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ach_btn.pressed.connect(_show_achievements_dialog)
+	ach_row.add_child(ach_btn)
+
 	var hint := Label.new()
-	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu  |  F10: windowed  |  F11: fullscreen"
+	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu | Achievements button at bottom | F10: windowed | F11: fullscreen"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 14)
 	list.add_child(hint)
@@ -264,10 +583,411 @@ func _close_menu() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
-func _create_new_world() -> void:
+func _show_achievements_dialog() -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = "Achievements"
+	dialog.dialog_text = ""
+	dialog.min_size = Vector2(360, 300)
+	dialog.exclusive = true
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	dialog.add_child(vbox)
+
+	var earned_achs: Dictionary = save_data.get("achievements", {})
+	for akey in ACHIEVEMENT_DEFS.keys():
+		var def: Dictionary = ACHIEVEMENT_DEFS[akey]
+		var earned: bool = earned_achs.has(akey)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		vbox.add_child(row)
+
+		var check := Label.new()
+		check.text = "[X]" if earned else "[ ]"
+		check.add_theme_font_size_override("font_size", 13)
+		row.add_child(check)
+
+		var name_label := Label.new()
+		name_label.text = def.get("name", akey)
+		name_label.add_theme_font_size_override("font_size", 13)
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_label)
+
+		var desc_label := Label.new()
+		desc_label.text = def.get("desc", "")
+		desc_label.add_theme_font_size_override("font_size", 10)
+		desc_label.modulate = Color(0.7, 0.7, 0.7)
+		vbox.add_child(desc_label)
+
+	add_child(dialog)
+	dialog.popup_centered()
+
+
+func _show_secret_login() -> void:
+	if dev_menu_layer != null:
+		_close_dev_menu()
+		return
+	_close_menu()
+
+	dev_menu_layer = CanvasLayer.new()
+	dev_menu_layer.name = "DevMenuLayer"
+	dev_menu_layer.layer = 35
+	add_child(dev_menu_layer)
+
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.0, 0.0, 0.0, 0.50)
+	overlay.anchor_left = 0.0
+	overlay.anchor_top = 0.0
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dev_menu_layer.add_child(overlay)
+
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -150.0
+	panel.offset_top = -80.0
+	panel.offset_right = 150.0
+	panel.offset_bottom = 80.0
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.06, 0.075, 0.085, 0.96)
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	panel.add_theme_stylebox_override("panel", panel_style)
+	dev_menu_layer.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "Dev Access"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+
+	var prompt := Label.new()
+	prompt.text = "Enter password:"
+	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prompt.add_theme_font_size_override("font_size", 14)
+	vbox.add_child(prompt)
+
+	var line_edit := LineEdit.new()
+	line_edit.secret = true
+	line_edit.placeholder_text = "password"
+	line_edit.custom_minimum_size = Vector2(200.0, 0.0)
+	vbox.add_child(line_edit)
+
+	var button_row := HBoxContainer.new()
+	button_row.add_theme_constant_override("separation", 8)
+	button_row.alignment = 1
+	vbox.add_child(button_row)
+
+	var ok_btn := Button.new()
+	ok_btn.text = "OK"
+	ok_btn.pressed.connect(_on_dev_login_attempt.bind(line_edit))
+	button_row.add_child(ok_btn)
+
+	var cancel_btn := Button.new()
+	cancel_btn.text = "Cancel"
+	cancel_btn.pressed.connect(_close_dev_menu)
+	button_row.add_child(cancel_btn)
+
+	line_edit.text_submitted.connect(_on_dev_login_attempt.bind(line_edit))
+	line_edit.grab_focus()
+
+
+func _clear_dev_menu() -> void:
+	if dev_menu_layer == null:
+		return
+	for child in dev_menu_layer.get_children():
+		dev_menu_layer.remove_child(child)
+		child.queue_free()
+
+
+func _on_dev_login_attempt(line_edit: LineEdit) -> void:
+	if line_edit.text == "1215":
+		_show_secret_menu()
+	else:
+		line_edit.text = ""
+		line_edit.placeholder_text = "wrong password"
+
+
+func _close_dev_menu() -> void:
+	if dev_menu_layer != null:
+		dev_menu_layer.queue_free()
+		dev_menu_layer = null
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func _show_secret_menu() -> void:
+	_clear_dev_menu()
+
+	if dev_menu_layer == null:
+		dev_menu_layer = CanvasLayer.new()
+		dev_menu_layer.name = "DevMenuLayer"
+		dev_menu_layer.layer = 35
+		add_child(dev_menu_layer)
+
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.0, 0.0, 0.0, 0.55)
+	overlay.anchor_left = 0.0
+	overlay.anchor_top = 0.0
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dev_menu_layer.add_child(overlay)
+
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -420.0
+	panel.offset_top = -280.0
+	panel.offset_right = 420.0
+	panel.offset_bottom = 280.0
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.06, 0.075, 0.085, 0.96)
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	panel.add_theme_stylebox_override("panel", panel_style)
+	dev_menu_layer.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(margin)
+
+	var menu_vbox := VBoxContainer.new()
+	menu_vbox.add_theme_constant_override("separation", 6)
+	margin.add_child(menu_vbox)
+
+	var top_title := Label.new()
+	top_title.text = "Dev Menu"
+	top_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	top_title.add_theme_font_size_override("font_size", 22)
+	menu_vbox.add_child(top_title)
+
+	var main_hbox := HBoxContainer.new()
+	main_hbox.add_theme_constant_override("separation", 16)
+	main_hbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	menu_vbox.add_child(main_hbox)
+
+	var worlds: Dictionary = save_data.get("worlds", {})
+	dev_menu_selected_world = current_world_id if current_world_id != "" else ""
+	if dev_menu_selected_world == "" and not worlds.is_empty():
+		dev_menu_selected_world = str(worlds.keys()[0])
+
+	var left_vbox := VBoxContainer.new()
+	left_vbox.add_theme_constant_override("separation", 4)
+	left_vbox.custom_minimum_size = Vector2(200.0, 0.0)
+	left_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_hbox.add_child(left_vbox)
+
+	var worlds_label := Label.new()
+	worlds_label.text = "Worlds"
+	worlds_label.add_theme_font_size_override("font_size", 16)
+	left_vbox.add_child(worlds_label)
+
+	var worlds_scroll := ScrollContainer.new()
+	worlds_scroll.custom_minimum_size = Vector2(0.0, 160.0)
+	worlds_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left_vbox.add_child(worlds_scroll)
+
+	var worlds_list := VBoxContainer.new()
+	worlds_list.add_theme_constant_override("separation", 2)
+	worlds_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	worlds_scroll.add_child(worlds_list)
+
+	for world_key in worlds.keys():
+		var wid: String = str(world_key)
+		var w: Dictionary = worlds[wid]
+		var btn := Button.new()
+		var is_current: bool = wid == dev_menu_selected_world
+		btn.text = ("> " if is_current else "  ") + str(w.get("name", wid))
+		btn.flat = not is_current
+		btn.pressed.connect(_on_dev_world_selected.bind(wid))
+		btn.add_theme_font_size_override("font_size", 11)
+		worlds_list.add_child(btn)
+
+	var right_vbox := VBoxContainer.new()
+	right_vbox.add_theme_constant_override("separation", 6)
+	right_vbox.custom_minimum_size = Vector2(380.0, 0.0)
+	right_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	main_hbox.add_child(right_vbox)
+
+	_populate_dev_menu_right(right_vbox)
+
+	var close_row := HBoxContainer.new()
+	close_row.alignment = 1
+	menu_vbox.add_child(close_row)
+
+	var close_btn := Button.new()
+	close_btn.text = "Close"
+	close_btn.pressed.connect(_close_dev_menu)
+	close_row.add_child(close_btn)
+
+
+func _on_dev_world_selected(wid: String) -> void:
+	dev_menu_selected_world = wid
+	_show_secret_menu()
+
+
+func _populate_dev_menu_right(vbox: VBoxContainer) -> void:
+	if dev_menu_selected_world == "":
+		var no_world := Label.new()
+		no_world.text = "No world selected"
+		no_world.add_theme_font_size_override("font_size", 14)
+		vbox.add_child(no_world)
+		return
+
+	var world: Dictionary = _get_world(dev_menu_selected_world)
+	var maps: Dictionary = world.get("maps", {})
+	var world_name: String = str(world.get("name", dev_menu_selected_world))
+
+	var info := Label.new()
+	info.text = world_name + "  —  " + str(maps.size()) + " maps"
+	info.add_theme_font_size_override("font_size", 14)
+	vbox.add_child(info)
+
+	var maps_scroll := ScrollContainer.new()
+	maps_scroll.custom_minimum_size = Vector2(0.0, 100.0)
+	maps_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(maps_scroll)
+
+	var maps_list := VBoxContainer.new()
+	maps_list.add_theme_constant_override("separation", 2)
+	maps_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	maps_scroll.add_child(maps_list)
+
+	for map_key in maps.keys():
+		var mid: String = str(map_key)
+		var rec: Dictionary = maps[mid]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		maps_list.add_child(row)
+
+		var map_label := Label.new()
+		var map_type: String = str(rec.get("type", "normal"))
+		var is_current: bool = current_world_id == dev_menu_selected_world and current_map_id == mid
+		map_label.text = ("> " if is_current else "  ") + mid + "  [" + map_type + "]"
+		map_label.add_theme_font_size_override("font_size", 10)
+		map_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(map_label)
+
+		var load_btn := Button.new()
+		load_btn.text = "Load"
+		load_btn.pressed.connect(_on_dev_load_map.bind(dev_menu_selected_world, mid))
+		row.add_child(load_btn)
+
+	var actions_label := Label.new()
+	actions_label.text = "Quick Create and Go:"
+	actions_label.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(actions_label)
+
+	var actions_grid := VBoxContainer.new()
+	actions_grid.add_theme_constant_override("separation", 4)
+	vbox.add_child(actions_grid)
+
+	var quick_data: Array[Dictionary] = [
+		{"id": "normal", "label": "New Normal Map"},
+		{"id": "water", "label": "New Water Map"},
+		{"id": "cave", "label": "New Cave Map"},
+		{"id": "moon", "label": "Go to Moon"},
+		{"id": "gate_room", "label": "Go to Gate Room"},
+		{"id": "map_nexus", "label": "Go to Map Nexus"},
+	]
+
+	for qa in quick_data:
+		var btn := Button.new()
+		btn.text = qa["label"]
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(_on_dev_quick_map.bind(qa["id"], dev_menu_selected_world))
+		actions_grid.add_child(btn)
+
+
+func _on_dev_load_map(world_id: String, map_id: String) -> void:
+	_close_dev_menu()
+	_load_map(world_id, map_id)
+
+
+func _on_dev_quick_map(map_type: String, world_id: String) -> void:
+	_close_dev_menu()
+	var world: Dictionary = _get_world(world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_id: String = ""
+	var map_record: Dictionary = {}
+
+	match map_type:
+		"moon":
+			if maps.has("moon"):
+				map_id = "moon"
+			else:
+				var seed_val: int = _moon_seed(world)
+				maps["moon"] = _create_moon_map_record(seed_val)
+				map_id = "moon"
+		"gate_room":
+			if maps.has("gate_room"):
+				map_id = "gate_room"
+			else:
+				var gate_seed: int = int((world_seed ^ 0x47415445) & 0x7fffffff)
+				if gate_seed == 0:
+					gate_seed = 98765
+				maps["gate_room"] = _create_gate_room_map_record(gate_seed)
+				map_id = "gate_room"
+		"map_nexus":
+			if maps.has("map_nexus"):
+				map_id = "map_nexus"
+			else:
+				var nex_seed: int = int((world_seed ^ 0x4E455855) & 0x7fffffff)
+				if nex_seed == 0:
+					nex_seed = 54321
+				maps["map_nexus"] = _create_map_nexus_map_record(nex_seed)
+				map_id = "map_nexus"
+		"normal", "water", "cave":
+			map_id = _new_id("map")
+			var seed_val: int = randi()
+			match map_type:
+				"normal": maps[map_id] = _create_map_record(seed_val)
+				"water": maps[map_id] = _create_water_map_record(seed_val)
+				"cave": maps[map_id] = _create_cave_map_record(seed_val)
+
+	if map_id == "":
+		return
+
+	world["maps"] = maps
+	_set_world(world_id, world)
+	_save_world_data()
+	_load_map(world_id, map_id)
+
+
+func _create_new_world(name_input: LineEdit) -> void:
 	var world_id: String = _new_id("world")
 	var root_map_id: String = _new_id("map")
-	var world_name: String = "World " + str(save_data.get("worlds", {}).size() + 1)
+	var raw: String = name_input.text.strip_edges()
+	var world_name: String = raw if raw != "" else "World " + str(save_data.get("worlds", {}).size() + 1)
 
 	var worlds: Dictionary = save_data.get("worlds", {})
 	worlds[world_id] = _create_world_record(world_name, root_map_id, randi())
@@ -289,12 +1009,154 @@ func _load_world_from_menu(world_id: String) -> void:
 	_load_map(world_id, map_id)
 
 
+func _start_new_game() -> void:
+	_close_menu()
+	save_data = {"worlds": {}, "last_world_id": "", "graphics_level": graphics_level, "density_level": density_level}
+	var world_id: String = _new_id("world")
+	var root_map_id: String = _new_id("map")
+	var worlds: Dictionary = {}
+	worlds[world_id] = _create_world_record("Default World", root_map_id, randi())
+	save_data["worlds"] = worlds
+	save_data["last_world_id"] = world_id
+	_save_world_data()
+	_load_map(world_id, root_map_id)
+
+
+func _create_new_slot() -> void:
+	_close_menu()
+	_save_world_data()
+	slot_count += 1
+	current_slot = slot_count - 1
+	_save_slot_index()
+	save_data = {"worlds": {}, "last_world_id": "", "graphics_level": graphics_level, "density_level": density_level}
+	var world_id: String = _new_id("world")
+	var root_map_id: String = _new_id("map")
+	var worlds: Dictionary = {}
+	worlds[world_id] = _create_world_record("Slot " + str(current_slot + 1), root_map_id, randi())
+	save_data["worlds"] = worlds
+	save_data["last_world_id"] = world_id
+	_save_world_data()
+	_load_map(world_id, root_map_id)
+
+
+func _show_slot_picker() -> void:
+	if menu_layer == null:
+		return
+
+	var dialog := AcceptDialog.new()
+	dialog.title = "Switch Save Slot"
+	dialog.dialog_text = ""
+	dialog.close_on_escape = true
+	dialog.ok_button_text = "Cancel"
+	var vb := VBoxContainer.new()
+	dialog.add_child(vb)
+
+	var slots_scroll := ScrollContainer.new()
+	slots_scroll.custom_minimum_size = Vector2(240.0, 150.0)
+	vb.add_child(slots_scroll)
+
+	var slots_list := VBoxContainer.new()
+	slots_list.add_theme_constant_override("separation", 4)
+	slots_scroll.add_child(slots_list)
+
+	for i in range(slot_count):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		slots_list.add_child(row)
+
+		var name_label := Label.new()
+		name_label.text = "Slot " + str(i + 1)
+		if i == current_slot:
+			name_label.text += " (current)"
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_label)
+
+		if i != current_slot:
+			var load_btn := Button.new()
+			load_btn.text = "Load"
+			load_btn.pressed.connect(_switch_to_slot.bind(i, dialog))
+			row.add_child(load_btn)
+
+	dialog.popup_centered(Vector2i(300, 220))
+	menu_layer.add_child(dialog)
+
+
+func _switch_to_slot(slot: int, dialog: AcceptDialog) -> void:
+	if is_instance_valid(dialog):
+		dialog.queue_free()
+	_close_menu()
+	_save_world_data()
+	current_slot = slot
+	_save_slot_index()
+	save_data = {}
+	_load_save_data()
+	var last_world_id: String = str(save_data.get("last_world_id", ""))
+	if last_world_id != "":
+		_load_world_from_menu(last_world_id)
+	else:
+		_ensure_default_world()
+		_load_world_from_menu(str(save_data.get("last_world_id", "")))
+
+
+func _rename_world(world_id: String, button: Button) -> void:
+	var world: Dictionary = _get_world(world_id)
+	if world.is_empty() or not is_instance_valid(button):
+		return
+	var current_name: String = str(world.get("name", world_id))
+
+	var dialog := AcceptDialog.new()
+	dialog.title = "Rename World"
+	dialog.dialog_text = ""
+	var vb := VBoxContainer.new()
+	dialog.add_child(vb)
+	var label := Label.new()
+	label.text = "Enter a new name:"
+	vb.add_child(label)
+	var line_edit := LineEdit.new()
+	line_edit.text = current_name
+	line_edit.select_all()
+	vb.add_child(line_edit)
+	dialog.register_text_enter(line_edit)
+	dialog.popup_centered(Vector2i(280, 80))
+	if menu_layer != null:
+		menu_layer.add_child(dialog)
+	else:
+		add_child(dialog)
+
+	dialog.confirmed.connect(func():
+		if not is_instance_valid(button):
+			return
+		var new_name: String = line_edit.text.strip_edges()
+		if new_name != "" and new_name != current_name:
+			world["name"] = new_name
+			_set_world(world_id, world)
+			_save_world_data()
+			button.text = new_name
+	)
+
+
 func _create_map_record(map_seed: int) -> Dictionary:
 	return {"seed": map_seed, "gates": {}, "discoveries": {}, "type": "normal"}
 
 
 func _create_moon_map_record(map_seed: int) -> Dictionary:
 	return {"seed": map_seed, "gates": {}, "discoveries": {}, "type": "moon"}
+
+
+func _create_water_map_record(map_seed: int) -> Dictionary:
+	return {"seed": map_seed, "gates": {}, "discoveries": {}, "type": "water"}
+
+
+func _create_gate_room_map_record(map_seed: int) -> Dictionary:
+	return {"seed": map_seed, "gates": {}, "discoveries": {}, "type": "gate_room", "gate_room_slots": {}}
+
+
+func _create_cave_map_record(map_seed: int) -> Dictionary:
+	return {"seed": map_seed, "gates": {}, "discoveries": {}, "type": "cave"}
+
+
+func _create_map_nexus_map_record(map_seed: int) -> Dictionary:
+	return {"seed": map_seed, "gates": {}, "discoveries": {}, "type": "map_nexus", "nexus_slots": {}}
 
 
 func _create_world_record(world_name: String, root_map_id: String, map_seed: int) -> Dictionary:
@@ -324,7 +1186,7 @@ func _set_world(world_id: String, world: Dictionary) -> void:
 
 
 func _backstory_text() -> String:
-	return "The old Atlas of Gates broke apart, leaving whole worlds adrift behind forgotten portals. You are a field cartographer for the last observatory, sent to cross the gates, name what remains, and stitch the lost routes back into a living map."
+	return "The Atlas of Gates once held every world together, but it shattered during the Convergence Collapse. Fragments of reality drifted apart, each sealed behind a dormant gate.\n\nYou are the last field cartographer of the Celestial Survey, dispatched from the floating observatory to cross the gates, map the splintered territories, and reassemble the Atlas one discovery at a time.\n\nOn the far side of certain gates lies the Moon — a silent world of glass craters and drifting lichen, where ancient shrines float in the void. Pilgrims who reach them all earn the title Moon Pilgrim.\n\nThe Survey's old handbooks speak of a limit: no more than thirty-two maps can be opened from a single world before the local gate-network saturates. Choose your path wisely."
 
 
 func _atlas_summary_text() -> String:
@@ -590,6 +1452,14 @@ func _current_map_discovery_count() -> int:
 	return discoveries.size()
 
 
+func _current_world_map_count() -> int:
+	if current_world_id == "":
+		return 0
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	return maps.size()
+
+
 func _is_current_map_moon() -> bool:
 	if current_world_id == "" or current_map_id == "":
 		return false
@@ -598,6 +1468,44 @@ func _is_current_map_moon() -> bool:
 	var maps: Dictionary = world.get("maps", {})
 	var map_record: Dictionary = maps.get(current_map_id, {})
 	return str(map_record.get("type", "normal")) == "moon"
+
+
+func _is_current_map_water() -> bool:
+	if current_world_id == "" or current_map_id == "":
+		return false
+
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(current_map_id, {})
+	return str(map_record.get("type", "normal")) == "water"
+
+
+func _is_current_map_cave() -> bool:
+	if current_world_id == "" or current_map_id == "":
+		return false
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(current_map_id, {})
+	return str(map_record.get("type", "normal")) == "cave"
+
+
+func _is_current_map_map_nexus() -> bool:
+	if current_world_id == "" or current_map_id == "":
+		return false
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(current_map_id, {})
+	return str(map_record.get("type", "normal")) == "map_nexus"
+
+
+func _is_current_map_gate_room() -> bool:
+	if current_world_id == "" or current_map_id == "":
+		return false
+
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(current_map_id, {})
+	return str(map_record.get("type", "normal")) == "gate_room"
 
 
 func _record_discovery(discovery_id: String, title: String, kind: String, discovery_position: Vector3) -> void:
@@ -625,11 +1533,76 @@ func _record_discovery(discovery_id: String, title: String, kind: String, discov
 	_save_world_data()
 	last_discovery_text = "New discovery: " + title
 	print("Atlas discovery: ", title, " [", kind, "]")
+	if kind == "wonder":
+		_award_achievement("first_wonder")
+		_check_map_wonders_complete()
+		_check_world_wonders_complete()
+	if kind == "orb":
+		_check_moon_shrine_completion()
 
 
 func _on_discovery_body_entered(body: Node3D, discovery_id: String, title: String, kind: String, discovery_position: Vector3) -> void:
 	if body.name == "Player":
 		_record_discovery(discovery_id, title, kind, discovery_position)
+
+
+func _award_achievement(id: String) -> void:
+	var achievements: Dictionary = save_data.get("achievements", {})
+	if achievements.has(id):
+		return
+	achievements[id] = Time.get_unix_time_from_system()
+	save_data["achievements"] = achievements
+	_save_world_data()
+	var def: Dictionary = ACHIEVEMENT_DEFS.get(id, {})
+	var name: String = def.get("name", id)
+	last_discovery_text = "Achievement: " + name + "!"
+	print("Achievement unlocked: ", name)
+
+
+func _check_map_wonders_complete() -> void:
+	if current_world_id == "" or current_map_id == "":
+		return
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(current_map_id, {})
+	var wonder_count: int = int(map_record.get("wonder_count", 0))
+	if wonder_count <= 0:
+		return
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	var wonder_found := 0
+	for key in discoveries.keys():
+		if discoveries[key].get("kind", "") == "wonder":
+			wonder_found += 1
+	if wonder_found >= wonder_count:
+		_award_achievement("all_wonders_map")
+
+
+func _check_world_wonders_complete() -> void:
+	if current_world_id == "":
+		return
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var total_wonders := 0
+	var total_found := 0
+	for map_key in maps.keys():
+		var mr: Dictionary = maps[map_key]
+		total_wonders += int(mr.get("wonder_count", 0))
+		var disc: Dictionary = mr.get("discoveries", {})
+		for dk in disc.keys():
+			if disc[dk].get("kind", "") == "wonder":
+				total_found += 1
+	if total_wonders > 0 and total_found >= total_wonders:
+		_award_achievement("all_wonders_world")
+
+
+func _check_map_visit_achievements() -> void:
+	var visited: Array = save_data.get("maps_visited", [])
+	if current_map_id != "" and not visited.has(current_map_id):
+		visited.append(current_map_id)
+		save_data["maps_visited"] = visited
+		_save_world_data()
+	if visited.size() >= 5:
+		_award_achievement("world_traveler")
 
 
 func _load_map(world_id: String, map_id: String) -> void:
@@ -652,33 +1625,78 @@ func _load_map(world_id: String, map_id: String) -> void:
 	world_seed = int(map_record.get("seed", 12345))
 	seed(world_seed)
 	current_map_available_discoveries = 0
+	_moon_grid_scale = 1
+	if _is_current_map_moon():
+		_moon_grid_scale = 2
 	_clear_generated_map()
 	generated_root = Node3D.new()
 	generated_root.name = "GeneratedMap"
 	add_child(generated_root)
 	_apply_map_atmosphere()
+	_setup_music()
 
-	_setup_noise()
-	_build_height_values()
-	_create_terrain_mesh()
-	_create_terrain_collision()
-	_create_world_bounds()
-	if not _is_current_map_moon():
-		_create_water()
+	if _is_current_map_gate_room():
+		_create_gate_room_terrain()
+		_create_world_bounds()
+		_spawn_player()
+		_scatter_gate_room_gates()
+	elif _is_current_map_cave():
+		_create_cave_terrain()
+		_create_world_bounds()
+		_spawn_player()
+		_scatter_cave_items()
+	elif _is_current_map_map_nexus():
+		_create_map_nexus_terrain()
+		_create_world_bounds()
+		_spawn_player()
+		_scatter_map_nexus_gates()
 	else:
-		_create_moon_sky()
-	_spawn_player()
-	if _is_current_map_moon():
-		_scatter_moon_lichen()
-	else:
-		_scatter_trees()
-		_scatter_rocks()
-		_scatter_flowers()
-		_spawn_wonders()
-		_scatter_crystals()
-		_scatter_ruins()
-	_create_gates()
+		_apply_detail_counts()
+		_setup_noise()
+		_build_height_values()
+		_create_terrain_mesh()
+		_create_terrain_collision()
+		_create_world_bounds()
+		if not _is_current_map_moon():
+			_create_water()
+			_setup_water_audio()
+		else:
+			_create_moon_sky()
+			_setup_moon_audio()
+		_spawn_player()
+		if _is_current_map_moon():
+			_scatter_moon_lichen()
+			_scatter_moon_glass_craters()
+			_scatter_moon_platforms()
+		elif _is_current_map_water():
+			_scatter_rocks()
+			_scatter_crystals()
+			_scatter_ruins()
+			_scatter_bird_flocks()
+			_scatter_underwater_plants()
+			_scatter_fish_schools()
+		else:
+			_scatter_trees()
+			_scatter_rocks()
+			_scatter_flowers()
+			_spawn_wonders()
+			_scatter_crystals()
+			_scatter_ruins()
+			_scatter_bird_flocks()
+			_scatter_underwater_plants()
+			_scatter_fish_schools()
+		_create_gates()
 	_store_current_map_available_discoveries()
+
+	_check_map_visit_achievements()
+	if _is_current_map_moon():
+		_award_achievement("moon_visitor")
+	if _is_current_map_gate_room():
+		_award_achievement("gate_room_finder")
+	if _is_current_map_water():
+		_award_achievement("island_hopper")
+	if _is_current_map_cave():
+		_award_achievement("cavern_explorer")
 
 	print("Random World Explorer v6: loaded map ", map_id, " with seed ", world_seed)
 
@@ -736,16 +1754,56 @@ func _apply_map_atmosphere() -> void:
 	if world_environment == null:
 		return
 
-	if _is_current_map_moon():
+	if minimap_panel != null:
+		var moon_size: float = 100.0
+		var normal_size: float = 80.0
+		minimap_panel.custom_minimum_size = Vector2(moon_size if _is_current_map_moon() else normal_size, moon_size if _is_current_map_moon() else normal_size)
+		minimap_marker_layer.custom_minimum_size = minimap_panel.custom_minimum_size
+
+	if _is_current_map_cave():
+		world_environment.background_color = Color(0.005, 0.004, 0.010)
+		world_environment.ambient_light_color = Color(0.08, 0.06, 0.14)
+		world_environment.ambient_light_energy = 0.25
+		world_environment.fog_density = 0.06
+		world_environment.fog_light_color = Color(0.02, 0.01, 0.04)
+		if sun_light != null:
+			sun_light.light_color = Color(0.10, 0.06, 0.20)
+			sun_light.light_energy = 0.3
+			sun_light.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	elif _is_current_map_gate_room() or _is_current_map_map_nexus():
+		world_environment.background_color = Color(0.004, 0.006, 0.012)
+		world_environment.ambient_light_color = Color(0.30, 0.22, 0.45)
+		world_environment.ambient_light_energy = 0.55
+		world_environment.fog_density = 0.002
+		world_environment.fog_light_color = Color(0.25, 0.18, 0.40)
+		if sun_light != null:
+			if _is_current_map_map_nexus():
+				sun_light.light_color = Color(0.70, 0.60, 1.0)
+				sun_light.light_energy = 1.8
+			else:
+				sun_light.light_color = Color(0.60, 0.50, 0.90)
+				sun_light.light_energy = 1.2
+			sun_light.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	elif _is_current_map_moon():
 		world_environment.background_color = Color(0.006, 0.008, 0.020)
 		world_environment.ambient_light_color = Color(0.20, 0.24, 0.34)
 		world_environment.ambient_light_energy = 0.38
-		world_environment.fog_density = 0.004
+		world_environment.fog_density = 0.0
 		world_environment.fog_light_color = Color(0.18, 0.22, 0.34)
 		if sun_light != null:
 			sun_light.light_color = Color(0.78, 0.86, 1.0)
 			sun_light.light_energy = 1.45
 			sun_light.rotation_degrees = Vector3(-28.0, -62.0, 0.0)
+	elif _is_current_map_water():
+		world_environment.background_color = Color(0.45, 0.65, 0.88)
+		world_environment.ambient_light_color = Color(0.55, 0.70, 0.82)
+		world_environment.ambient_light_energy = 0.75
+		world_environment.fog_density = 0.008
+		world_environment.fog_light_color = Color(0.50, 0.68, 0.82)
+		if sun_light != null:
+			sun_light.light_color = _sun_color_for_world()
+			sun_light.light_energy = 2.6
+			sun_light.rotation_degrees = Vector3(-55.0, -30.0, 0.0)
 	else:
 		world_environment.background_color = Color(0.55, 0.72, 0.95)
 		world_environment.ambient_light_color = Color(0.7, 0.78, 0.86)
@@ -753,9 +1811,24 @@ func _apply_map_atmosphere() -> void:
 		world_environment.fog_density = 0.010
 		world_environment.fog_light_color = Color(0.65, 0.75, 0.85)
 		if sun_light != null:
-			sun_light.light_color = Color.WHITE
+			sun_light.light_color = _sun_color_for_world()
 			sun_light.light_energy = 3.0
 			sun_light.rotation_degrees = Vector3(-50.0, -35.0, 0.0)
+
+
+func _sun_color_for_world() -> Color:
+	var world: Dictionary = _get_world(current_world_id)
+	if world.is_empty():
+		return Color.WHITE
+
+	var root_map_id: String = str(world.get("root_map", ""))
+	var maps: Dictionary = world.get("maps", {})
+	var root_record: Dictionary = maps.get(root_map_id, {})
+	var root_seed: int = int(root_record.get("seed", 12345))
+	var hue: float = float(abs(root_seed) % 360) / 360.0
+	if hue > 0.16 and hue < 0.50:
+		hue = 0.08 + float(abs(root_seed * 7) % 80) / 1000.0
+	return Color.from_hsv(hue, 0.25, 1.0)
 
 
 func _setup_hud() -> void:
@@ -771,8 +1844,8 @@ func _setup_hud() -> void:
 	panel.anchor_bottom = 0.0
 	panel.offset_left = 16.0
 	panel.offset_top = 16.0
-	panel.offset_right = 360.0
-	panel.offset_bottom = 425.0
+	panel.offset_right = 180.0
+	panel.offset_bottom = 212.0
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud_layer.add_child(panel)
 
@@ -791,13 +1864,13 @@ func _setup_hud() -> void:
 
 	hud_label = Label.new()
 	hud_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hud_label.add_theme_font_size_override("font_size", 14)
+	hud_label.add_theme_font_size_override("font_size", 7)
 	hud_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud_stack.add_child(hud_label)
 
 	var stamina_label := Label.new()
 	stamina_label.text = "Sprint"
-	stamina_label.add_theme_font_size_override("font_size", 12)
+	stamina_label.add_theme_font_size_override("font_size", 6)
 	stamina_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud_stack.add_child(stamina_label)
 
@@ -810,15 +1883,47 @@ func _setup_hud() -> void:
 	stamina_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud_stack.add_child(stamina_bar)
 
+	var breath_label := Label.new()
+	breath_label.text = "Breath"
+	breath_label.add_theme_font_size_override("font_size", 6)
+	breath_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_stack.add_child(breath_label)
+
+	breath_bar = ProgressBar.new()
+	breath_bar.min_value = 0.0
+	breath_bar.max_value = 60.0
+	breath_bar.value = 60.0
+	breath_bar.show_percentage = false
+	breath_bar.custom_minimum_size = Vector2(0.0, 9.0)
+	breath_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_stack.add_child(breath_bar)
+
 	minimap_panel = PanelContainer.new()
-	minimap_panel.custom_minimum_size = Vector2(160.0, 160.0)
+	minimap_panel.custom_minimum_size = Vector2(80.0, 80.0)
 	minimap_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minimap_panel.set_h_size_flags(Control.SIZE_SHRINK_CENTER)
 	hud_stack.add_child(minimap_panel)
 
 	minimap_marker_layer = Control.new()
-	minimap_marker_layer.custom_minimum_size = Vector2(160.0, 160.0)
+	minimap_marker_layer.custom_minimum_size = Vector2(80.0, 80.0)
 	minimap_marker_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	minimap_panel.add_child(minimap_marker_layer)
+
+	fps_label = Label.new()
+	fps_label.anchor_left = 0.0
+	fps_label.anchor_top = 0.0
+	fps_label.anchor_right = 1.0
+	fps_label.anchor_bottom = 0.0
+	fps_label.offset_left = 0.0
+	fps_label.offset_top = 4.0
+	fps_label.offset_right = -8.0
+	fps_label.offset_bottom = 30.0
+	fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	fps_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	fps_label.add_theme_font_size_override("font_size", 11)
+	fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fps_label.visible = false
+	hud_layer.add_child(fps_label)
 
 
 func _update_hud() -> void:
@@ -835,7 +1940,7 @@ func _update_hud() -> void:
 	var position_text: String = "No active player"
 	var warning_text: String = ""
 	if player != null:
-		var half: float = float(GRID_SIZE) * CELL_SIZE * 0.5
+		var half: float = _world_half_size()
 		var distance_to_edge: float = half - max(abs(player.global_position.x), abs(player.global_position.z))
 		position_text = "Position: " + str(int(player.global_position.x)) + ", " + str(int(player.global_position.z)) + " | edge " + str(max(int(distance_to_edge), 0)) + "m"
 		if is_underwater:
@@ -845,16 +1950,56 @@ func _update_hud() -> void:
 
 		if stamina_bar != null and player.get("sprint_stamina") != null:
 			stamina_bar.value = float(player.get("sprint_stamina"))
+		if breath_bar != null and player.get("breath") != null:
+			var p_breath: float = float(player.get("breath"))
+			breath_bar.value = p_breath
+			breath_bar.visible = p_breath < 60.0
+
+	var flashlight_text: String = ""
+	if player != null and player.get("flashlight_on") != null:
+		var f_on: bool = bool(player.get("flashlight_on"))
+		if f_on:
+			var f_charge: float = float(player.get("flashlight_charge"))
+			flashlight_text = "Flashlight: " + str(int(f_charge)) + "s"
+		else:
+			flashlight_text = "[F] Flashlight"
+
+	var world_name: String = "?"
+	if current_world_id != "":
+		var w: Dictionary = _get_world(current_world_id)
+		world_name = str(w.get("name", current_world_id))
 
 	var discovery_line: String = last_discovery_text
 	if discovery_line == "":
 		discovery_line = "Seek gates, ruins, and wonders."
 
-	hud_label.text = _atlas_summary_text() + "\nMap " + map_short + ": " + _map_completion_text(current_map_id) + "\n" + position_text + "\n" + discovery_line
+	var world_map_count: int = _current_world_map_count()
+	var maps_line: String = "Maps in world: " + str(world_map_count)
+
+	if _is_current_map_gate_room():
+		hud_label.text = "World: " + world_name + " — Gate Room\n" + _atlas_summary_text() + "\n" + maps_line + "\n" + position_text + "\n" + discovery_line
+		var src_world: String = str(_get_current_map_record().get("gate_room_return_world", ""))
+		if src_world != "":
+			hud_label.text += "\nWalk to Return portal to exit."
+	else:
+		hud_label.text = "World: " + world_name + "\n" + _atlas_summary_text() + "\n" + maps_line + "\nMap " + map_short + ": " + _map_completion_text(current_map_id) + "\n" + position_text + "\n" + discovery_line
+		var world: Dictionary = _get_world(current_world_id)
+		if str(world.get("gate_room_source_world", "")) != "" and str(world.get("gate_room_source_map", "")) != "":
+			hud_label.text += "\n[G] Return to Gate Room"
+
+	if lichen_count > 0:
+		hud_label.text += "\nLichen: " + str(lichen_count) + " [C] grab [T] throw"
+
+	if flashlight_text != "":
+		hud_label.text += "\n" + flashlight_text
+
 	if warning_text != "":
 		hud_label.text += "\n" + warning_text
 
 	_update_minimap()
+
+	if fps_label != null and fps_label.visible:
+		fps_label.text = str(Engine.get_frames_per_second()) + " FPS"
 
 
 func _update_minimap() -> void:
@@ -864,11 +2009,20 @@ func _update_minimap() -> void:
 	for child in minimap_marker_layer.get_children():
 		child.queue_free()
 
-	var size: float = 160.0
-	var half: float = float(GRID_SIZE) * CELL_SIZE * 0.5
+	var size: float = 80.0 if not _is_current_map_moon() else 100.0
+	var half: float = _world_half_size()
 	var player: CharacterBody3D = _get_player()
 	if player != null:
-		_add_minimap_dot(_world_to_minimap(player.global_position.x, player.global_position.z, size, half), Color.WHITE, 5.0)
+		var player_pos: Vector2 = _world_to_minimap(player.global_position.x, player.global_position.z, size, half)
+		var fwd: Vector3 = -player.global_transform.basis.z
+		var angle: float = atan2(fwd.x, -fwd.z)
+
+		var arrow := Polygon2D.new()
+		arrow.polygon = PackedVector2Array([Vector2(0.0, -5.0), Vector2(-4.0, 4.0), Vector2(4.0, 4.0)])
+		arrow.color = Color(1.0, 0.55, 0.0)
+		arrow.position = player_pos
+		arrow.rotation = angle
+		minimap_marker_layer.add_child(arrow)
 
 	var world: Dictionary = _get_world(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
@@ -887,7 +2041,9 @@ func _update_minimap() -> void:
 			color = Color(1.0, 0.7, 0.2)
 		elif kind == "ruin":
 			color = Color(0.75, 0.6, 1.0)
-		_add_minimap_dot(pos, color, 4.0)
+		elif kind == "orb":
+			color = Color(0.3, 1.0, 0.6)
+		_add_minimap_dot(pos, color, 1.5)
 
 
 func _world_to_minimap(x: float, z: float, size: float, half: float) -> Vector2:
@@ -920,7 +2076,7 @@ func _setup_underwater_overlay() -> void:
 
 
 func _update_underwater_state() -> void:
-	if _is_current_map_moon():
+	if _is_current_map_moon() or _is_current_map_gate_room():
 		if is_underwater:
 			is_underwater = false
 			if underwater_overlay != null:
@@ -966,7 +2122,9 @@ func _recover_fallen_player() -> void:
 	if player == null:
 		return
 
-	if player.global_position.y < WATER_LEVEL - 45.0:
+	player.set("lichen_count", lichen_count)
+
+	if player.global_position.y < WATER_LEVEL - 40.0:
 		var spawn: Vector3 = _find_spawn_position()
 		player.global_position = Vector3(spawn.x, spawn.y + 6.0, spawn.z)
 		player.velocity = Vector3.ZERO
@@ -974,24 +2132,48 @@ func _recover_fallen_player() -> void:
 
 
 func _build_height_values() -> void:
+	var g: int = _effective_grid_size()
 	height_values.clear()
-	height_values.resize((GRID_SIZE + 1) * (GRID_SIZE + 1))
+	height_values.resize((g + 1) * (g + 1))
 
-	for z in range(GRID_SIZE + 1):
-		for x in range(GRID_SIZE + 1):
+	for z in range(g + 1):
+		for x in range(g + 1):
 			height_values[_height_index(x, z)] = _raw_height_at_grid(x, z)
 
 
+func _effective_grid_size() -> int:
+	if _is_current_map_moon():
+		return GRID_SIZE * _moon_grid_scale
+	return GRID_SIZE
+
+
+func _world_half_size() -> float:
+	return float(_effective_grid_size()) * CELL_SIZE * 0.5
+
+
 func _height_index(x: int, z: int) -> int:
-	return z * (GRID_SIZE + 1) + x
+	var g: int = GRID_SIZE + 1
+	if _is_current_map_moon():
+		g = (GRID_SIZE * _moon_grid_scale) + 1
+	return z * g + x
 
 
 func _grid_to_world_x(x: int) -> float:
-	return (float(x) - float(GRID_SIZE) * 0.5) * CELL_SIZE
+	var g: float = float(GRID_SIZE)
+	var c: float = float(CELL_SIZE)
+	if _is_current_map_moon():
+		g = float(GRID_SIZE * _moon_grid_scale)
+		c = float(CELL_SIZE)
+	return (float(x) - g * 0.5) * c
 
 
 func _grid_to_world_z(z: int) -> float:
-	return (float(z) - float(GRID_SIZE) * 0.5) * CELL_SIZE
+	var g: float = float(GRID_SIZE)
+	var c: float = float(CELL_SIZE)
+	if _is_current_map_moon():
+		g = float(GRID_SIZE * _moon_grid_scale)
+		c = float(CELL_SIZE)
+	return (float(z) - g * 0.5) * c
 
 
 func _raw_height_at_grid(x: int, z: int) -> float:
@@ -1001,11 +2183,20 @@ func _raw_height_at_grid(x: int, z: int) -> float:
 
 
 func _height_at_world(wx: float, wz: float) -> float:
+	if _is_current_map_gate_room() or _is_current_map_cave() or _is_current_map_map_nexus():
+		return 0.0
+
 	if _is_current_map_moon():
-		var lunar_broad: float = noise.get_noise_2d(wx * 0.45 + 600.0, wz * 0.45 - 1200.0) * 5.0
-		var lunar_craters: float = noise.get_noise_2d(wx * 2.8 - 400.0, wz * 2.8 + 700.0) * 1.4
-		var crater_bowls: float = abs(noise.get_noise_2d(wx * 0.12 + 330.0, wz * 0.12 - 510.0)) * -4.2
+		var scale: float = 1.0 / float(_moon_grid_scale)
+		var lunar_broad: float = noise.get_noise_2d(wx * 0.45 * scale + 600.0, wz * 0.45 * scale - 1200.0) * 5.0
+		var lunar_craters: float = noise.get_noise_2d(wx * 2.8 * scale - 400.0, wz * 2.8 * scale + 700.0) * 1.4
+		var crater_bowls: float = abs(noise.get_noise_2d(wx * 0.12 * scale + 330.0, wz * 0.12 * scale - 510.0)) * -4.2
 		return lunar_broad + lunar_craters + crater_bowls
+
+	if _is_current_map_water():
+		var islands: float = noise.get_noise_2d(wx * 0.12, wz * 0.12) * 15.0
+		var detail_islands: float = noise.get_noise_2d(wx * 0.4 + 500.0, wz * 0.4 + 1000.0) * 5.0
+		return islands + detail_islands - 7.0
 
 	var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * HEIGHT_SCALE
 	var hills: float = noise.get_noise_2d(wx, wz) * 5.5
@@ -1023,8 +2214,9 @@ func _create_terrain_mesh() -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	for z in range(GRID_SIZE):
-		for x in range(GRID_SIZE):
+	var g: int = _effective_grid_size()
+	for z in range(g):
+		for x in range(g):
 			var p00: Vector3 = Vector3(_grid_to_world_x(x), height_values[_height_index(x, z)], _grid_to_world_z(z))
 			var p10: Vector3 = Vector3(_grid_to_world_x(x + 1), height_values[_height_index(x + 1, z)], _grid_to_world_z(z))
 			var p01: Vector3 = Vector3(_grid_to_world_x(x), height_values[_height_index(x, z + 1)], _grid_to_world_z(z + 1))
@@ -1042,7 +2234,20 @@ func _create_terrain_mesh() -> void:
 
 	var terrain_mat := StandardMaterial3D.new()
 	terrain_mat.vertex_color_use_as_albedo = true
-	terrain_mat.roughness = 1.0
+	if graphics_level >= 2:
+		terrain_mat.roughness = 0.75
+		terrain_mat.normal_enabled = true
+		terrain_mat.normal_scale = 0.25
+		var terrain_noise := FastNoiseLite.new()
+		terrain_noise.seed = world_seed
+		terrain_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		terrain_noise.frequency = 0.015
+		var noise_tex := NoiseTexture2D.new()
+		noise_tex.noise = terrain_noise
+		noise_tex.normalize = true
+		terrain_mat.normal_texture = noise_tex
+	else:
+		terrain_mat.roughness = 1.0
 	terrain.material_override = terrain_mat
 
 	_add_generated_child(terrain)
@@ -1055,8 +2260,9 @@ func _create_terrain_collision() -> void:
 	body.collision_mask = 1
 
 	var shape := HeightMapShape3D.new()
-	shape.map_width = GRID_SIZE + 1
-	shape.map_depth = GRID_SIZE + 1
+	var g: int = _effective_grid_size()
+	shape.map_width = g + 1
+	shape.map_depth = g + 1
 	shape.map_data = height_values
 
 	var collision := CollisionShape3D.new()
@@ -1068,12 +2274,435 @@ func _create_terrain_collision() -> void:
 	_add_generated_child(body)
 
 
+func _create_gate_room_terrain() -> void:
+	var floor_mat := StandardMaterial3D.new()
+	floor_mat.albedo_color = Color(0.08, 0.09, 0.12)
+	floor_mat.roughness = 0.80
+
+	var floor := MeshInstance3D.new()
+	floor.name = "GateRoomFloor"
+	var floor_mesh := CylinderMesh.new()
+	floor_mesh.top_radius = 32.0
+	floor_mesh.bottom_radius = 32.0
+	floor_mesh.height = 0.6
+	floor_mesh.radial_segments = 32
+	floor.mesh = floor_mesh
+	floor.material_override = floor_mat
+	floor.position.y = -0.3
+	_add_generated_child(floor)
+
+	var body := StaticBody3D.new()
+	body.name = "GateRoomFloorBody"
+	var col_shape := CollisionShape3D.new()
+	var col_cyl := CylinderShape3D.new()
+	col_cyl.radius = 32.0
+	col_cyl.height = 0.6
+	col_shape.shape = col_cyl
+	col_shape.position.y = -0.3
+	body.add_child(col_shape)
+	_add_generated_child(body)
+
+	for i in range(24):
+		var angle: float = TAU * float(i) / 24.0
+		var wall_mat := StandardMaterial3D.new()
+		wall_mat.albedo_color = Color(0.12, 0.13, 0.18)
+		wall_mat.roughness = 0.9
+		var wall := MeshInstance3D.new()
+		wall.name = "GateRoomWall_" + str(i)
+		var wall_mesh := BoxMesh.new()
+		wall_mesh.size = Vector3(2.5, 8.0, 0.6)
+		wall.mesh = wall_mesh
+		wall.material_override = wall_mat
+		wall.position = Vector3(cos(angle) * 31.5, 4.0, sin(angle) * 31.5)
+		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
+		_add_generated_child(wall)
+
+
+func _create_cave_terrain() -> void:
+	var stone_mat := StandardMaterial3D.new()
+	stone_mat.albedo_color = Color(0.12, 0.10, 0.08)
+	stone_mat.roughness = 0.95
+	var glow_mat := StandardMaterial3D.new()
+	glow_mat.albedo_color = Color(0.20, 0.70, 1.0)
+	glow_mat.emission_enabled = true
+	glow_mat.emission = Color(0.10, 0.50, 0.90)
+	glow_mat.emission_energy_multiplier = 1.5
+
+	var floor := MeshInstance3D.new()
+	floor.name = "CaveFloor"
+	var floor_mesh := CylinderMesh.new()
+	floor_mesh.top_radius = 45.0
+	floor_mesh.bottom_radius = 45.0
+	floor_mesh.height = 0.8
+	floor_mesh.radial_segments = 32
+	floor.mesh = floor_mesh
+	floor.material_override = stone_mat
+	floor.position.y = -0.4
+	_add_generated_child(floor)
+
+	var floor_body := StaticBody3D.new()
+	var floor_col := CollisionShape3D.new()
+	var floor_cyl := CylinderShape3D.new()
+	floor_cyl.radius = 45.0
+	floor_cyl.height = 0.8
+	floor_col.shape = floor_cyl
+	floor_col.position.y = -0.4
+	floor_body.add_child(floor_col)
+	_add_generated_child(floor_body)
+
+	var ceiling_mat := StandardMaterial3D.new()
+	ceiling_mat.albedo_color = Color(0.10, 0.08, 0.06)
+	ceiling_mat.roughness = 1.0
+	var ceiling := MeshInstance3D.new()
+	ceiling.name = "CaveCeiling"
+	var ceiling_mesh := CylinderMesh.new()
+	ceiling_mesh.top_radius = 44.0
+	ceiling_mesh.bottom_radius = 44.0
+	ceiling_mesh.height = 0.5
+	ceiling_mesh.radial_segments = 32
+	ceiling.mesh = ceiling_mesh
+	ceiling.material_override = ceiling_mat
+	ceiling.position.y = 8.0
+	_add_generated_child(ceiling)
+
+	var wall_mat := StandardMaterial3D.new()
+	wall_mat.albedo_color = Color(0.14, 0.11, 0.09)
+	wall_mat.roughness = 1.0
+	for i in range(32):
+		var angle: float = TAU * float(i) / 32.0
+		var wall := MeshInstance3D.new()
+		wall.name = "CaveWall_" + str(i)
+		var wall_mesh := BoxMesh.new()
+		wall_mesh.size = Vector3(3.0, 9.0, 0.8)
+		wall.mesh = wall_mesh
+		wall.material_override = wall_mat
+		wall.position = Vector3(cos(angle) * 44.5, 4.0, sin(angle) * 44.5)
+		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
+		_add_generated_child(wall)
+
+	var tunnel_data: Array[Dictionary] = [
+		{"x": -20.0, "z": -20.0, "angle": 0.0, "len": 25.0},
+		{"x": 18.0, "z": -18.0, "angle": 45.0, "len": 22.0},
+		{"x": -15.0, "z": 22.0, "angle": -30.0, "len": 28.0},
+		{"x": 22.0, "z": 15.0, "angle": 120.0, "len": 20.0},
+		{"x": -25.0, "z": 5.0, "angle": 80.0, "len": 18.0},
+		{"x": 8.0, "z": -25.0, "angle": -60.0, "len": 24.0},
+	]
+	for td in tunnel_data:
+		var cx: float = float(td["x"])
+		var cz: float = float(td["z"])
+		var a: float = deg_to_rad(float(td["angle"]))
+		var length: float = float(td["len"])
+		var segments: int = maxi(3, int(length / 3.0))
+		for j in range(segments):
+			var t: float = float(j) / float(segments)
+			var px: float = cx + cos(a) * t * length
+			var pz: float = cz + sin(a) * t * length
+			for side in [-1, 1]:
+				var tunnel_wall := MeshInstance3D.new()
+				var tw := BoxMesh.new()
+				tw.size = Vector3(0.3, 3.5, 3.0)
+				tunnel_wall.mesh = tw
+				tunnel_wall.material_override = wall_mat
+				var perp: float = a + PI * 0.5
+				tunnel_wall.position = Vector3(px + cos(perp) * 1.8 * side, 1.8, pz + sin(perp) * 1.8 * side)
+				tunnel_wall.rotation.y = a
+				_add_generated_child(tunnel_wall)
+			var arch_box := MeshInstance3D.new()
+			var ab := BoxMesh.new()
+			ab.size = Vector3(3.6, 0.3, 0.3)
+			arch_box.mesh = ab
+			arch_box.material_override = wall_mat
+			arch_box.position = Vector3(px, 3.6, pz)
+			arch_box.rotation.y = a
+			_add_generated_child(arch_box)
+
+	for i in range(14):
+		var pillar_mat := StandardMaterial3D.new()
+		pillar_mat.albedo_color = Color(0.15, 0.12, 0.10)
+		pillar_mat.roughness = 1.0
+		var pillar := MeshInstance3D.new()
+		var pm := CylinderMesh.new()
+		pm.top_radius = 0.3
+		pm.bottom_radius = 0.5
+		pm.height = 8.0
+		pillar.mesh = pm
+		pillar.material_override = pillar_mat
+		var a2: float = TAU * float(i) / 14.0
+		var r2: float = randf_range(12.0, 35.0)
+		pillar.position = Vector3(cos(a2) * r2, 4.0, sin(a2) * r2)
+		_add_generated_child(pillar)
+
+	var glow_pillar_mat := StandardMaterial3D.new()
+	glow_pillar_mat.albedo_color = Color(0.18, 0.75, 1.0)
+	glow_pillar_mat.emission_enabled = true
+	glow_pillar_mat.emission = Color(0.10, 0.60, 0.95)
+	glow_pillar_mat.emission_energy_multiplier = 1.8
+	for i in range(5):
+		var gp := MeshInstance3D.new()
+		var gpm := CylinderMesh.new()
+		gpm.top_radius = 0.15
+		gpm.bottom_radius = 0.25
+		gpm.height = randf_range(2.0, 4.0)
+		gp.mesh = gpm
+		gp.material_override = glow_pillar_mat
+		var a3: float = TAU * float(i) / 5.0
+		gp.position = Vector3(cos(a3) * 8.0, gpm.height * 0.5, sin(a3) * 8.0)
+		_add_generated_child(gp)
+
+		var gl := OmniLight3D.new()
+		gl.light_color = Color(0.15, 0.70, 1.0)
+		gl.light_energy = 1.5
+		gl.omni_range = 10.0
+		gl.position = Vector3(cos(a3) * 8.0, 1.5, sin(a3) * 8.0)
+		_add_generated_child(gl)
+
+
+func _scatter_cave_items() -> void:
+	var discovered: int = 0
+	for i in range(8):
+		var a: float = TAU * float(i) / 8.0 + randf_range(-0.2, 0.2)
+		var r: float = randf_range(6.0, 38.0)
+		var pos: Vector3 = Vector3(cos(a) * r, 0.0, sin(a) * r)
+		var kind: String = ["cave_crystal", "glyph", "geode"][i % 3]
+
+		var item_mat := StandardMaterial3D.new()
+		item_mat.albedo_color = Color(0.20, 0.75, 1.0)
+		item_mat.emission_enabled = true
+		item_mat.emission = Color(0.10, 0.55, 0.95)
+		item_mat.emission_energy_multiplier = 2.0
+
+		var item_name: String = ""
+		var discovery_kind: String = "wonder"
+		var mesh: MeshInstance3D = MeshInstance3D.new()
+		match kind:
+			"cave_crystal":
+				var cm := CylinderMesh.new()
+				cm.top_radius = 0.05
+				cm.bottom_radius = 0.5
+				cm.height = randf_range(2.0, 4.0)
+				cm.radial_segments = 8
+				mesh.mesh = cm
+				mesh.material_override = item_mat
+				mesh.position.y = cm.height * 0.5
+				item_name = "Luminous Cave Crystal"
+				discovery_kind = "wonder"
+			"glyph":
+				var gm := BoxMesh.new()
+				gm.size = Vector3(0.8, 0.6, 0.05)
+				mesh.mesh = gm
+				mesh.material_override = item_mat
+				mesh.position.y = 1.5
+				item_mat.emission_energy_multiplier = 1.2
+				item_name = "Ancient Cave Glyph"
+				discovery_kind = "ruin"
+			"geode":
+				var gm2 := SphereMesh.new()
+				gm2.radius = randf_range(0.4, 0.8)
+				gm2.height = gm2.radius * 1.2
+				mesh.mesh = gm2
+				mesh.material_override = item_mat
+				mesh.position.y = gm2.radius
+				item_mat.emission_energy_multiplier = 0.8
+				item_name = "Glowing Geode"
+				discovery_kind = "wonder"
+
+		var item := Node3D.new()
+		item.name = kind
+		item.position = pos
+		item.add_child(mesh)
+
+		_add_discovery_area(item, Vector3(0.0, 1.0, 0.0), 4.0, "cave_item_" + str(i), item_name, discovery_kind)
+		_add_generated_child(item)
+		discovered += 1
+
+	current_map_available_discoveries += discovered
+
+
+func _create_map_nexus_terrain() -> void:
+	var floor_mat := StandardMaterial3D.new()
+	floor_mat.albedo_color = Color(0.08, 0.09, 0.14)
+	floor_mat.roughness = 0.80
+
+	var floor := MeshInstance3D.new()
+	floor.name = "MapNexusFloor"
+	var floor_mesh := CylinderMesh.new()
+	floor_mesh.top_radius = 48.0
+	floor_mesh.bottom_radius = 48.0
+	floor_mesh.height = 0.6
+	floor_mesh.radial_segments = 40
+	floor.mesh = floor_mesh
+	floor.material_override = floor_mat
+	floor.position.y = -0.3
+	_add_generated_child(floor)
+
+	var body := StaticBody3D.new()
+	body.name = "MapNexusFloorBody"
+	var col_shape := CollisionShape3D.new()
+	var col_cyl := CylinderShape3D.new()
+	col_cyl.radius = 48.0
+	col_cyl.height = 0.6
+	col_shape.shape = col_cyl
+	col_shape.position.y = -0.3
+	body.add_child(col_shape)
+	_add_generated_child(body)
+
+	var wall_mat := StandardMaterial3D.new()
+	wall_mat.albedo_color = Color(0.12, 0.13, 0.20)
+	wall_mat.roughness = 0.9
+	for i in range(36):
+		var angle: float = TAU * float(i) / 36.0
+		var wall := MeshInstance3D.new()
+		wall.name = "MapNexusWall_" + str(i)
+		var wall_mesh := BoxMesh.new()
+		wall_mesh.size = Vector3(2.5, 8.0, 0.6)
+		wall.mesh = wall_mesh
+		wall.material_override = wall_mat
+		wall.position = Vector3(cos(angle) * 47.5, 4.0, sin(angle) * 47.5)
+		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
+		_add_generated_child(wall)
+
+
+func _scatter_map_nexus_gates() -> void:
+	var slot_count: int = 32
+	var rows: Array[Dictionary] = [
+		{"count": 8, "radius": 25.0, "start_angle": -0.7, "end_angle": 0.7},
+		{"count": 8, "radius": 32.0, "start_angle": -0.7, "end_angle": 0.7},
+		{"count": 8, "radius": 39.0, "start_angle": -0.7, "end_angle": 0.7},
+		{"count": 8, "radius": 46.0, "start_angle": -0.7, "end_angle": 0.7},
+	]
+	var gate_mat := StandardMaterial3D.new()
+	gate_mat.albedo_color = Color(0.20, 0.18, 0.30)
+	gate_mat.roughness = 0.9
+	var glow_mat := StandardMaterial3D.new()
+	glow_mat.albedo_color = Color(0.6, 0.5, 1.0)
+	glow_mat.emission_enabled = true
+	glow_mat.emission = Color(0.4, 0.3, 0.8)
+	glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	var map_record: Dictionary = _get_current_map_record()
+	var slots: Dictionary = map_record.get("nexus_slots", {})
+	var maps: Dictionary = (_get_world(current_world_id)).get("maps", {})
+
+	var slot_idx: int = 0
+	for row in rows:
+		var count: int = int(row["count"])
+		var radius: float = float(row["radius"])
+		var start_angle: float = float(row["start_angle"])
+		var end_angle: float = float(row["end_angle"])
+		for i in range(count):
+			var t: float = float(i) / float(count - 1)
+			var angle: float = lerp(start_angle, end_angle, t)
+			var x: float = sin(angle) * radius
+			var z: float = cos(angle) * radius
+
+			var gate := Node3D.new()
+			gate.name = "NexusGate" + str(slot_idx)
+			gate.position = Vector3(x, 0.0, z)
+			gate.rotation.y = -angle
+
+			var post_mesh := BoxMesh.new()
+			post_mesh.size = Vector3(0.2, 2.5, 0.2)
+			var left_post := MeshInstance3D.new()
+			left_post.mesh = post_mesh
+			left_post.position = Vector3(-0.7, 1.25, 0.0)
+			left_post.material_override = gate_mat
+			gate.add_child(left_post)
+			var right_post := MeshInstance3D.new()
+			right_post.mesh = post_mesh
+			right_post.position = Vector3(0.7, 1.25, 0.0)
+			right_post.material_override = gate_mat
+			gate.add_child(right_post)
+
+			var arch_mesh := BoxMesh.new()
+			arch_mesh.size = Vector3(1.8, 0.15, 0.2)
+			var arch := MeshInstance3D.new()
+			arch.mesh = arch_mesh
+			arch.position = Vector3(0.0, 2.6, 0.0)
+			arch.material_override = gate_mat
+			gate.add_child(arch)
+
+			var g := MeshInstance3D.new()
+			var gm := BoxMesh.new()
+			gm.size = Vector3(1.2, 1.8, 0.04)
+			g.mesh = gm
+			g.position = Vector3(0.0, 1.4, 0.05)
+			g.material_override = glow_mat
+			gate.add_child(g)
+
+			var slot_key: String = str(slot_idx)
+			var target_map_id: String = str(slots.get(slot_key, ""))
+			var label_text: String = "Slot " + str(slot_idx + 1)
+			if target_map_id != "" and maps.has(target_map_id):
+				label_text = str(slot_idx + 1)
+
+			var label := Label3D.new()
+			label.text = label_text
+			label.font_size = 12
+			label.modulate = Color(0.8, 0.75, 1.0)
+			label.position = Vector3(0.0, 3.3, 0.0)
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			label.no_depth_test = true
+			gate.add_child(label)
+
+			var area := Area3D.new()
+			area.name = "NexusGateTrigger"
+			area.collision_layer = 0
+			area.collision_mask = 2
+			var area_shape := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = Vector3(1.8, 2.4, 1.0)
+			area_shape.shape = box
+			area_shape.position = Vector3(0.0, 1.4, 0.0)
+			area.add_child(area_shape)
+			area.body_entered.connect(_on_map_nexus_gate_body_entered.bind(slot_idx))
+			gate.add_child(area)
+
+			_add_generated_child(gate)
+			slot_idx += 1
+
+
+func _on_map_nexus_gate_body_entered(body: Node3D, slot_index: int) -> void:
+	if body.name != "Player" or current_world_id == "" or current_map_id == "":
+		return
+	if not _is_current_map_map_nexus():
+		return
+
+	var map_record: Dictionary = _get_current_map_record()
+	var slots: Dictionary = map_record.get("nexus_slots", {})
+	var slot_key: String = str(slot_index)
+	var target_map_id: String = str(slots.get(slot_key, ""))
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+
+	if target_map_id == "" or not maps.has(target_map_id):
+		if maps.size() >= 32:
+			last_discovery_text = "No more maps can be opened in this world."
+			return
+		target_map_id = _new_id("map")
+		var map_seed: int = int((world_seed ^ ((slot_index + 1) * 991948531) ^ 412038719) & 0x7fffffff)
+		if map_seed == 0:
+			map_seed = 54321 + slot_index
+		maps[target_map_id] = _create_map_record(map_seed)
+		slots[slot_key] = target_map_id
+		map_record["nexus_slots"] = slots
+		var w: Dictionary = _get_world(current_world_id)
+		var ms: Dictionary = w.get("maps", {})
+		ms[current_map_id] = map_record
+		w["maps"] = ms
+		_set_world(current_world_id, w)
+		_save_world_data()
+		last_discovery_text = "Unfolding map " + str(slot_index + 1) + "..."
+
+	_load_map(current_world_id, target_map_id)
+
+
 func _create_world_bounds() -> void:
-	var half: float = float(GRID_SIZE) * CELL_SIZE * 0.5
+	var half: float = _world_half_size()
 	var wall_height: float = 80.0
 	var wall_thickness: float = 4.0
 	var wall_center_y: float = 18.0
-	var wall_length: float = float(GRID_SIZE) * CELL_SIZE + wall_thickness * 2.0
+	var wall_length: float = float(_effective_grid_size()) * CELL_SIZE + wall_thickness * 2.0
 
 	var bounds := Node3D.new()
 	bounds.name = "WorldEdgeBarriers"
@@ -1081,6 +2710,7 @@ func _create_world_bounds() -> void:
 	_add_box_collision(bounds, Vector3(-half, wall_center_y, 0.0), Vector3(wall_thickness, wall_height, wall_length))
 	_add_box_collision(bounds, Vector3(0.0, wall_center_y, half), Vector3(wall_length, wall_height, wall_thickness))
 	_add_box_collision(bounds, Vector3(0.0, wall_center_y, -half), Vector3(wall_length, wall_height, wall_thickness))
+	_add_box_collision(bounds, Vector3(0.0, -45.0, 0.0), Vector3(wall_length * 2.0, 0.2, wall_length * 2.0))
 	_add_generated_child(bounds)
 
 
@@ -1099,9 +2729,34 @@ func _create_water() -> void:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.roughness = 0.18
 	mat.metallic = 0.0
+	if graphics_level >= 2:
+		mat.roughness = 0.05
+		mat.metallic = 0.1
+		mat.normal_enabled = true
+		mat.normal_scale = 0.5
+		var water_noise := FastNoiseLite.new()
+		water_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		water_noise.frequency = 0.04
+		water_noise.seed = world_seed
+		var wn_tex := NoiseTexture2D.new()
+		wn_tex.noise = water_noise
+		wn_tex.normalize = true
+		mat.normal_texture = wn_tex
 	water.material_override = mat
 
 	_add_generated_child(water)
+
+	var water_collision := StaticBody3D.new()
+	water_collision.name = "WaterCollision"
+	water_collision.collision_layer = 4
+	var water_shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	var water_size: float = float(GRID_SIZE) * CELL_SIZE * 0.94
+	box.size = Vector3(water_size, 0.2, water_size)
+	water_shape.shape = box
+	water_collision.add_child(water_shape)
+	water_collision.position.y = WATER_LEVEL
+	_add_generated_child(water_collision)
 
 
 func _create_moon_sky() -> void:
@@ -1115,50 +2770,157 @@ func _create_moon_sky() -> void:
 	star_mat.emission_energy_multiplier = 1.8
 	star_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
-	for i in range(140):
+	for i in range(200):
+		var angle := randf_range(0.0, TAU)
+		var elev := randf_range(15.0, 75.0)
+		var dist := randf_range(600.0, 1000.0)
 		var star := MeshInstance3D.new()
 		var mesh := SphereMesh.new()
-		mesh.radius = randf_range(0.10, 0.26)
+		mesh.radius = randf_range(0.3, 0.8)
 		mesh.height = mesh.radius * 2.0
 		star.mesh = mesh
 		star.material_override = star_mat
-		star.position = Vector3(randf_range(-220.0, 220.0), randf_range(55.0, 135.0), randf_range(-240.0, -120.0))
+		var sx := cos(angle) * cos(deg_to_rad(elev)) * dist
+		var sy := sin(deg_to_rad(elev)) * dist
+		var sz := sin(angle) * cos(deg_to_rad(elev)) * dist
+		star.position = Vector3(sx, sy, sz)
 		sky.add_child(star)
 
-	var earth := MeshInstance3D.new()
+	var earth := Node3D.new()
 	earth.name = "DistantBlueWorld"
+	earth.position = Vector3(500.0, 100.0, -240.0)
+
 	var earth_mesh := SphereMesh.new()
-	earth_mesh.radius = 13.0
-	earth_mesh.height = 26.0
-	earth.mesh = earth_mesh
-	earth.position = Vector3(-115.0, 60.0, -185.0)
+	earth_mesh.radius = 80.0
+	earth_mesh.height = 160.0
+	earth_mesh.radial_segments = 32
+	earth_mesh.rings = 16
+	var earth_surf := SurfaceTool.new()
+	earth_surf.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var e_verts: Array[Vector3] = []
+	var e_colors: Array[Color] = []
+	var e_normals: Array[Vector3] = []
+	var e_u: Array[Vector2] = []
+	for lat in range(17):
+		var theta1: float = float(lat) / 16.0 * PI
+		var theta2: float = float(lat + 1) / 16.0 * PI
+		for lon in range(33):
+			var phi1: float = float(lon) / 32.0 * TAU
+			var phi2: float = float(lon + 1) / 32.0 * TAU
+			var p1 := _sphere_point(80.0, theta1, phi1)
+			var p2 := _sphere_point(80.0, theta2, phi1)
+			var p3 := _sphere_point(80.0, theta2, phi2)
+			var p4 := _sphere_point(80.0, theta1, phi2)
+			var c1 := _earth_color(p1, world_seed)
+			var c2 := _earth_color(p2, world_seed)
+			var c3 := _earth_color(p3, world_seed)
+			var c4 := _earth_color(p4, world_seed)
+			var n := p1.normalized()
+			e_verts.push_back(p1); e_verts.push_back(p2); e_verts.push_back(p3)
+			e_colors.push_back(c1); e_colors.push_back(c2); e_colors.push_back(c3)
+			e_normals.push_back(n); e_normals.push_back(n); e_normals.push_back(n)
+			e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0))
+			e_verts.push_back(p1); e_verts.push_back(p3); e_verts.push_back(p4)
+			e_colors.push_back(c1); e_colors.push_back(c3); e_colors.push_back(c4)
+			e_normals.push_back(n); e_normals.push_back(n); e_normals.push_back(n)
+			e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0))
+	for i in range(e_verts.size()):
+		earth_surf.set_uv(e_u[i])
+		earth_surf.set_color(e_colors[i])
+		earth_surf.set_normal(e_normals[i])
+		earth_surf.add_vertex(e_verts[i])
+	earth_surf.generate_normals()
+	var earth_body := MeshInstance3D.new()
+	earth_body.mesh = earth_surf.commit()
 	var earth_mat := StandardMaterial3D.new()
-	earth_mat.albedo_color = Color(0.25, 0.55, 0.95)
-	earth_mat.emission_enabled = true
-	earth_mat.emission = Color(0.10, 0.32, 0.75)
-	earth_mat.emission_energy_multiplier = 0.75
-	earth.material_override = earth_mat
+	earth_mat.vertex_color_use_as_albedo = true
+	earth_mat.roughness = 0.85
+	earth_body.material_override = earth_mat
+	earth.add_child(earth_body)
+
+	var atmos_mat := StandardMaterial3D.new()
+	atmos_mat.albedo_color = Color(0.35, 0.65, 1.0, 0.35)
+	atmos_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	atmos_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	atmos_mat.emission_enabled = true
+	atmos_mat.emission = Color(0.15, 0.40, 0.90)
+	atmos_mat.emission_energy_multiplier = 0.6
+	atmos_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var atmos_mesh := SphereMesh.new()
+	atmos_mesh.radius = 83.0
+	atmos_mesh.height = 166.0
+	var atmos := MeshInstance3D.new()
+	atmos.mesh = atmos_mesh
+	atmos.material_override = atmos_mat
+	earth.add_child(atmos)
+
+	for ci in range(8):
+		var c_angle := randf_range(0.0, TAU)
+		var c_lat := randf_range(-PI * 0.35, PI * 0.35)
+		var c_dist := randf_range(0.6, 0.85)
+		var c_pt := _sphere_point(82.5, c_lat, c_angle) * c_dist
+		var cloud_mat := StandardMaterial3D.new()
+		cloud_mat.albedo_color = Color(0.95, 0.97, 1.0, 0.55)
+		cloud_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		cloud_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		cloud_mat.emission_enabled = true
+		cloud_mat.emission = Color(0.8, 0.85, 0.95)
+		cloud_mat.emission_energy_multiplier = 0.4
+		cloud_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var c_mesh := SphereMesh.new()
+		c_mesh.radius = randf_range(4.0, 12.0)
+		c_mesh.height = c_mesh.radius * randf_range(0.3, 0.6)
+		var cloud := MeshInstance3D.new()
+		cloud.mesh = c_mesh
+		cloud.material_override = cloud_mat
+		cloud.position = c_pt
+		cloud.rotation_degrees = Vector3(randf_range(-20, 20), randf_range(0, 360), randf_range(-10, 10))
+		earth.add_child(cloud)
+
 	sky.add_child(earth)
 
 	var rim := MeshInstance3D.new()
 	rim.name = "MoonHorizonGlow"
 	var rim_mesh := TorusMesh.new()
-	rim_mesh.outer_radius = 125.0
-	rim_mesh.inner_radius = 123.5
+	rim_mesh.outer_radius = 600.0
+	rim_mesh.inner_radius = 598.0
 	rim.mesh = rim_mesh
-	rim.position = Vector3(0.0, -2.5, -95.0)
+	rim.position = Vector3(0.0, -6.0, -900.0)
 	rim.rotation_degrees.x = 90.0
 	var rim_mat := StandardMaterial3D.new()
-	rim_mat.albedo_color = Color(0.18, 0.45, 0.95, 0.35)
+	rim_mat.albedo_color = Color(0.18, 0.45, 0.95, 0.20)
 	rim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	rim_mat.emission_enabled = true
 	rim_mat.emission = Color(0.08, 0.22, 0.65)
-	rim_mat.emission_energy_multiplier = 1.2
+	rim_mat.emission_energy_multiplier = 0.8
 	rim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	rim.material_override = rim_mat
 	sky.add_child(rim)
 
 	_add_generated_child(sky)
+
+
+static func _sphere_point(r: float, theta: float, phi: float) -> Vector3:
+	return Vector3(r * sin(theta) * cos(phi), r * cos(theta), r * sin(theta) * sin(phi))
+
+
+func _earth_color(p: Vector3, seed: int) -> Color:
+	var n: Vector3 = p.normalized()
+	var lon := atan2(n.z, n.x)
+	var lat := acos(n.y)
+	var sx := cos(lat) * 3.5 + 1000.0
+	var sz := sin(lat) * 2.8 + float(seed) * 0.1
+	var noise_val := sin(lon * 3.0 + sx) * 0.5 + sin(lon * 7.0 + sx * 1.3) * 0.25 + sin(lon * 13.0 + sx * 0.7) * 0.15
+	noise_val += sin(lat * 4.0 + sz) * 0.3 + sin(lat * 8.0 + sz * 1.5) * 0.15
+	var land: float = clamp((noise_val + 1.0) * 0.5, 0.0, 1.0)
+	if land > 0.52:
+		var green: float = 0.45 + sin(noise_val * 17.0) * 0.10
+		return Color(0.12, green, 0.08)
+	elif land > 0.44:
+		return Color(0.72, 0.68, 0.52)
+	elif land > 0.38:
+		return Color(0.30, 0.38, 0.48)
+	return Color(0.08, 0.22, 0.55)
 
 
 func _add_triangle(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, color_a: Color, color_b: Color, color_c: Color) -> void:
@@ -1202,6 +2964,25 @@ func _spawn_player() -> void:
 
 
 func _find_spawn_position() -> Vector3:
+	if _is_current_map_gate_room():
+		return Vector3(0.0, _height_at_world(0.0, 0.0), 28.0)
+
+	if _is_current_map_cave():
+		return Vector3(0.0, _height_at_world(0.0, 0.0), 0.0)
+
+	if _is_current_map_map_nexus():
+		return Vector3(0.0, _height_at_world(0.0, 0.0), 40.0)
+
+	if _is_current_map_water():
+		var half: float = float(GRID_SIZE) * CELL_SIZE * 0.5
+		for attempt in range(200):
+			var x: float = randf_range(-half + 20.0, half - 20.0)
+			var z: float = randf_range(-half + 20.0, half - 20.0)
+			var y: float = _height_at_world(x, z)
+			if y > WATER_LEVEL + 1.0:
+				return Vector3(x, y, z)
+		return Vector3(0.0, _height_at_world(0.0, 0.0), 0.0)
+
 	var spawn_radii: Array[float] = [0.0, 10.0, 18.0, 28.0, 40.0]
 	for radius_value in spawn_radii:
 		var radius: float = float(radius_value)
@@ -1217,6 +2998,10 @@ func _find_spawn_position() -> Vector3:
 
 
 func _scatter_trees() -> void:
+	var trunk_seg: int = [8, 14, 22, 32][clampi(graphics_level, 0, 3)]
+	var leaf_seg: int = [12, 18, 28, 40][clampi(graphics_level, 0, 3)]
+	var leaf_rings: int = [6, 10, 16, 24][clampi(graphics_level, 0, 3)]
+
 	for i in range(TREE_COUNT):
 		var pos: Vector3 = _random_land_position(WATER_LEVEL + 0.35)
 		if pos.distance_to(Vector3.ZERO) < 8.0:
@@ -1224,43 +3009,179 @@ func _scatter_trees() -> void:
 
 		var tree := Node3D.new()
 		tree.name = "Tree"
-
-		var trunk := MeshInstance3D.new()
-		var trunk_mesh := CylinderMesh.new()
-		trunk_mesh.top_radius = 0.18
-		trunk_mesh.bottom_radius = 0.30
-		trunk_mesh.height = randf_range(2.0, 3.3)
-		trunk.mesh = trunk_mesh
-		trunk.position.y = trunk_mesh.height * 0.5
-
-		var trunk_mat := StandardMaterial3D.new()
-		trunk_mat.albedo_color = Color(0.32, 0.19, 0.09)
-		trunk.material_override = trunk_mat
-
-		var leaves := MeshInstance3D.new()
-		var leaves_mesh := SphereMesh.new()
-		leaves_mesh.radius = randf_range(1.0, 1.6)
-		leaves_mesh.height = leaves_mesh.radius * 1.8
-		leaves.mesh = leaves_mesh
-		leaves.position.y = trunk_mesh.height + 0.9
-
-		var leaves_mat := StandardMaterial3D.new()
-		var biome: float = _biome_value(pos.x, pos.z)
-		if pos.y > 8.0:
-			leaves_mat.albedo_color = Color(0.18, 0.32, 0.15)
-		elif biome > 0.25:
-			leaves_mat.albedo_color = Color(0.08, randf_range(0.34, 0.50), 0.12)
-		else:
-			leaves_mat.albedo_color = Color(0.10, randf_range(0.24, 0.38), 0.09)
-		leaves.material_override = leaves_mat
-
-		tree.add_child(trunk)
-		tree.add_child(leaves)
-		_add_cylinder_collision(tree, Vector3(0.0, trunk_mesh.height * 0.5, 0.0), 0.34, trunk_mesh.height)
-		tree.position = pos
+		tree.position = Vector3(pos.x, pos.y - 0.15, pos.z)
 		tree.rotation_degrees.y = randf_range(0.0, 360.0)
 		tree.scale = Vector3.ONE * randf_range(0.8, 1.25)
+
+		var kind: String = _tree_kind_for_position(pos)
+		_build_tree_visual(tree, kind, trunk_seg, leaf_seg, leaf_rings, pos)
+
+		var trunk_h: float = float(tree.get_meta("trunk_height", 2.5))
+		_add_cylinder_collision(tree, Vector3(0.0, trunk_h * 0.5, 0.0), 0.34, trunk_h)
 		_add_generated_child(tree)
+
+
+func _tree_kind_for_position(pos: Vector3) -> String:
+	var biome: float = _biome_value(pos.x, pos.z)
+	if pos.y > 9.0:
+		return "pine"
+	if biome > 0.35:
+		return "broadleaf"
+	if biome < -0.35:
+		return "sparse"
+	return "round"
+
+
+func _build_tree_visual(tree: Node3D, kind: String, trunk_seg: int, leaf_seg: int, leaf_rings: int, pos: Vector3) -> void:
+	match kind:
+		"pine":
+			_build_pine_tree(tree, trunk_seg, leaf_seg, leaf_rings, pos)
+		"broadleaf":
+			_build_broadleaf_tree(tree, trunk_seg, leaf_seg, leaf_rings, pos)
+		"sparse":
+			_build_sparse_tree(tree, trunk_seg, leaf_seg, leaf_rings, pos)
+		_:
+			_build_round_tree(tree, trunk_seg, leaf_seg, leaf_rings, pos)
+
+
+func _get_tree_material(key: String, color: Color) -> StandardMaterial3D:
+	if tree_materials.has(key):
+		return tree_materials[key] as StandardMaterial3D
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.9
+	tree_materials[key] = mat
+	return mat
+
+
+func _build_trunk(tree: Node3D, height: float, trunk_seg: int, color: Color) -> StandardMaterial3D:
+	var trunk_mesh := CylinderMesh.new()
+	trunk_mesh.top_radius = 0.18
+	trunk_mesh.bottom_radius = 0.30
+	trunk_mesh.height = height
+	trunk_mesh.radial_segments = trunk_seg
+
+	var trunk := MeshInstance3D.new()
+	trunk.mesh = trunk_mesh
+	trunk.position.y = height * 0.5
+	trunk.scale.x = randf_range(0.85, 1.15)
+	trunk.scale.z = randf_range(0.85, 1.15)
+	trunk.rotation_degrees.x = randf_range(-2.0, 2.0)
+	trunk.rotation_degrees.z = randf_range(-2.0, 2.0)
+
+	var mat_key: String = "trunk_" + str(color)
+	var mat := _get_tree_material(mat_key, color)
+	trunk.material_override = mat
+	tree.add_child(trunk)
+	tree.set_meta("trunk_height", height)
+	return mat
+
+
+func _build_branches(tree: Node3D, trunk_height: float, trunk_seg: int, trunk_mat: StandardMaterial3D) -> void:
+	var branch_count: int = [0, 4, 6, 9][clampi(graphics_level, 0, 3)]
+	var branch_seg: int = [6, 8, 10, 14][clampi(graphics_level, 0, 3)]
+	for b in range(branch_count):
+		var branch_mesh := CylinderMesh.new()
+		branch_mesh.top_radius = 0.04
+		branch_mesh.bottom_radius = 0.10
+		branch_mesh.height = randf_range(0.8, 1.8)
+		branch_mesh.radial_segments = branch_seg
+		var branch := MeshInstance3D.new()
+		branch.mesh = branch_mesh
+		branch.material_override = trunk_mat
+		var angle := randf_range(0.0, TAU)
+		var y_frac := randf_range(0.35, 0.85)
+		var tilt := deg_to_rad(randf_range(25.0, 50.0))
+		var dir := Vector3(cos(angle) * cos(tilt), sin(tilt), sin(angle) * cos(tilt))
+		var half_len: float = branch_mesh.height * 0.5
+		branch.position = Vector3(cos(angle) * 0.19 + dir.x * half_len, trunk_height * y_frac + dir.y * half_len, sin(angle) * 0.19 + dir.z * half_len)
+		branch.quaternion = Quaternion(Vector3(0.0, 1.0, 0.0), dir)
+		tree.add_child(branch)
+
+
+func _build_leaf_blobs(tree: Node3D, count: int, center_y: float, spread: float, leaf_seg: int, leaf_rings: int, leaf_mat: StandardMaterial3D) -> void:
+	for b in range(count):
+		var blob := MeshInstance3D.new()
+		var blob_mesh := SphereMesh.new()
+		blob_mesh.radius = randf_range(0.75, 1.35) * spread
+		blob_mesh.height = blob_mesh.radius * randf_range(1.1, 1.7)
+		blob_mesh.radial_segments = leaf_seg
+		blob_mesh.rings = leaf_rings
+		blob.mesh = blob_mesh
+		blob.material_override = leaf_mat
+		blob.position = Vector3(randf_range(-0.5, 0.5), center_y + randf_range(-0.2, 1.0), randf_range(-0.5, 0.5))
+		blob.scale = Vector3(randf_range(0.8, 1.35), randf_range(0.7, 1.15), randf_range(0.8, 1.35))
+		tree.add_child(blob)
+
+
+func _build_leaf_color(pos: Vector3) -> Color:
+	var biome: float = _biome_value(pos.x, pos.z)
+	var hue_shift: float = randf_range(-0.035, 0.035)
+	var sat: float = randf_range(0.65, 0.95)
+	var val: float = randf_range(0.55, 0.85)
+	if pos.y > 8.0:
+		return Color.from_hsv(0.30 + hue_shift, sat * 0.8, val * 0.7)
+	if biome > 0.25:
+		return Color.from_hsv(0.28 + hue_shift, sat, val)
+	return Color.from_hsv(0.32 + hue_shift, sat * 0.8, val * 0.8)
+
+
+func _build_round_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, leaf_rings: int, pos: Vector3) -> void:
+	var trunk_h: float = randf_range(2.0, 3.3)
+	var trunk_mat := _build_trunk(tree, trunk_h, trunk_seg, Color(0.32, 0.19, 0.09))
+	_build_branches(tree, trunk_h, trunk_seg, trunk_mat)
+	var blob_count: int = [2, 3, 5, 7][clampi(graphics_level, 0, 3)]
+	var leaf_color: Color = _build_leaf_color(pos)
+	var leaf_key: String = "leaf_" + str(leaf_color)
+	var leaf_mat := _get_tree_material(leaf_key, leaf_color)
+	_build_leaf_blobs(tree, blob_count, trunk_h * 0.925 + 0.25, 1.0, leaf_seg, leaf_rings, leaf_mat)
+
+
+func _build_pine_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, leaf_rings: int, pos: Vector3) -> void:
+	var trunk_h: float = randf_range(2.5, 4.0)
+	var trunk_mat := _build_trunk(tree, trunk_h, trunk_seg, Color(0.38, 0.22, 0.10))
+	var leaf_color: Color = _build_leaf_color(pos)
+	leaf_color = Color.from_hsv(0.30, randf_range(0.50, 0.75), randf_range(0.35, 0.55))
+	var leaf_key: String = "leaf_" + str(leaf_color)
+	var leaf_mat := _get_tree_material(leaf_key, leaf_color)
+	var layer_count: int = [3, 4, 5, 6][clampi(graphics_level, 0, 3)]
+	var cone_seg: int = [8, 12, 18, 26][clampi(graphics_level, 0, 3)]
+	for i in range(layer_count):
+		var cone_mesh := CylinderMesh.new()
+		cone_mesh.top_radius = 0.0
+		cone_mesh.bottom_radius = randf_range(0.8, 1.4) * (1.0 - float(i) * 0.10)
+		cone_mesh.height = randf_range(1.0, 1.6)
+		cone_mesh.radial_segments = cone_seg
+		var cone := MeshInstance3D.new()
+		cone.mesh = cone_mesh
+		cone.material_override = leaf_mat
+		cone.position.y = trunk_h * 0.5 + float(i) * 0.7
+		tree.add_child(cone)
+
+
+func _build_broadleaf_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, leaf_rings: int, pos: Vector3) -> void:
+	var trunk_h: float = randf_range(2.8, 4.0)
+	var trunk_mat := _build_trunk(tree, trunk_h, trunk_seg, Color(0.35, 0.20, 0.08))
+	_build_branches(tree, trunk_h, trunk_seg, trunk_mat)
+	var blob_count: int = [3, 4, 6, 9][clampi(graphics_level, 0, 3)]
+	var leaf_color: Color = _build_leaf_color(pos)
+	leaf_color.s = randf_range(0.75, 1.0)
+	leaf_color.v = randf_range(0.60, 0.90)
+	var leaf_key: String = "leaf_" + str(leaf_color)
+	var leaf_mat := _get_tree_material(leaf_key, leaf_color)
+	_build_leaf_blobs(tree, blob_count, trunk_h * 0.925 + 0.25, 1.3, leaf_seg, leaf_rings, leaf_mat)
+
+
+func _build_sparse_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, leaf_rings: int, pos: Vector3) -> void:
+	var trunk_h: float = randf_range(1.8, 2.8)
+	var trunk_mat := _build_trunk(tree, trunk_h, trunk_seg, Color(0.28, 0.16, 0.07))
+	var blob_count: int = [1, 2, 3, 4][clampi(graphics_level, 0, 3)]
+	var leaf_color: Color = _build_leaf_color(pos)
+	leaf_color.s *= 0.6
+	leaf_color.v *= 0.7
+	var leaf_key: String = "leaf_" + str(leaf_color)
+	var leaf_mat := _get_tree_material(leaf_key, leaf_color)
+	_build_leaf_blobs(tree, blob_count, trunk_h * 0.925 + 0.25, 0.7, leaf_seg, leaf_rings, leaf_mat)
 
 
 func _scatter_rocks() -> void:
@@ -1269,6 +3190,8 @@ func _scatter_rocks() -> void:
 		if pos.distance_to(Vector3.ZERO) < 6.0:
 			continue
 
+		var rseg: int = [12, 18, 28][clampi(graphics_level, 0, 2)]
+		var rrings: int = [6, 10, 16][clampi(graphics_level, 0, 2)]
 		var rock := Node3D.new()
 		rock.name = "Rock"
 
@@ -1277,6 +3200,8 @@ func _scatter_rocks() -> void:
 		var rock_mesh := SphereMesh.new()
 		rock_mesh.radius = randf_range(0.4, 1.2)
 		rock_mesh.height = rock_mesh.radius * randf_range(0.65, 1.1)
+		rock_mesh.radial_segments = rseg
+		rock_mesh.rings = rrings
 		visual.mesh = rock_mesh
 
 		var rock_mat := StandardMaterial3D.new()
@@ -1299,7 +3224,7 @@ func _scatter_rocks() -> void:
 
 
 func _scatter_moon_lichen() -> void:
-	for i in range(90):
+	for i in range(180):
 		var pos: Vector3 = _random_land_position(-9999.0)
 		if pos.distance_to(Vector3.ZERO) < 10.0:
 			continue
@@ -1307,11 +3232,16 @@ func _scatter_moon_lichen() -> void:
 		var body := RigidBody3D.new()
 		body.name = "FloatingLichen"
 		body.collision_layer = 1
-		body.collision_mask = 1
+		body.collision_mask = 1 | 2
 		body.gravity_scale = 0.0
-		body.linear_damp = 1.2
-		body.angular_damp = 2.0
-		body.mass = 0.45
+		body.linear_damp = 0.25
+		body.angular_damp = 0.4
+		body.mass = 0.2
+
+		var physics_mat := PhysicsMaterial.new()
+		physics_mat.bounce = 0.75
+		physics_mat.friction = 0.1
+		body.physics_material_override = physics_mat
 		body.position = pos + Vector3(0.0, randf_range(1.4, 5.5), 0.0)
 
 		var visual := MeshInstance3D.new()
@@ -1335,7 +3265,264 @@ func _scatter_moon_lichen() -> void:
 		shape_node.shape = shape
 		body.add_child(shape_node)
 		body.apply_impulse(Vector3(randf_range(-0.8, 0.8), randf_range(-0.15, 0.15), randf_range(-0.8, 0.8)))
+		body.set_script(preload("res://scripts/FloatingLichen.gd"))
+		body.add_to_group("floating_lichen")
 		_add_generated_child(body)
+
+
+func _scatter_moon_glass_craters() -> void:
+	var half: float = _world_half_size()
+	var cell_size: float = 100.0
+	var min_cell: int = int(floor(-half / cell_size))
+	var max_cell: int = int(ceil(half / cell_size))
+
+	for cell_z in range(min_cell, max_cell + 1):
+		for cell_x in range(min_cell, max_cell + 1):
+			_try_place_glass_crater(cell_x, cell_z, half, cell_size)
+
+
+func _try_place_glass_crater(cell_x: int, cell_z: int, half: float, cell_size: float) -> void:
+	var s: int = _crater_seed(cell_x, cell_z)
+	s = _lcg(s)
+	var chance: float = float(s) / 4294967296.0
+	if chance > 0.25:
+		return
+
+	s = _lcg(s)
+	var ox: float = (float(s) / 4294967296.0) * 60.0 + 20.0
+	s = _lcg(s)
+	var oz: float = (float(s) / 4294967296.0) * 60.0 + 20.0
+	var wx: float = float(cell_x) * cell_size + ox
+	var wz: float = float(cell_z) * cell_size + oz
+
+	if abs(wx) > half - 30.0 or abs(wz) > half - 30.0:
+		return
+	if sqrt(wx * wx + wz * wz) < 35.0:
+		return
+	var ground_y: float = _height_at_world(wx, wz)
+
+	s = _lcg(s)
+	var radius: float = (float(s) / 4294967296.0) * 5.0 + 4.0
+
+	_create_glass_crater(Vector3(wx, ground_y, wz), radius, s)
+
+
+func _crater_seed(cell_x: int, cell_z: int) -> int:
+	return int((world_seed ^ (cell_x * 747796405) ^ (cell_z * 963546583) ^ 0x43724154) & 0xffffffff)
+
+
+func _lcg(state: int) -> int:
+	return int((1664525 * state + 1013904223) & 0xffffffff)
+
+
+func _check_moon_shrine_completion() -> void:
+	if not _is_current_map_moon():
+		return
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(current_map_id, {})
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	var orb_count := 0
+	for key in discoveries.keys():
+		if key.begins_with("moon_orb_"):
+			orb_count += 1
+	if orb_count >= 9 and not discoveries.has("moon_pilgrim"):
+		discoveries["moon_pilgrim"] = {
+			"title": "Moon Pilgrim",
+			"kind": "shrine_complete",
+			"found_at": Time.get_unix_time_from_system(),
+			"x": 0.0, "z": 0.0
+		}
+		map_record["discoveries"] = discoveries
+		maps[current_map_id] = map_record
+		world["maps"] = maps
+		_set_world(current_world_id, world)
+		_save_world_data()
+		last_discovery_text = "Moon Pilgrim: all shrines completed!"
+		_award_achievement("moon_pilgrim")
+
+
+func _scatter_moon_platforms() -> void:
+	var count := 9
+	var spiral_turns := 2.5
+	var rng_state: int = world_seed ^ 0x4D4F4F4E
+	var half: float = _world_half_size()
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.32, 0.30, 0.28)
+	mat.roughness = 0.9
+	mat.emission_enabled = true
+	mat.emission = Color(0.06, 0.04, 0.10)
+	mat.emission_energy_multiplier = 0.3
+
+	for i in range(count):
+		rng_state = _lcg(rng_state)
+		var t: float = (float(i) + 1.0) / (float(count) + 1.0)
+		var angle: float = t * TAU * spiral_turns
+		var radius: float = 45.0 + t * 40.0
+		var height: float = 8.0 + t * 35.0
+
+		rng_state = _lcg(rng_state)
+		var jx: float = (float(rng_state) / 4294967296.0 - 0.5) * 6.0
+		rng_state = _lcg(rng_state)
+		var jz: float = (float(rng_state) / 4294967296.0 - 0.5) * 6.0
+
+		var wx: float = cos(angle) * radius + jx
+		var wz: float = sin(angle) * radius + jz
+		if abs(wx) > half - 20.0 or abs(wz) > half - 20.0:
+			continue
+
+		var plat := StaticBody3D.new()
+		plat.name = "FloatingPlatform" + str(i)
+		plat.position = Vector3(wx, height, wz)
+
+		var col_shape := CollisionShape3D.new()
+		var col := CylinderShape3D.new()
+		col.radius = 2.5
+		col.height = 0.4
+		col_shape.shape = col
+		plat.add_child(col_shape)
+
+		var disc := MeshInstance3D.new()
+		var dm := CylinderMesh.new()
+		dm.top_radius = 2.2
+		dm.bottom_radius = 2.5
+		dm.height = 0.4
+		disc.mesh = dm
+		disc.material_override = mat
+		plat.add_child(disc)
+
+		var orb_mat := StandardMaterial3D.new()
+		var hue: float = (float(i) / float(count)) * 0.3 + 0.55
+		orb_mat.albedo_color = Color.from_hsv(hue, 0.8, 1.0)
+		orb_mat.emission_enabled = true
+		orb_mat.emission = orb_mat.albedo_color * 0.8
+		orb_mat.emission_energy_multiplier = 2.0
+		orb_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		orb_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+		var orb := MeshInstance3D.new()
+		var om := SphereMesh.new()
+		om.radius = 0.35
+		om.height = 0.7
+		orb.mesh = om
+		orb.material_override = orb_mat
+		orb.position = Vector3(0.0, 0.5, 0.0)
+		plat.add_child(orb)
+
+		var glow_ring := MeshInstance3D.new()
+		var ring_mat := StandardMaterial3D.new()
+		ring_mat.albedo_color = Color(0.1, 0.2, 0.3, 0.2)
+		ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		ring_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		ring_mat.emission_enabled = true
+		ring_mat.emission = Color(0.05, 0.15, 0.30)
+		ring_mat.emission_energy_multiplier = 1.5
+		var rm := CylinderMesh.new()
+		rm.top_radius = 1.5
+		rm.bottom_radius = 1.5
+		rm.height = 0.05
+		glow_ring.mesh = rm
+		glow_ring.material_override = ring_mat
+		glow_ring.position = Vector3(0.0, -0.2, 0.0)
+		plat.add_child(glow_ring)
+
+		var base_pos := plat.position
+		var bob_amp: float = randf_range(0.6, 1.2)
+		var period: float = randf_range(2.0, 3.5)
+		var tween := plat.create_tween()
+		tween.set_loops()
+		tween.tween_property(plat, "position", base_pos + Vector3(0.0, bob_amp, 0.0), period * 0.5).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(plat, "position", base_pos - Vector3(0.0, bob_amp, 0.0), period * 0.5).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+
+		_add_discovery_area(plat, Vector3(0.0, 0.7, 0.0), 2.0, "moon_orb_" + str(i), "Moon Shrine " + str(i + 1), "orb")
+		_add_generated_child(plat)
+
+
+func _create_glass_crater(position: Vector3, radius: float, rng_seed: int) -> void:
+	var crater := Node3D.new()
+	crater.name = "GlassCrater"
+	crater.position = position
+
+	var s: int = rng_seed
+	s = _lcg(s)
+	var hue_shift: float = float(s) / 4294967296.0
+
+	var glass := MeshInstance3D.new()
+	var glass_mesh := CylinderMesh.new()
+	glass_mesh.top_radius = radius
+	glass_mesh.bottom_radius = radius
+	glass_mesh.height = 0.12
+	glass.mesh = glass_mesh
+	glass.position.y = 0.06
+
+	var glass_mat := StandardMaterial3D.new()
+	var glass_color := Color(0.12 + hue_shift * 0.15, 0.55 - hue_shift * 0.15, 0.78 - hue_shift * 0.2, 0.45)
+	glass_mat.albedo_color = glass_color
+	glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	glass_mat.emission_enabled = true
+	glass_mat.emission = Color(glass_color.r * 0.4, glass_color.g * 0.6, glass_color.b * 0.8)
+	glass_mat.emission_energy_multiplier = 0.6
+	glass_mat.metallic = 0.3
+	glass_mat.roughness = 0.15
+	glass.material_override = glass_mat
+	crater.add_child(glass)
+
+	s = _lcg(s)
+	var rim_thickness: float = (float(s) / 4294967296.0) * 0.6 + 0.4
+
+	var rim := MeshInstance3D.new()
+	var rim_mesh := TorusMesh.new()
+	rim_mesh.outer_radius = radius + rim_thickness
+	rim_mesh.inner_radius = radius - rim_thickness * 0.5
+	rim.mesh = rim_mesh
+	rim.position.y = 0.04
+	rim.rotation_degrees.x = 90.0
+	var rim_mat := StandardMaterial3D.new()
+	rim_mat.albedo_color = Color(0.26, 0.28, 0.32)
+	rim_mat.roughness = 1.0
+	rim.material_override = rim_mat
+	crater.add_child(rim)
+
+	var crystal_mat := StandardMaterial3D.new()
+	crystal_mat.albedo_color = Color(0.25 + hue_shift * 0.3, 0.65 - hue_shift * 0.2, 1.0)
+	crystal_mat.emission_enabled = true
+	crystal_mat.emission = Color(0.10, 0.35, 0.85)
+	crystal_mat.emission_energy_multiplier = 0.8
+	crystal_mat.roughness = 0.2
+
+	s = _lcg(s)
+	var shard_count: int = int((float(s) / 4294967296.0) * 3.0) + 2
+
+	for i in range(shard_count):
+		s = _lcg(s)
+		var angle: float = (float(s) / 4294967296.0) * TAU
+		s = _lcg(s)
+		var shard_radius: float = (float(s) / 4294967296.0) * 0.25 + 0.15
+		s = _lcg(s)
+		var shard_height: float = (float(s) / 4294967296.0) * 1.2 + 0.6
+		s = _lcg(s)
+		var tilt: float = (float(s) / 4294967296.0) * 20.0 - 10.0
+
+		var shard := MeshInstance3D.new()
+		var shard_mesh := CylinderMesh.new()
+		shard_mesh.top_radius = shard_radius * 0.3
+		shard_mesh.bottom_radius = shard_radius
+		shard_mesh.height = shard_height
+		shard_mesh.radial_segments = 6
+		shard.mesh = shard_mesh
+		var dist: float = radius + rim_thickness * 2.0
+		shard.position = Vector3(cos(angle) * dist, shard_height * 0.5, sin(angle) * dist)
+		shard.rotation_degrees = Vector3(tilt, rad_to_deg(angle) + 90.0, tilt * 0.5)
+		shard.material_override = crystal_mat
+
+		_add_cylinder_collision(crater, shard.position, shard_radius, shard_height)
+		crater.add_child(shard)
+
+	_add_cylinder_collision(crater, Vector3(0.0, 0.06, 0.0), radius, 0.12)
+	_add_discovery_area(crater, Vector3(0.0, 1.0, 0.0), radius * 0.8, "glass_crater_" + str(int(position.x)) + "_" + str(int(position.z)), "Glass Crater", "wonder")
+	_add_generated_child(crater)
 
 
 func _scatter_flowers() -> void:
@@ -1356,12 +3543,15 @@ func _scatter_flowers() -> void:
 		var palette: Array[Color] = [Color(0.95, 0.78, 0.18), Color(0.8, 0.25, 0.75), Color(0.95, 0.35, 0.25), Color(0.85, 0.9, 1.0)]
 		blossom_mat.albedo_color = palette[randi_range(0, palette.size() - 1)]
 
+		var f_seg: int = [6, 10, 16][clampi(graphics_level, 0, 2)]
+		var f_rings: int = [4, 6, 10][clampi(graphics_level, 0, 2)]
 		for j in range(randi_range(3, 7)):
 			var stem := MeshInstance3D.new()
 			var stem_mesh := CylinderMesh.new()
 			stem_mesh.top_radius = 0.025
 			stem_mesh.bottom_radius = 0.035
 			stem_mesh.height = randf_range(0.25, 0.55)
+			stem_mesh.radial_segments = f_seg
 			stem.mesh = stem_mesh
 			stem.material_override = stem_mat
 			stem.position = Vector3(randf_range(-0.35, 0.35), stem_mesh.height * 0.5, randf_range(-0.35, 0.35))
@@ -1370,6 +3560,8 @@ func _scatter_flowers() -> void:
 			var blossom_mesh := SphereMesh.new()
 			blossom_mesh.radius = randf_range(0.07, 0.13)
 			blossom_mesh.height = blossom_mesh.radius * 0.6
+			blossom_mesh.radial_segments = f_seg
+			blossom_mesh.rings = f_rings
 			blossom.mesh = blossom_mesh
 			blossom.material_override = blossom_mat
 			blossom.position = stem.position + Vector3(0.0, stem_mesh.height * 0.55, 0.0)
@@ -1384,6 +3576,7 @@ func _spawn_wonders() -> void:
 	var half: float = float(GRID_SIZE) * CELL_SIZE * 0.5
 	var min_cell: int = int(floor(-half / WONDER_CELL_SIZE))
 	var max_cell: int = int(ceil(half / WONDER_CELL_SIZE))
+	var wonder_count_local := 0
 
 	for cell_z in range(min_cell, max_cell + 1):
 		for cell_x in range(min_cell, max_cell + 1):
@@ -1398,13 +3591,26 @@ func _spawn_wonders() -> void:
 			if wonder_pos.distance_to(Vector3.ZERO) < 25.0:
 				continue
 
+			wonder_count_local += 1
 			var wonder: Node3D = WonderGenerator.create_wonder(world_seed, wonder_pos, 0, true)
 			var discovery_id: String = "wonder_" + str(cell_x) + "_" + str(cell_z)
 			var title: String = _wonder_title(wonder.name)
 			_add_discovery_area(wonder, Vector3(0.0, 2.0, 0.0), 12.0, discovery_id, title, "wonder")
 			if title == "Moon Gate":
 				_add_moon_gate_area(wonder)
+			if title == "Gate Portal":
+				_add_gate_portal_area(wonder)
 			_add_generated_child(wonder)
+
+	if wonder_count_local > 0 and current_world_id != "" and current_map_id != "":
+		var w_world: Dictionary = _get_world(current_world_id)
+		var w_maps: Dictionary = w_world.get("maps", {})
+		var w_map_record: Dictionary = w_maps.get(current_map_id, {})
+		w_map_record["wonder_count"] = wonder_count_local
+		w_maps[current_map_id] = w_map_record
+		w_world["maps"] = w_maps
+		_set_world(current_world_id, w_world)
+		_save_world_data()
 
 
 func _wonder_title(wonder_name: String) -> String:
@@ -1416,7 +3622,49 @@ func _wonder_title(wonder_name: String) -> String:
 		return "Runestone Circle"
 	if wonder_name.contains("floating_shrine"):
 		return "Floating Shrine"
+	if wonder_name.contains("gate_portal"):
+		return "Gate Portal"
 	return "Uncatalogued Wonder"
+
+
+func _add_gate_portal_area(parent: Node3D) -> void:
+	var area := Area3D.new()
+	area.name = "GatePortalTrigger"
+	area.collision_layer = 0
+	area.collision_mask = 2
+	area.position = Vector3(0.0, 2.0, 0.0)
+	var shape_node := CollisionShape3D.new()
+	var shape := CylinderShape3D.new()
+	shape.radius = 3.5
+	shape.height = 5.0
+	shape_node.shape = shape
+	area.add_child(shape_node)
+	area.body_entered.connect(_on_gate_portal_body_entered)
+	parent.add_child(area)
+
+
+func _on_gate_portal_body_entered(body: Node3D) -> void:
+	if body.name != "Player" or current_world_id == "":
+		return
+	if _is_current_map_gate_room() or _is_current_map_moon() or _is_current_map_water():
+		return
+
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	if not maps.has("gate_room"):
+		var gate_seed: int = int((world_seed ^ 0x47415445) & 0x7fffffff)
+		if gate_seed == 0:
+			gate_seed = 98765
+		maps["gate_room"] = _create_gate_room_map_record(gate_seed)
+		maps["gate_room"]["gate_room_return_world"] = current_world_id
+		maps["gate_room"]["gate_room_return_map"] = current_map_id
+		maps["gate_room"]["gate_room_slots"] = {}
+		world["maps"] = maps
+		_set_world(current_world_id, world)
+		_save_world_data()
+
+	last_discovery_text = "Stepping through the Gate Portal..."
+	_load_map(current_world_id, "gate_room")
 
 
 func _add_moon_gate_area(parent: Node3D) -> void:
@@ -1481,7 +3729,7 @@ func _scatter_crystals() -> void:
 			mesh.top_radius = randf_range(0.04, 0.10)
 			mesh.bottom_radius = randf_range(0.22, 0.42)
 			mesh.height = randf_range(1.0, 2.4)
-			mesh.radial_segments = 6
+			mesh.radial_segments = [6, 10, 16][clampi(graphics_level, 0, 2)]
 			crystal.mesh = mesh
 			crystal.material_override = mat
 			crystal.position = Vector3(randf_range(-1.0, 1.0), mesh.height * 0.5, randf_range(-1.0, 1.0))
@@ -1540,6 +3788,232 @@ func _scatter_ruins() -> void:
 		_add_generated_child(ruin)
 
 
+const _BirdFlockScene := preload("res://scripts/BirdFlock.gd")
+const _FishSchoolScene := preload("res://scripts/FishSchool.gd")
+
+
+func _scatter_bird_flocks() -> void:
+	var placed := 0
+	var attempts := 0
+	while placed < 4 and attempts < 60:
+		attempts += 1
+		var pos: Vector3 = _random_land_position(WATER_LEVEL + 1.0)
+		if pos.distance_to(Vector3.ZERO) < 60.0:
+			continue
+		var flock: Node3D = _BirdFlockScene.new()
+		flock.set("bird_count", randi_range(8, 15))
+		flock.set("mesh_quality", graphics_level)
+		flock.position = Vector3(pos.x, randf_range(8.0, 18.0), pos.z)
+		_add_generated_child(flock)
+		placed += 1
+
+
+func _scatter_underwater_plants() -> void:
+	var plant_count: int = 180 if _is_current_map_water() else 100
+	for i in range(plant_count):
+		var pos: Vector3 = _random_underwater_position(WATER_LEVEL - 0.2)
+		if pos.y < WATER_LEVEL - 7.0:
+			continue
+		if _river_distance(pos.x, pos.z) < 8.0:
+			continue
+		if pos.distance_to(Vector3.ZERO) < 20.0:
+			continue
+
+		var plant := Node3D.new()
+		plant.name = "WaterPlant"
+		plant.position = pos
+
+		var height: float = randf_range(0.6, 1.8)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(randf_range(0.06, 0.20), randf_range(0.20, 0.40), randf_range(0.04, 0.12))
+
+		var stem := MeshInstance3D.new()
+		var sm := CylinderMesh.new()
+		sm.top_radius = 0.02
+		sm.bottom_radius = 0.04
+		sm.height = height
+		sm.radial_segments = [4, 6, 8][clampi(graphics_level, 0, 2)]
+		stem.mesh = sm
+		stem.material_override = mat
+		stem.position.y = height * 0.5
+		plant.add_child(stem)
+
+		var frond := MeshInstance3D.new()
+		var fm := SphereMesh.new()
+		fm.radius = randf_range(0.06, 0.12)
+		fm.height = fm.radius * 0.7
+		fm.radial_segments = 6
+		fm.rings = 4
+		frond.mesh = fm
+		frond.material_override = mat
+		frond.position.y = height
+		plant.add_child(frond)
+
+		var sway := plant.create_tween()
+		sway.set_loops()
+		var amp: float = randf_range(0.04, 0.10)
+		var per: float = randf_range(2.0, 4.0)
+		sway.tween_property(plant, "rotation:z", amp, per * 0.5).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+		sway.tween_property(plant, "rotation:z", -amp, per * 0.5).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+
+		_add_generated_child(plant)
+
+
+func _scatter_fish_schools() -> void:
+	var target: int = 12 if _is_current_map_water() else 5
+	var placed := 0
+	var attempts := 0
+	while placed < target and attempts < target * 15:
+		attempts += 1
+		var ground: Vector3 = _random_underwater_position(WATER_LEVEL - 0.5)
+		if ground.y < WATER_LEVEL - 8.0:
+			continue
+		if _river_distance(ground.x, ground.z) < 8.0:
+			continue
+		var school: Node3D = _FishSchoolScene.new()
+		school.set("fish_count", randi_range(10, 18))
+		school.set("mesh_quality", graphics_level)
+		var water_depth: float = WATER_LEVEL - ground.y
+		var height_offset: float = randf_range(0.3, 0.7)
+		school.position = Vector3(ground.x, ground.y + water_depth * height_offset, ground.z)
+		_add_generated_child(school)
+		placed += 1
+
+
+func _scatter_gate_room_gates() -> void:
+	var slot_count: int = 12
+	var half_spread: float = 1.1
+	var radius: float = 22.0
+	var gate_mat := StandardMaterial3D.new()
+	gate_mat.albedo_color = Color(0.22, 0.18, 0.28)
+	gate_mat.roughness = 0.9
+	var glow_mat := StandardMaterial3D.new()
+	glow_mat.albedo_color = Color(0.6, 0.5, 1.0)
+	glow_mat.emission_enabled = true
+	glow_mat.emission = Color(0.4, 0.3, 0.8)
+	glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	var map_record: Dictionary = _get_current_map_record()
+	var slots: Dictionary = map_record.get("gate_room_slots", {})
+	var worlds: Dictionary = save_data.get("worlds", {})
+
+	for i in range(slot_count):
+		var t: float = float(i) / float(slot_count - 1)
+		var angle: float = lerp(-half_spread, half_spread, t)
+		var x: float = sin(angle) * radius
+		var z: float = cos(angle) * radius
+
+		var gate := Node3D.new()
+		gate.name = "GateRoomGate" + str(i)
+		gate.position = Vector3(x, 0.0, z)
+		gate.rotation.y = -angle
+
+		var post_mesh := BoxMesh.new()
+		post_mesh.size = Vector3(0.25, 3.5, 0.25)
+		var left_post := MeshInstance3D.new()
+		left_post.mesh = post_mesh
+		left_post.position = Vector3(-1.0, 1.75, 0.0)
+		left_post.material_override = gate_mat
+		gate.add_child(left_post)
+		var right_post := MeshInstance3D.new()
+		right_post.mesh = post_mesh
+		right_post.position = Vector3(1.0, 1.75, 0.0)
+		right_post.material_override = gate_mat
+		gate.add_child(right_post)
+
+		var arch_mesh := BoxMesh.new()
+		arch_mesh.size = Vector3(2.5, 0.2, 0.25)
+		var arch := MeshInstance3D.new()
+		arch.mesh = arch_mesh
+		arch.position = Vector3(0.0, 3.6, 0.0)
+		arch.material_override = gate_mat
+		gate.add_child(arch)
+
+		var glow := MeshInstance3D.new()
+		var glow_mesh := BoxMesh.new()
+		glow_mesh.size = Vector3(1.8, 2.8, 0.05)
+		glow.mesh = glow_mesh
+		glow.position = Vector3(0.0, 2.0, 0.06)
+		glow.material_override = glow_mat
+		gate.add_child(glow)
+
+		var slot_key: String = str(i)
+		var target_world_id: String = str(slots.get(slot_key, ""))
+		var world_name: String = "Gate " + str(i + 1)
+		if target_world_id != "" and worlds.has(target_world_id):
+			world_name = str(worlds[target_world_id].get("name", "Gate " + str(i + 1)))
+
+		var label := Label3D.new()
+		label.text = world_name
+		label.font_size = 16
+		label.modulate = Color(0.9, 0.85, 1.0)
+		label.position = Vector3(0.0, 4.6, 0.0)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.no_depth_test = true
+		gate.add_child(label)
+
+		var area := Area3D.new()
+		area.name = "GateRoomGateTrigger"
+		area.collision_layer = 0
+		area.collision_mask = 2
+		var area_shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(2.2, 3.0, 1.2)
+		area_shape.shape = box
+		area_shape.position = Vector3(0.0, 1.8, 0.0)
+		area.add_child(area_shape)
+		area.body_entered.connect(_on_gate_room_gate_body_entered.bind(i))
+		area.add_to_group("gate_room_gates")
+		gate.add_child(area)
+
+		var discovery_id: String = "gate_room_gate_" + str(i)
+		var discovery_title: String = "World Gate " + str(i + 1) + " (" + world_name + ")"
+		_add_discovery_area(gate, Vector3(0.0, 2.0, 0.0), 5.0, discovery_id, discovery_title, "gate")
+
+		_add_generated_child(gate)
+
+	var return_mat := StandardMaterial3D.new()
+	return_mat.albedo_color = Color(0.25, 0.18, 0.35)
+	return_mat.roughness = 0.85
+	var return_area := Area3D.new()
+	return_area.name = "GateRoomReturnTrigger"
+	return_area.collision_layer = 0
+	return_area.collision_mask = 2
+	var return_shape := CollisionShape3D.new()
+	var return_box := BoxShape3D.new()
+	return_box.size = Vector3(6.0, 4.0, 2.0)
+	return_shape.shape = return_box
+	return_area.add_child(return_shape)
+	return_area.position = Vector3(0.0, 2.0, 30.0)
+	return_area.body_entered.connect(_on_gate_room_return_body_entered)
+	_add_generated_child(return_area)
+
+	var return_mesh := MeshInstance3D.new()
+	var return_mesh_shape := BoxMesh.new()
+	return_mesh_shape.size = Vector3(6.0, 4.0, 0.3)
+	return_mesh.mesh = return_mesh_shape
+	return_mesh.material_override = return_mat
+	return_mesh.position = Vector3(0.0, 2.0, 30.0)
+	_add_generated_child(return_mesh)
+
+	var return_label := Label3D.new()
+	return_label.text = "Return"
+	return_label.font_size = 20
+	return_label.modulate = Color(0.7, 0.6, 1.0)
+	return_label.position = Vector3(0.0, 4.5, 30.0)
+	return_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return_label.no_depth_test = true
+	_add_generated_child(return_label)
+
+
+func _get_current_map_record() -> Dictionary:
+	if current_world_id == "" or current_map_id == "":
+		return {}
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	return maps.get(current_map_id, {})
+
+
 func _create_gates() -> void:
 	var gate_positions: Array[Vector3] = [
 		_find_gate_position(Vector3(1.0, 0.0, 0.0)),
@@ -1582,7 +4056,13 @@ func _create_gates() -> void:
 		glow.mesh = glow_mesh
 		glow.position = Vector3(0.0, 2.0, 0.03)
 		glow.rotation_degrees.x = 90.0
-		glow.material_override = _gate_glow_material(gate_index)
+		var glow_mat: StandardMaterial3D = _gate_glow_material(gate_index)
+		glow.material_override = glow_mat
+		var shimmer_tween := gate.create_tween()
+		shimmer_tween.set_loops()
+		var sh_dur: float = randf_range(0.8, 1.4)
+		shimmer_tween.tween_property(glow_mat, "emission_energy_multiplier", 2.5, sh_dur).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+		shimmer_tween.tween_property(glow_mat, "emission_energy_multiplier", 0.8, sh_dur).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
 
 		gate.add_child(left_post)
 		gate.add_child(right_post)
@@ -1605,6 +4085,7 @@ func _create_gates() -> void:
 		area.body_entered.connect(_on_gate_body_entered.bind(gate_index))
 		gate.add_child(area)
 		_add_discovery_area(gate, Vector3(0.0, 1.8, 0.0), 5.0, "gate_" + str(gate_index), "World Gate " + str(gate_index + 1), "gate")
+		_add_gate_audio(gate, gate_index)
 
 		_add_generated_child(gate)
 
@@ -1612,6 +4093,8 @@ func _create_gates() -> void:
 func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 	if body.name != "Player" or current_world_id == "" or current_map_id == "":
 		return
+
+	_award_achievement("gate_crasher")
 
 	var world: Dictionary = _get_world(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
@@ -1621,8 +4104,30 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 	var target_map_id: String = str(gates.get(gate_key, ""))
 
 	if target_map_id == "":
+		if maps.size() >= 32:
+			last_discovery_text = "Atlas saturated — no more maps can unfold in this world."
+			return
+
+		var gate_seed: int = _preview_gate_seed(gate_index)
+
+		if not maps.has("gate_room") and (gate_seed % 20) == 0:
+			target_map_id = "gate_room"
+			maps[target_map_id] = _create_gate_room_map_record(gate_seed)
+			maps[target_map_id]["gate_room_return_world"] = current_world_id
+			maps[target_map_id]["gate_room_return_map"] = current_map_id
+			maps[target_map_id]["gate_room_slots"] = {}
+			gates[gate_key] = target_map_id
+			map_record["gates"] = gates
+			maps[current_map_id] = map_record
+			world["maps"] = maps
+			_set_world(current_world_id, world)
+			_save_world_data()
+			_load_map(current_world_id, target_map_id)
+			return
+
 		target_map_id = _new_id("map")
-		var target_record: Dictionary = _create_map_record(_preview_gate_seed(gate_index))
+		var is_water: bool = (gate_seed % 100) < 25
+		var target_record: Dictionary = _create_water_map_record(gate_seed) if is_water else _create_map_record(gate_seed)
 		var target_gates: Dictionary = target_record.get("gates", {})
 		target_gates[str(_opposite_gate_index(gate_index))] = current_map_id
 		target_record["gates"] = target_gates
@@ -1660,6 +4165,184 @@ func _find_gate_position(direction: Vector3) -> Vector3:
 	var fallback_x: float = direction.x * max_distance
 	var fallback_z: float = direction.z * max_distance
 	return Vector3(fallback_x, _height_at_world(fallback_x, fallback_z) + 0.65, fallback_z)
+
+
+func _on_gate_room_gate_body_entered(body: Node3D, slot_index: int) -> void:
+	if body.name != "Player" or current_world_id == "" or current_map_id == "":
+		return
+	if not _is_current_map_gate_room():
+		return
+
+	var map_record: Dictionary = _get_current_map_record()
+	var slots: Dictionary = map_record.get("gate_room_slots", {})
+	var slot_key: String = str(slot_index)
+	var target_world_id: String = str(slots.get(slot_key, ""))
+	var worlds: Dictionary = save_data.get("worlds", {})
+
+	if target_world_id == "" or not worlds.has(target_world_id):
+		var map_seed: int = int((world_seed ^ ((slot_index + 1) * 747796405) ^ 912839201) & 0x7fffffff)
+		if map_seed == 0:
+			map_seed = 12345 + slot_index
+		var root_map_id: String = _new_id("map")
+		target_world_id = _new_id("world")
+		var world_name: String = "World " + str(slot_index + 1)
+		var world_record: Dictionary = _create_world_record(world_name, root_map_id, map_seed)
+		var root_map: Dictionary = world_record["maps"][root_map_id]
+		world_record["maps"][root_map_id] = root_map
+		world_record["gate_room_source_world"] = current_world_id
+		world_record["gate_room_source_map"] = current_map_id
+		worlds[target_world_id] = world_record
+		save_data["worlds"] = worlds
+		_save_world_data()
+
+		slots[slot_key] = target_world_id
+		map_record["gate_room_slots"] = slots
+		var current_maps: Dictionary = (_get_world(current_world_id)).get("maps", {})
+		current_maps[current_map_id] = map_record
+		var w: Dictionary = _get_world(current_world_id)
+		w["maps"] = current_maps
+		_set_world(current_world_id, w)
+		_save_world_data()
+
+		var target_maps: Dictionary = world_record.get("maps", {})
+		var target_map_record: Dictionary = target_maps.get(root_map_id, {})
+		target_map_record["gate_room_slot_gate_0"] = current_world_id
+		target_map_record["gate_room_slot_gate_1"] = current_map_id
+		target_map_record["gate_room_slot_gate_2"] = str(slot_index)
+		target_maps[root_map_id] = target_map_record
+		world_record["maps"] = target_maps
+		worlds[target_world_id] = world_record
+		save_data["worlds"] = worlds
+		_save_world_data()
+
+		last_discovery_text = "World " + world_name + " unfolded from the Gate Room."
+		_load_map(target_world_id, root_map_id)
+	else:
+		var world_record: Dictionary = worlds[target_world_id]
+		var root_map_id: String = str(world_record.get("root_map", ""))
+		last_discovery_text = "Returning to " + str(world_record.get("name", target_world_id))
+		_load_map(target_world_id, root_map_id)
+
+
+func _on_gate_room_return_body_entered(body: Node3D) -> void:
+	if body.name != "Player" or current_world_id == "" or current_map_id == "":
+		return
+	if not _is_current_map_gate_room():
+		return
+
+	var map_record: Dictionary = _get_current_map_record()
+	var return_world: String = str(map_record.get("gate_room_return_world", ""))
+	var return_map: String = str(map_record.get("gate_room_return_map", ""))
+	if return_world != "" and return_map != "":
+		last_discovery_text = "Returning from Gate Room."
+		_load_map(return_world, return_map)
+
+
+func _try_grab_lichen() -> void:
+	if generated_root == null:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var player_pos: Vector3 = player.global_position
+	var closest: Node3D = _find_closest_lichen(player_pos, 10.0)
+	if closest != null:
+		if closest.name == "ThrownLichen":
+			_award_achievement("lichen_catcher")
+		closest.queue_free()
+		lichen_count += 1
+		if is_instance_valid(player) and player.has_method(&"set"):
+			player.set("lichen_count", lichen_count)
+		last_discovery_text = "Grabbed lichen. Carry: " + str(lichen_count)
+		if lichen_count >= 50:
+			_award_achievement("collector_50")
+
+
+func _throw_lichen() -> void:
+	if lichen_count <= 0:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+
+	lichen_count -= 1
+	if is_instance_valid(player) and player.has_method(&"set"):
+		player.set("lichen_count", lichen_count)
+
+	var body := RigidBody3D.new()
+	body.name = "ThrownLichen"
+	body.collision_layer = 1
+	body.collision_mask = 1 | 2 | 4
+	body.gravity_scale = 0.0
+	body.linear_damp = 0.25
+	body.angular_damp = 0.4
+	body.mass = 0.2
+	body.add_to_group("floating_lichen")
+
+	var lichen_script: Script = preload("res://scripts/FloatingLichen.gd")
+	body.set_script(lichen_script)
+
+	var phys_mat := PhysicsMaterial.new()
+	phys_mat.bounce = 0.75
+	phys_mat.friction = 0.1
+	body.physics_material_override = phys_mat
+
+	var visual := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = randf_range(0.4, 0.8)
+	mesh.height = mesh.radius * randf_range(0.55, 0.9)
+	visual.mesh = mesh
+	visual.scale = Vector3(randf_range(1.0, 1.5), randf_range(0.45, 0.8), randf_range(1.0, 1.5))
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.48, 0.82, 0.64)
+	mat.emission_enabled = true
+	mat.emission = Color(0.12, 0.42, 0.24)
+	mat.emission_energy_multiplier = 0.85
+	visual.material_override = mat
+	body.add_child(visual)
+
+	var shape_node := CollisionShape3D.new()
+	var shape := SphereShape3D.new()
+	shape.radius = mesh.radius
+	shape_node.shape = shape
+	body.add_child(shape_node)
+
+	var cam: Camera3D = player.camera
+	var fwd: Vector3 = -cam.global_transform.basis.z
+	var up: Vector3 = cam.global_transform.basis.y
+	body.position = player.global_position + Vector3(0.0, 1.2, 0.0) + fwd * 2.5
+	body.apply_impulse(fwd * 12.0 + up * 5.0)
+
+	_add_generated_child(body)
+	last_discovery_text = "Threw lichen. " + str(lichen_count) + " left."
+
+
+func _find_closest_lichen(from: Vector3, max_dist: float) -> Node3D:
+	if generated_root == null:
+		return null
+	var closest: Node3D = null
+	var closest_dist: float = max_dist
+	for child in generated_root.get_children():
+		if child.is_in_group("floating_lichen") and is_instance_valid(child):
+			var dist: float = child.global_position.distance_to(from)
+			if dist < closest_dist:
+				closest_dist = dist
+				closest = child
+	return closest
+
+
+func _return_to_gate_room() -> void:
+	if current_world_id == "" or current_map_id == "":
+		return
+	var world: Dictionary = _get_world(current_world_id)
+	if world.is_empty():
+		return
+	var src_world: String = str(world.get("gate_room_source_world", ""))
+	var src_map: String = str(world.get("gate_room_source_map", ""))
+	if src_world != "" and src_map != "":
+		last_discovery_text = "Returning to Gate Room."
+		_load_map(src_world, src_map)
 
 
 func _gate_material() -> StandardMaterial3D:
@@ -1707,6 +4390,86 @@ func _preview_gate_seed(gate_index: int) -> int:
 func _seed_color(seed_value: int, alpha: float = 1.0) -> Color:
 	var hue: float = float(abs(seed_value) % 360) / 360.0
 	return Color.from_hsv(hue, 0.72, 1.0, alpha)
+
+
+func _setup_music() -> void:
+	var dir := DirAccess.open("res://audio/music")
+	if dir == null:
+		return
+	var files: Array[String] = []
+	dir.list_dir_begin()
+	var fname: String = dir.get_next()
+	while fname != "":
+		if fname.ends_with(".ogg") or fname.ends_with(".mp3") or fname.ends_with(".wav"):
+			files.append("res://audio/music/" + fname)
+		fname = dir.get_next()
+	dir.list_dir_end()
+	if files.is_empty():
+		return
+	var player := AudioStreamPlayer.new()
+	player.name = "MusicPlayer"
+	player.stream = load(files[randi() % files.size()])
+	player.autoplay = true
+	player.volume_db = -14.0
+	_add_generated_child(player)
+
+
+func _generate_wav_stream(freqs: Array[float], duration: float, vol: float) -> AudioStreamWAV:
+	var sample_rate: int = 22050
+	var num_samples: int = int(sample_rate * duration)
+	var data: PackedByteArray = PackedByteArray()
+	data.resize(num_samples * 2)
+	var fade: int = int(sample_rate * 0.02)
+	for i in range(num_samples):
+		var t: float = float(i) / float(sample_rate)
+		var s: float = 0.0
+		for f in freqs:
+			s += sin(TAU * f * t)
+		s /= float(freqs.size())
+		var env: float = 1.0
+		if i < fade:
+			env = float(i) / float(fade)
+		elif i > num_samples - fade:
+			env = float(num_samples - i) / float(fade)
+		s *= env * vol
+		data.encode_s16(i * 2, int(clamp(s * 30000.0, -32768.0, 32767.0)))
+	var stream := AudioStreamWAV.new()
+	stream.data = data
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.stereo = false
+	stream.mix_rate = sample_rate
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	return stream
+
+
+func _setup_moon_audio() -> void:
+	var p := AudioStreamPlayer.new()
+	p.name = "MoonDrone"
+	p.volume_db = -2.0
+	p.stream = _generate_wav_stream([55.0, 72.0, 88.0, 105.0, 220.0, 330.0, 440.0], 8.0, 0.50)
+	_add_generated_child(p)
+	p.play()
+
+
+func _setup_water_audio() -> void:
+	var p := AudioStreamPlayer.new()
+	p.name = "WaterAmbient"
+	p.volume_db = -3.0
+	p.stream = _generate_wav_stream([75.0, 92.0, 110.0, 220.0, 440.0, 660.0], 6.0, 0.50)
+	_add_generated_child(p)
+	p.play()
+
+
+func _add_gate_audio(gate: Node3D, _gate_index: int) -> void:
+	var p := AudioStreamPlayer3D.new()
+	p.name = "GateHum"
+	p.volume_db = -2.0
+	p.max_distance = 100.0
+	p.attenuation_model = 1
+	p.position = Vector3(0.0, 2.0, 0.0)
+	p.stream = _generate_wav_stream([330.0, 440.0, 550.0], 4.0, 0.25)
+	gate.add_child(p)
+	p.call_deferred("play")
 
 
 func _add_box_collision(parent: Node3D, local_position: Vector3, size: Vector3) -> void:
@@ -1784,13 +4547,32 @@ func _random_land_position(min_height: float) -> Vector3:
 	return _random_position()
 
 
+func _random_underwater_position(max_height: float) -> Vector3:
+	for i in range(30):
+		var pos: Vector3 = _random_position()
+		if pos.y <= max_height:
+			return pos
+	return _random_position()
+
+
 func _terrain_color(pos: Vector3) -> Color:
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return Color(0.10, 0.11, 0.14)
+
+	if _is_current_map_cave():
+		return Color(0.12, 0.10, 0.08)
+
 	if _is_current_map_moon():
 		if pos.y > 4.0:
 			return Color(0.34, 0.36, 0.43)
 		if pos.y < -2.0:
 			return Color(0.16, 0.17, 0.21)
 		return Color(0.25, 0.26, 0.31)
+
+	if _is_current_map_water():
+		if pos.y > WATER_LEVEL + 0.25:
+			return Color(0.62, 0.55, 0.34)
+		return Color(0.28, 0.25, 0.18)
 
 	var river: float = _river_distance(pos.x, pos.z)
 	if pos.y <= WATER_LEVEL + 0.25 or river < 7.5:
