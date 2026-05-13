@@ -6,6 +6,9 @@ const SaveManager = preload("res://scripts/core/SaveManager.gd")
 const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
 const CollisionFactory = preload("res://scripts/factories/CollisionFactory.gd")
 const MapGenerator = preload("res://scripts/core/MapGenerator.gd")
+const AudioManager = preload("res://scripts/core/AudioManager.gd")
+const DiscoveryTracker = preload("res://scripts/core/DiscoveryTracker.gd")
+const HudController = preload("res://scripts/core/HudController.gd")
 
 
 const GRID_SIZE: int = 224
@@ -43,29 +46,20 @@ const SLOT_INDEX_PATH: String = "user://save_index.json"
 
 var noise: FastNoiseLite = FastNoiseLite.new()
 var world_seed: int = 12345
-var height_values: PackedFloat32Array = PackedFloat32Array()
 var generated_root: Node3D
 var menu_layer: CanvasLayer
 var dev_menu_layer: CanvasLayer
 var dev_menu_selected_world: String = ""
-var hud_layer: CanvasLayer
-var hud_label: Label
-var stamina_bar: ProgressBar
-var breath_bar: ProgressBar
-var minimap_panel: PanelContainer
+var hud_controller: HudController
 var atlas_layer: CanvasLayer
 var show_atlas: bool = false
 var show_hud: bool = true
-var minimap_marker_layer: Control
-var underwater_layer: CanvasLayer
-var underwater_overlay: ColorRect
 var world_environment: Environment
 var sun_light: DirectionalLight3D
 var save_data: Dictionary = {}
 var current_world_id: String = ""
 var current_map_id: String = ""
 var current_universe_id: String = ""
-var is_underwater: bool = false
 var last_discovery_text: String = ""
 var current_map_available_discoveries: int = 0
 var moon_map_return_map_id: String = ""
@@ -76,11 +70,12 @@ var current_slot: int = 0
 var slot_count: int = 0
 var tree_materials: Dictionary = {}
 var show_fps: bool = false
-var fps_label: Label
+
 var _moon_grid_scale: int = 1
 var _cycle_time: float = 0.0
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
+var discovery_tracker: DiscoveryTracker
 var generation_rng = StableRng.new(1)
 const CYCLE_HOURS_PER_SECOND: float = 1.0
 const CYCLE_LENGTH: float = 24.0 / CYCLE_HOURS_PER_SECOND
@@ -90,6 +85,26 @@ func _ready() -> void:
 	print("GATEWALK PATCHED MAIN: trees restored safely")
 	print("Main._ready: script is loading")
 	print("Random World Explorer v6: starting")
+
+	hud_controller = HudController.new()
+	hud_controller.name = "HudController"
+	hud_controller._get_world_fn = _get_world
+	hud_controller._get_player_fn = _get_player
+	hud_controller._is_moon_fn = _is_current_map_moon
+	hud_controller._is_water_fn = _is_current_map_water
+	hud_controller._is_cave_fn = _is_current_map_cave
+	hud_controller._is_gate_room_fn = _is_current_map_gate_room
+	add_child(hud_controller)
+
+	discovery_tracker = DiscoveryTracker.new()
+	discovery_tracker.get_world = _get_world
+	discovery_tracker.set_world = _set_world
+	discovery_tracker.get_current_universe = _current_universe
+	discovery_tracker.set_current_universe = _set_current_universe
+	discovery_tracker.save_world_data = _save_world_data
+	discovery_tracker.get_map_record = _get_map_record
+	discovery_tracker.on_orb_discovered = _check_moon_shrine_completion
+	discovery_tracker.on_message = _on_discovery_message
 
 	_load_slot_index()
 	_load_save_data()
@@ -104,8 +119,8 @@ func _ready() -> void:
 		preview.queue_free()
 
 	_setup_environment()
-	_setup_hud()
-	_setup_underwater_overlay()
+	hud_controller.setup(self)
+	hud_controller.world_environment = world_environment
 	_apply_graphics_level()
 	_ensure_default_world()
 	var last_world_id: String = _last_world_id()
@@ -181,8 +196,8 @@ func _input(event: InputEvent) -> void:
 
 		if event.keycode == KEY_F3:
 			show_fps = not show_fps
-			if fps_label != null:
-				fps_label.visible = show_fps
+			if hud_controller != null:
+				hud_controller.show_fps = show_fps
 
 		if event.keycode == KEY_M:
 			if menu_layer != null:
@@ -191,22 +206,22 @@ func _input(event: InputEvent) -> void:
 				_show_main_menu()
 
 		if event.keycode == KEY_G:
-			if Input.is_key_pressed(KEY_SHIFT):
-				_return_to_gate_room()
+			_return_to_gate_room()
+
+		if event.keycode == KEY_A:
+			if atlas_layer != null and atlas_layer.visible:
+				atlas_layer.visible = false
+				show_atlas = false
 			else:
-				if atlas_layer != null and atlas_layer.visible:
-					atlas_layer.visible = false
-					show_atlas = false
-				else:
-					show_atlas = true
-					_refresh_atlas_graph()
-					if atlas_layer != null:
-						atlas_layer.visible = true
+				show_atlas = true
+				_refresh_atlas_graph()
+				if atlas_layer != null:
+					atlas_layer.visible = true
 
 		if event.keycode == KEY_H:
 			show_hud = not show_hud
-			if hud_layer != null:
-				hud_layer.visible = show_hud
+			if hud_controller != null and hud_controller.hud_layer != null:
+				hud_controller.hud_layer.visible = show_hud
 
 		if event.keycode == KEY_C:
 			_try_grab_lichen()
@@ -405,6 +420,7 @@ func _apply_graphics_level() -> void:
 				world_environment.ssao_enabled = false
 				world_environment.ssil_enabled = false
 				world_environment.ssr_enabled = false
+				_set_environment_property("glow_bloom", 0.0)
 		1:
 			get_viewport().msaa_3d = Viewport.MSAA_2X
 			get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
@@ -413,6 +429,7 @@ func _apply_graphics_level() -> void:
 				world_environment.glow_enabled = true
 				world_environment.glow_intensity = 0.6
 				world_environment.glow_strength = 0.8
+				_set_environment_property("glow_bloom", 0.04)
 				world_environment.ssao_enabled = false
 				world_environment.ssil_enabled = false
 				world_environment.ssr_enabled = false
@@ -424,13 +441,20 @@ func _apply_graphics_level() -> void:
 				world_environment.glow_enabled = true
 				world_environment.glow_intensity = 0.8
 				world_environment.glow_strength = 1.0
+				_set_environment_property("glow_bloom", 0.08)
+				_set_environment_property("glow_hdr_bleed_threshold", 1.0)
+				_set_environment_property("glow_hdr_bleed_scale", 1.2)
 				world_environment.ssao_enabled = true
 				world_environment.ssao_radius = 0.75
 				world_environment.ssao_intensity = 1.4
+				_set_environment_property("ssao_power", 1.35)
+				_set_environment_property("ssao_detail", 0.45)
 				world_environment.ssil_enabled = true
 				world_environment.ssil_radius = 1.5
 				world_environment.ssil_intensity = 0.8
+				_set_environment_property("ssil_sharpness", 0.85)
 				world_environment.ssr_enabled = true
+				_set_environment_property("ssr_max_steps", 48)
 		3:
 			get_viewport().msaa_3d = Viewport.MSAA_8X
 			get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
@@ -439,13 +463,31 @@ func _apply_graphics_level() -> void:
 				world_environment.glow_enabled = true
 				world_environment.glow_intensity = 1.0
 				world_environment.glow_strength = 1.2
+				_set_environment_property("glow_bloom", 0.12)
+				_set_environment_property("glow_hdr_bleed_threshold", 0.85)
+				_set_environment_property("glow_hdr_bleed_scale", 1.45)
 				world_environment.ssao_enabled = true
 				world_environment.ssao_radius = 1.0
 				world_environment.ssao_intensity = 1.6
+				_set_environment_property("ssao_power", 1.5)
+				_set_environment_property("ssao_detail", 0.65)
 				world_environment.ssil_enabled = true
 				world_environment.ssil_radius = 2.0
 				world_environment.ssil_intensity = 1.0
+				_set_environment_property("ssil_sharpness", 1.0)
 				world_environment.ssr_enabled = true
+				_set_environment_property("ssr_max_steps", 64)
+				_set_environment_property("ssr_fade_in", 0.15)
+				_set_environment_property("ssr_fade_out", 2.0)
+
+
+func _set_environment_property(property_name: String, value: Variant) -> void:
+	if world_environment == null:
+		return
+	for property in world_environment.get_property_list():
+		if str(property.get("name", "")) == property_name:
+			world_environment.set(property_name, value)
+			return
 
 
 func _configure_sun_shadows() -> void:
@@ -471,9 +513,7 @@ func _set_graphics_level(level: int) -> void:
 	graphics_level = level
 	_save_world_data()
 	_apply_graphics_level()
-	if current_world_id != "" and current_map_id != "":
-		_load_map(current_world_id, current_map_id)
-	else:
+	if current_world_id == "" or current_map_id == "":
 		_show_main_menu()
 
 
@@ -760,7 +800,7 @@ func _show_main_menu() -> void:
 	ach_row.add_child(ach_btn)
 
 	var hint := Label.new()
-	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu | G: atlas graph | H: HUD | F10: windowed | F11: fullscreen"
+	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu | A: atlas graph | G: return to Gate Room | H: HUD | F10: windowed | F11: fullscreen"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 14)
 	list.add_child(hint)
@@ -1397,6 +1437,18 @@ func _get_world(world_id: String) -> Dictionary:
 	return worlds.get(world_id, {})
 
 
+func _get_map_record(world_id: String, map_id: String) -> Dictionary:
+	if world_id == "" or map_id == "":
+		return {}
+	var world: Dictionary = _get_world(world_id)
+	var maps: Dictionary = world.get("maps", {})
+	return maps.get(map_id, {})
+
+
+func _on_discovery_message(msg: String) -> void:
+	last_discovery_text = msg
+
+
 func _set_world(world_id: String, world: Dictionary) -> void:
 	var worlds: Dictionary = _get_worlds()
 	worlds[world_id] = world
@@ -1696,25 +1748,6 @@ func _short_id(value: String) -> String:
 	return value.substr(0, 12)
 
 
-func _current_map_discovery_count() -> int:
-	if current_world_id == "" or current_map_id == "":
-		return 0
-
-	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
-	var discoveries: Dictionary = map_record.get("discoveries", {})
-	return discoveries.size()
-
-
-func _current_world_map_count() -> int:
-	if current_world_id == "":
-		return 0
-	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	return maps.size()
-
-
 func _is_current_map_moon() -> bool:
 	if current_world_id == "" or current_map_id == "":
 		return false
@@ -1763,111 +1796,18 @@ func _is_current_map_gate_room() -> bool:
 	return str(map_record.get("type", "normal")) == "gate_room"
 
 
-func _record_discovery(discovery_id: String, title: String, kind: String, discovery_position: Vector3) -> void:
-	if current_world_id == "" or current_map_id == "":
-		return
-
-	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
-	var discoveries: Dictionary = map_record.get("discoveries", {})
-	if discoveries.has(discovery_id):
-		return
-
-	discoveries[discovery_id] = {
-		"title": title,
-		"kind": kind,
-		"found_at": Time.get_unix_time_from_system(),
-		"x": discovery_position.x,
-		"z": discovery_position.z
-	}
-	map_record["discoveries"] = discoveries
-	maps[current_map_id] = map_record
-	world["maps"] = maps
-	_set_world(current_world_id, world)
-	_save_world_data()
-	last_discovery_text = "New discovery: " + title
-	print("Atlas discovery: ", title, " [", kind, "]")
-	if kind == "wonder":
-		_award_achievement("first_wonder")
-		_check_map_wonders_complete()
-		_check_world_wonders_complete()
-	if kind == "orb":
-		_check_moon_shrine_completion()
-
-
 func _on_discovery_body_entered(body: Node3D, discovery_id: String, title: String, kind: String, discovery_position: Vector3) -> void:
-	if body.name == "Player":
-		_record_discovery(discovery_id, title, kind, discovery_position)
-
-
-func _award_achievement(id: String) -> void:
-	var universe: Dictionary = _current_universe()
-	var achievements: Dictionary = universe.get("achievements", {})
-	if achievements.has(id):
-		return
-	achievements[id] = Time.get_unix_time_from_system()
-	universe["achievements"] = achievements
-	_set_current_universe(universe)
-	_save_world_data()
-	var def: Dictionary = ACHIEVEMENT_DEFS.get(id, {})
-	var name: String = def.get("name", id)
-	last_discovery_text = "Achievement: " + name + "!"
-	print("Achievement unlocked: ", name)
-
-
-func _check_map_wonders_complete() -> void:
-	if current_world_id == "" or current_map_id == "":
-		return
-	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
-	var wonder_count: int = int(map_record.get("wonder_count", 0))
-	if wonder_count <= 0:
-		return
-	var discoveries: Dictionary = map_record.get("discoveries", {})
-	var wonder_found := 0
-	for key in discoveries.keys():
-		if discoveries[key].get("kind", "") == "wonder":
-			wonder_found += 1
-	if wonder_found >= wonder_count:
-		_award_achievement("all_wonders_map")
-
-
-func _check_world_wonders_complete() -> void:
-	if current_world_id == "":
-		return
-	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var total_wonders := 0
-	var total_found := 0
-	for map_key in maps.keys():
-		var mr: Dictionary = maps[map_key]
-		total_wonders += int(mr.get("wonder_count", 0))
-		var disc: Dictionary = mr.get("discoveries", {})
-		for dk in disc.keys():
-			if disc[dk].get("kind", "") == "wonder":
-				total_found += 1
-	if total_wonders > 0 and total_found >= total_wonders:
-		_award_achievement("all_wonders_world")
-
-
-func _check_map_visit_achievements() -> void:
-	var universe: Dictionary = _current_universe()
-	var visited: Array = universe.get("maps_visited", [])
-	if current_map_id != "" and not visited.has(current_map_id):
-		visited.append(current_map_id)
-		universe["maps_visited"] = visited
-		_set_current_universe(universe)
-		_save_world_data()
-	if visited.size() >= 5:
-		_award_achievement("world_traveler")
+	if body.name == "Player" and discovery_tracker != null:
+		discovery_tracker.record_discovery(discovery_id, title, kind, discovery_position)
 
 
 func _load_map(world_id: String, map_id: String) -> void:
 	_close_menu()
 	current_world_id = world_id
 	current_map_id = map_id
+	if discovery_tracker != null:
+		discovery_tracker.current_world_id = world_id
+		discovery_tracker.current_map_id = map_id
 
 	var world: Dictionary = _get_world(world_id)
 	var maps: Dictionary = world.get("maps", {})
@@ -1881,7 +1821,10 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_set_last_world_id(world_id)
 	_save_world_data()
 
+	var map_type: String = WorldGraph.map_type(map_record)
+	_moon_grid_scale = 2 if map_type == WorldGraph.MAP_MOON else 1
 	world_seed = int(map_record.get("seed", 12345))
+	_setup_noise()
 	_begin_generation_channel("map")
 	current_map_available_discoveries = 0
 	_clear_generated_map()
@@ -1889,10 +1832,10 @@ func _load_map(world_id: String, map_id: String) -> void:
 	generated_root.name = "GeneratedMap"
 	add_child(generated_root)
 	_apply_map_atmosphere()
-	_setup_music()
+	_apply_graphics_level()
+	AudioManager.setup_music(generated_root, generation_rng)
 	_create_visible_sun()
 
-	var map_type: String = WorldGraph.map_type(map_record)
 	var gen := MapGenerator.new({
 		"world_seed": world_seed,
 		"graphics_level": graphics_level,
@@ -1911,9 +1854,9 @@ func _load_map(world_id: String, map_id: String) -> void:
 		_scatter_map_nexus_gates()
 	else:
 		if _is_current_map_water():
-			_setup_water_audio()
+			AudioManager.setup_water_audio(generated_root)
 		if _is_current_map_moon():
-			_setup_moon_audio()
+			AudioManager.setup_moon_audio(generated_root)
 			_scatter_moon_lichen()
 			_scatter_moon_glass_craters()
 			_scatter_moon_platforms()
@@ -1937,15 +1880,16 @@ func _load_map(world_id: String, map_id: String) -> void:
 		_create_gates()
 	_store_current_map_available_discoveries()
 
-	_check_map_visit_achievements()
-	if _is_current_map_moon():
-		_award_achievement("moon_visitor")
-	if _is_current_map_gate_room():
-		_award_achievement("gate_room_finder")
-	if _is_current_map_water():
-		_award_achievement("island_hopper")
-	if _is_current_map_cave():
-		_award_achievement("cavern_explorer")
+	if discovery_tracker != null:
+		discovery_tracker.check_map_visit_achievements()
+	if _is_current_map_moon() and discovery_tracker != null:
+		discovery_tracker.award_achievement("moon_visitor")
+	if _is_current_map_gate_room() and discovery_tracker != null:
+		discovery_tracker.award_achievement("gate_room_finder")
+	if _is_current_map_water() and discovery_tracker != null:
+		discovery_tracker.award_achievement("island_hopper")
+	if _is_current_map_cave() and discovery_tracker != null:
+		discovery_tracker.award_achievement("cavern_explorer")
 
 	print("Random World Explorer v6: loaded map ", map_id, " with seed ", world_seed)
 
@@ -2000,11 +1944,11 @@ func _apply_map_atmosphere() -> void:
 	if world_environment == null:
 		return
 
-	if minimap_panel != null:
+	if hud_controller != null and hud_controller.minimap_panel != null:
 		var moon_size: float = 100.0
 		var normal_size: float = 80.0
-		minimap_panel.custom_minimum_size = Vector2(moon_size if _is_current_map_moon() else normal_size, moon_size if _is_current_map_moon() else normal_size)
-		minimap_marker_layer.custom_minimum_size = minimap_panel.custom_minimum_size
+		hud_controller.minimap_panel.custom_minimum_size = Vector2(moon_size if _is_current_map_moon() else normal_size, moon_size if _is_current_map_moon() else normal_size)
+		hud_controller.minimap_marker_layer.custom_minimum_size = hud_controller.minimap_panel.custom_minimum_size
 
 	if _is_current_map_cave():
 		world_environment.background_mode = Environment.BG_COLOR
@@ -2178,129 +2122,30 @@ func _update_day_night_cycle() -> void:
 		sun_light.light_color = sun_base
 
 
-func _setup_hud() -> void:
-	hud_layer = CanvasLayer.new()
-	hud_layer.name = "HudLayer"
-	hud_layer.layer = 10
-	add_child(hud_layer)
-
-	var panel := PanelContainer.new()
-	panel.anchor_left = 0.0
-	panel.anchor_top = 0.0
-	panel.anchor_right = 0.0
-	panel.anchor_bottom = 0.0
-	panel.offset_left = 16.0
-	panel.offset_top = 16.0
-	panel.offset_right = 180.0
-	panel.offset_bottom = 212.0
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_layer.add_child(panel)
-
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(margin)
-
-	var hud_stack := VBoxContainer.new()
-	hud_stack.add_theme_constant_override("separation", 8)
-	hud_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(hud_stack)
-
-	hud_label = Label.new()
-	hud_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hud_label.add_theme_font_size_override("font_size", 7)
-	hud_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(hud_label)
-
-	var stamina_label := Label.new()
-	stamina_label.text = "Sprint"
-	stamina_label.add_theme_font_size_override("font_size", 6)
-	stamina_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(stamina_label)
-
-	stamina_bar = ProgressBar.new()
-	stamina_bar.min_value = 0.0
-	stamina_bar.max_value = 15.0
-	stamina_bar.value = 15.0
-	stamina_bar.show_percentage = false
-	stamina_bar.custom_minimum_size = Vector2(0.0, 9.0)
-	stamina_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(stamina_bar)
-
-	var breath_label := Label.new()
-	breath_label.text = "Breath"
-	breath_label.add_theme_font_size_override("font_size", 6)
-	breath_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(breath_label)
-
-	breath_bar = ProgressBar.new()
-	breath_bar.min_value = 0.0
-	breath_bar.max_value = 60.0
-	breath_bar.value = 60.0
-	breath_bar.show_percentage = false
-	breath_bar.custom_minimum_size = Vector2(0.0, 9.0)
-	breath_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(breath_bar)
-
-	minimap_panel = PanelContainer.new()
-	minimap_panel.custom_minimum_size = Vector2(80.0, 80.0)
-	minimap_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	minimap_panel.set_h_size_flags(Control.SIZE_SHRINK_CENTER)
-	hud_stack.add_child(minimap_panel)
-
-	minimap_marker_layer = Control.new()
-	minimap_marker_layer.custom_minimum_size = Vector2(80.0, 80.0)
-	minimap_marker_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	minimap_panel.add_child(minimap_marker_layer)
-
-	fps_label = Label.new()
-	fps_label.anchor_left = 0.0
-	fps_label.anchor_top = 0.0
-	fps_label.anchor_right = 1.0
-	fps_label.anchor_bottom = 0.0
-	fps_label.offset_left = 0.0
-	fps_label.offset_top = 4.0
-	fps_label.offset_right = -8.0
-	fps_label.offset_bottom = 30.0
-	fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	fps_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	fps_label.add_theme_font_size_override("font_size", 11)
-	fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fps_label.visible = false
-	hud_layer.add_child(fps_label)
-
-
 func _update_hud() -> void:
-	if hud_label == null:
+	if hud_controller == null:
 		return
-
+	var player: CharacterBody3D = _get_player()
 	var map_short: String = "none"
 	if current_map_id.length() > 8:
 		map_short = current_map_id.substr(0, 8)
 	elif current_map_id != "":
 		map_short = current_map_id
 
-	var player: CharacterBody3D = _get_player()
 	var position_text: String = "No active player"
 	var warning_text: String = ""
+	var stamina: float = -1.0
+	var breath: float = -1.0
 	if player != null:
 		var half: float = _world_half_size()
 		var distance_to_edge: float = half - max(abs(player.global_position.x), abs(player.global_position.z))
 		position_text = "Position: " + str(int(player.global_position.x)) + ", " + str(int(player.global_position.z)) + " | edge " + str(max(int(distance_to_edge), 0)) + "m"
-		if is_underwater:
+		if hud_controller.is_underwater:
 			warning_text = "Underwater: Space swims upward"
 		elif distance_to_edge < 18.0:
 			warning_text = "Edge barrier nearby"
-
-		if stamina_bar != null and player.get("sprint_stamina") != null:
-			stamina_bar.value = float(player.get("sprint_stamina"))
-		if breath_bar != null and player.get("breath") != null:
-			var p_breath: float = float(player.get("breath"))
-			breath_bar.value = p_breath
-			breath_bar.visible = p_breath < 60.0
+		stamina = float(player.get("sprint_stamina")) if player.get("sprint_stamina") != null else -1.0
+		breath = float(player.get("breath")) if player.get("breath") != null else -1.0
 
 	var flashlight_text: String = ""
 	if player != null and player.get("flashlight_on") != null:
@@ -2312,145 +2157,58 @@ func _update_hud() -> void:
 			flashlight_text = "[F] Flashlight"
 
 	var world_name: String = "?"
+	var gate_room_return_world: String = ""
+	var gate_room_source_world: String = ""
+	var gate_room_source_map: String = ""
 	if current_world_id != "":
 		var w: Dictionary = _get_world(current_world_id)
 		world_name = str(w.get("name", current_world_id))
+		gate_room_source_world = str(w.get("gate_room_source_world", ""))
+		gate_room_source_map = str(w.get("gate_room_source_map", ""))
+	if _is_current_map_gate_room():
+		gate_room_return_world = str(_get_current_map_record().get("gate_room_return_world", ""))
 
 	var discovery_line: String = last_discovery_text
 	if discovery_line == "":
 		discovery_line = "Seek gates, ruins, and wonders."
 
-	var world_map_count: int = _current_world_map_count()
+	var world_map_count: int = discovery_tracker.current_world_map_count() if discovery_tracker != null else 0
 	var maps_line: String = "Maps in world: " + str(world_map_count)
-
-	if _is_current_map_gate_room():
-		hud_label.text = "World: " + world_name + " — Gate Room\n" + _atlas_summary_text() + "\n" + maps_line + "\n" + position_text + "\n" + discovery_line
-		var src_world: String = str(_get_current_map_record().get("gate_room_return_world", ""))
-		if src_world != "":
-			hud_label.text += "\nWalk to Return portal to exit."
-	else:
-		hud_label.text = "World: " + world_name + "\n" + _atlas_summary_text() + "\n" + maps_line + "\nMap " + map_short + ": " + _map_completion_text(current_map_id) + "\n" + position_text + "\n" + discovery_line
-		var world: Dictionary = _get_world(current_world_id)
-		if str(world.get("gate_room_source_world", "")) != "" and str(world.get("gate_room_source_map", "")) != "":
-			hud_label.text += "\n[G] Return to Gate Room"
-
-	if lichen_count > 0:
-		hud_label.text += "\nLichen: " + str(lichen_count) + " [C] grab [T] throw"
-
-	if flashlight_text != "":
-		hud_label.text += "\n" + flashlight_text
-
-	if warning_text != "":
-		hud_label.text += "\n" + warning_text
-
-	_update_minimap()
-
-	if fps_label != null and fps_label.visible:
-		fps_label.text = str(Engine.get_frames_per_second()) + " FPS"
-
-
-func _update_minimap() -> void:
-	if minimap_marker_layer == null:
-		return
-
-	for child in minimap_marker_layer.get_children():
-		child.queue_free()
-
-	var size: float = 80.0 if not _is_current_map_moon() else 100.0
-	var half: float = _world_half_size()
-	var player: CharacterBody3D = _get_player()
-	if player != null:
-		var player_pos: Vector2 = _world_to_minimap(player.global_position.x, player.global_position.z, size, half)
-		var fwd: Vector3 = -player.global_transform.basis.z
-		var angle: float = atan2(fwd.x, -fwd.z)
-
-		var arrow := Polygon2D.new()
-		arrow.polygon = PackedVector2Array([Vector2(0.0, -5.0), Vector2(-4.0, 4.0), Vector2(4.0, 4.0)])
-		arrow.color = Color(1.0, 0.55, 0.0)
-		arrow.position = player_pos
-		arrow.rotation = angle
-		minimap_marker_layer.add_child(arrow)
 
 	var world: Dictionary = _get_world(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
 	var map_record: Dictionary = maps.get(current_map_id, {})
 	var discoveries: Dictionary = map_record.get("discoveries", {})
-	for discovery_key in discoveries.keys():
-		var discovery: Dictionary = discoveries[discovery_key]
-		if not discovery.has("x") or not discovery.has("z"):
-			continue
-		var x: float = float(discovery["x"])
-		var z: float = float(discovery["z"])
-		var pos: Vector2 = _world_to_minimap(x, z, size, half)
-		var kind: String = str(discovery.get("kind", "wonder"))
-		var color: Color = Color(0.35, 0.85, 1.0)
-		if kind == "gate":
-			color = Color(1.0, 0.7, 0.2)
-		elif kind == "ruin":
-			color = Color(0.75, 0.6, 1.0)
-		elif kind == "orb":
-			color = Color(0.3, 1.0, 0.6)
-		_add_minimap_dot(pos, color, 1.5)
 
-
-func _world_to_minimap(x: float, z: float, size: float, half: float) -> Vector2:
-	return Vector2((x / half) * size * 0.5 + size * 0.5, (z / half) * size * 0.5 + size * 0.5)
-
-
-func _add_minimap_dot(pos: Vector2, color: Color, radius: float) -> void:
-	var dot := ColorRect.new()
-	dot.color = color
-	dot.position = pos - Vector2(radius, radius)
-	dot.size = Vector2(radius * 2.0, radius * 2.0)
-	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	minimap_marker_layer.add_child(dot)
-
-
-func _setup_underwater_overlay() -> void:
-	underwater_layer = CanvasLayer.new()
-	underwater_layer.name = "UnderwaterLayer"
-	underwater_layer.layer = 20
-	add_child(underwater_layer)
-
-	underwater_overlay = ColorRect.new()
-	underwater_overlay.name = "UnderwaterOverlay"
-	underwater_overlay.anchor_right = 1.0
-	underwater_overlay.anchor_bottom = 1.0
-	underwater_overlay.color = Color(0.02, 0.22, 0.36, 0.34)
-	underwater_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	underwater_overlay.visible = false
-	underwater_layer.add_child(underwater_overlay)
+	var data := {
+		"map_short": map_short,
+		"world_name": world_name,
+		"position_text": position_text,
+		"warning_text": warning_text,
+		"flashlight_text": flashlight_text,
+		"discovery_line": discovery_line,
+		"maps_line": maps_line,
+		"atlas_summary": _atlas_summary_text(),
+		"map_completion": _map_completion_text(current_map_id),
+		"lichen_count": lichen_count,
+		"is_gate_room": _is_current_map_gate_room(),
+		"gate_room_return_world": gate_room_return_world,
+		"gate_room_source_world": gate_room_source_world,
+		"gate_room_source_map": gate_room_source_map,
+		"stamina": stamina,
+		"breath": breath,
+		"player_node": player,
+		"world_half_size": _world_half_size(),
+		"discoveries": discoveries,
+	}
+	hud_controller.update(data)
 
 
 func _update_underwater_state() -> void:
-	if _is_current_map_moon() or _is_current_map_gate_room():
-		if is_underwater:
-			is_underwater = false
-			if underwater_overlay != null:
-				underwater_overlay.visible = false
+	if hud_controller == null:
 		return
-
 	var camera := get_viewport().get_camera_3d()
-	if camera == null:
-		return
-
-	var now_underwater: bool = camera.global_position.y < WATER_LEVEL
-	if now_underwater == is_underwater:
-		return
-
-	is_underwater = now_underwater
-	if underwater_overlay != null:
-		underwater_overlay.visible = is_underwater
-
-	if world_environment != null:
-		if is_underwater:
-			world_environment.fog_density = 0.075
-			world_environment.fog_light_color = Color(0.05, 0.32, 0.48)
-			world_environment.ambient_light_color = Color(0.18, 0.45, 0.58)
-		else:
-			world_environment.fog_density = 0.010
-			world_environment.fog_light_color = Color(0.65, 0.75, 0.85)
-			world_environment.ambient_light_color = Color(0.7, 0.78, 0.86)
+	hud_controller.update_underwater_state(_is_current_map_moon(), _is_current_map_gate_room(), camera)
 
 
 func _get_player() -> CharacterBody3D:
@@ -2476,16 +2234,6 @@ func _recover_fallen_player() -> void:
 		player.global_position = Vector3(spawn.x, spawn.y + 6.0, spawn.z)
 		player.velocity = Vector3.ZERO
 		last_discovery_text = "Recovered from the edge of the world."
-
-
-func _build_height_values() -> void:
-	var g: int = _effective_grid_size()
-	height_values.clear()
-	height_values.resize((g + 1) * (g + 1))
-
-	for z in range(g + 1):
-		for x in range(g + 1):
-			height_values[_height_index(x, z)] = _raw_height_at_grid(x, z)
 
 
 func _effective_grid_size() -> int:
@@ -2523,12 +2271,6 @@ func _grid_to_world_z(z: int) -> float:
 	return (float(z) - g * 0.5) * c
 
 
-func _raw_height_at_grid(x: int, z: int) -> float:
-	var wx: float = _grid_to_world_x(x)
-	var wz: float = _grid_to_world_z(z)
-	return _height_at_world(wx, wz)
-
-
 func _height_at_world(wx: float, wz: float) -> float:
 	if _is_current_map_gate_room() or _is_current_map_cave() or _is_current_map_map_nexus():
 		return 0.0
@@ -2555,254 +2297,6 @@ func _height_at_world(wx: float, wz: float) -> float:
 		height = min(height, WATER_LEVEL - 0.45 + abs(_river_distance(wx, wz)) * 0.05)
 
 	return height
-
-
-func _create_terrain_mesh() -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-
-	var g: int = _effective_grid_size()
-	for z in range(g):
-		for x in range(g):
-			var p00: Vector3 = Vector3(_grid_to_world_x(x), height_values[_height_index(x, z)], _grid_to_world_z(z))
-			var p10: Vector3 = Vector3(_grid_to_world_x(x + 1), height_values[_height_index(x + 1, z)], _grid_to_world_z(z))
-			var p01: Vector3 = Vector3(_grid_to_world_x(x), height_values[_height_index(x, z + 1)], _grid_to_world_z(z + 1))
-			var p11: Vector3 = Vector3(_grid_to_world_x(x + 1), height_values[_height_index(x + 1, z + 1)], _grid_to_world_z(z + 1))
-
-			_add_triangle(st, p00, p10, p11, _terrain_color(p00), _terrain_color(p10), _terrain_color(p11))
-			_add_triangle(st, p00, p11, p01, _terrain_color(p00), _terrain_color(p11), _terrain_color(p01))
-
-	st.generate_normals()
-	var terrain_mesh := st.commit()
-
-	var terrain := MeshInstance3D.new()
-	terrain.name = "GeneratedTerrain"
-	terrain.mesh = terrain_mesh
-
-	var terrain_mat := StandardMaterial3D.new()
-	terrain_mat.vertex_color_use_as_albedo = true
-	if graphics_level >= 2:
-		terrain_mat.roughness = 0.75
-		terrain_mat.normal_enabled = true
-		terrain_mat.normal_scale = 0.25
-		var terrain_noise := FastNoiseLite.new()
-		terrain_noise.seed = world_seed
-		terrain_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-		terrain_noise.frequency = 0.015
-		var noise_tex := NoiseTexture2D.new()
-		noise_tex.noise = terrain_noise
-		noise_tex.normalize = true
-		terrain_mat.normal_texture = noise_tex
-	else:
-		terrain_mat.roughness = 1.0
-	terrain.material_override = terrain_mat
-
-	_add_generated_child(terrain)
-
-
-func _create_terrain_collision() -> void:
-	var body := StaticBody3D.new()
-	body.name = "TerrainBody"
-	body.collision_layer = 1
-	body.collision_mask = 1
-
-	var shape := HeightMapShape3D.new()
-	var g: int = _effective_grid_size()
-	shape.map_width = g + 1
-	shape.map_depth = g + 1
-	shape.map_data = height_values
-
-	var collision := CollisionShape3D.new()
-	collision.name = "TerrainHeightMapCollision"
-	collision.shape = shape
-	collision.scale = Vector3(CELL_SIZE, 1.0, CELL_SIZE)
-
-	body.add_child(collision)
-	_add_generated_child(body)
-
-
-func _create_gate_room_terrain() -> void:
-	var floor_mat := StandardMaterial3D.new()
-	floor_mat.albedo_color = Color(0.08, 0.09, 0.12)
-	floor_mat.roughness = 0.80
-
-	var floor := MeshInstance3D.new()
-	floor.name = "GateRoomFloor"
-	var floor_mesh := CylinderMesh.new()
-	floor_mesh.top_radius = 32.0
-	floor_mesh.bottom_radius = 32.0
-	floor_mesh.height = 0.6
-	floor_mesh.radial_segments = 32
-	floor.mesh = floor_mesh
-	floor.material_override = floor_mat
-	floor.position.y = -0.3
-	_add_generated_child(floor)
-
-	var body := StaticBody3D.new()
-	body.name = "GateRoomFloorBody"
-	var col_shape := CollisionShape3D.new()
-	var col_cyl := CylinderShape3D.new()
-	col_cyl.radius = 32.0
-	col_cyl.height = 0.6
-	col_shape.shape = col_cyl
-	col_shape.position.y = -0.3
-	body.add_child(col_shape)
-	_add_generated_child(body)
-
-	for i in range(24):
-		var angle: float = TAU * float(i) / 24.0
-		var wall_mat := StandardMaterial3D.new()
-		wall_mat.albedo_color = Color(0.12, 0.13, 0.18)
-		wall_mat.roughness = 0.9
-		var wall := MeshInstance3D.new()
-		wall.name = "GateRoomWall_" + str(i)
-		var wall_mesh := BoxMesh.new()
-		wall_mesh.size = Vector3(2.5, 8.0, 0.6)
-		wall.mesh = wall_mesh
-		wall.material_override = wall_mat
-		wall.position = Vector3(cos(angle) * 31.5, 4.0, sin(angle) * 31.5)
-		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
-		_add_generated_child(wall)
-
-
-func _create_cave_terrain() -> void:
-	var stone_mat := StandardMaterial3D.new()
-	stone_mat.albedo_color = Color(0.12, 0.10, 0.08)
-	stone_mat.roughness = 0.95
-	var glow_mat := StandardMaterial3D.new()
-	glow_mat.albedo_color = Color(0.20, 0.70, 1.0)
-	glow_mat.emission_enabled = true
-	glow_mat.emission = Color(0.10, 0.50, 0.90)
-	glow_mat.emission_energy_multiplier = 1.5
-
-	var floor := MeshInstance3D.new()
-	floor.name = "CaveFloor"
-	var floor_mesh := CylinderMesh.new()
-	floor_mesh.top_radius = 45.0
-	floor_mesh.bottom_radius = 45.0
-	floor_mesh.height = 0.8
-	floor_mesh.radial_segments = 32
-	floor.mesh = floor_mesh
-	floor.material_override = stone_mat
-	floor.position.y = -0.4
-	_add_generated_child(floor)
-
-	var floor_body := StaticBody3D.new()
-	var floor_col := CollisionShape3D.new()
-	var floor_cyl := CylinderShape3D.new()
-	floor_cyl.radius = 45.0
-	floor_cyl.height = 0.8
-	floor_col.shape = floor_cyl
-	floor_col.position.y = -0.4
-	floor_body.add_child(floor_col)
-	_add_generated_child(floor_body)
-
-	var ceiling_mat := StandardMaterial3D.new()
-	ceiling_mat.albedo_color = Color(0.10, 0.08, 0.06)
-	ceiling_mat.roughness = 1.0
-	var ceiling := MeshInstance3D.new()
-	ceiling.name = "CaveCeiling"
-	var ceiling_mesh := CylinderMesh.new()
-	ceiling_mesh.top_radius = 44.0
-	ceiling_mesh.bottom_radius = 44.0
-	ceiling_mesh.height = 0.5
-	ceiling_mesh.radial_segments = 32
-	ceiling.mesh = ceiling_mesh
-	ceiling.material_override = ceiling_mat
-	ceiling.position.y = 8.0
-	_add_generated_child(ceiling)
-
-	var wall_mat := StandardMaterial3D.new()
-	wall_mat.albedo_color = Color(0.14, 0.11, 0.09)
-	wall_mat.roughness = 1.0
-	for i in range(32):
-		var angle: float = TAU * float(i) / 32.0
-		var wall := MeshInstance3D.new()
-		wall.name = "CaveWall_" + str(i)
-		var wall_mesh := BoxMesh.new()
-		wall_mesh.size = Vector3(3.0, 9.0, 0.8)
-		wall.mesh = wall_mesh
-		wall.material_override = wall_mat
-		wall.position = Vector3(cos(angle) * 44.5, 4.0, sin(angle) * 44.5)
-		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
-		_add_generated_child(wall)
-
-	var tunnel_data: Array[Dictionary] = [
-		{"x": -20.0, "z": -20.0, "angle": 0.0, "len": 25.0},
-		{"x": 18.0, "z": -18.0, "angle": 45.0, "len": 22.0},
-		{"x": -15.0, "z": 22.0, "angle": -30.0, "len": 28.0},
-		{"x": 22.0, "z": 15.0, "angle": 120.0, "len": 20.0},
-		{"x": -25.0, "z": 5.0, "angle": 80.0, "len": 18.0},
-		{"x": 8.0, "z": -25.0, "angle": -60.0, "len": 24.0},
-	]
-	for td in tunnel_data:
-		var cx: float = float(td["x"])
-		var cz: float = float(td["z"])
-		var a: float = deg_to_rad(float(td["angle"]))
-		var length: float = float(td["len"])
-		var segments: int = maxi(3, int(length / 3.0))
-		for j in range(segments):
-			var t: float = float(j) / float(segments)
-			var px: float = cx + cos(a) * t * length
-			var pz: float = cz + sin(a) * t * length
-			for side in [-1, 1]:
-				var tunnel_wall := MeshInstance3D.new()
-				var tw := BoxMesh.new()
-				tw.size = Vector3(0.3, 3.5, 3.0)
-				tunnel_wall.mesh = tw
-				tunnel_wall.material_override = wall_mat
-				var perp: float = a + PI * 0.5
-				tunnel_wall.position = Vector3(px + cos(perp) * 1.8 * side, 1.8, pz + sin(perp) * 1.8 * side)
-				tunnel_wall.rotation.y = a
-				_add_generated_child(tunnel_wall)
-			var arch_box := MeshInstance3D.new()
-			var ab := BoxMesh.new()
-			ab.size = Vector3(3.6, 0.3, 0.3)
-			arch_box.mesh = ab
-			arch_box.material_override = wall_mat
-			arch_box.position = Vector3(px, 3.6, pz)
-			arch_box.rotation.y = a
-			_add_generated_child(arch_box)
-
-	for i in range(14):
-		var pillar_mat := StandardMaterial3D.new()
-		pillar_mat.albedo_color = Color(0.15, 0.12, 0.10)
-		pillar_mat.roughness = 1.0
-		var pillar := MeshInstance3D.new()
-		var pm := CylinderMesh.new()
-		pm.top_radius = 0.3
-		pm.bottom_radius = 0.5
-		pm.height = 8.0
-		pillar.mesh = pm
-		pillar.material_override = pillar_mat
-		var a2: float = TAU * float(i) / 14.0
-		var r2: float = _randf_range(12.0, 35.0)
-		pillar.position = Vector3(cos(a2) * r2, 4.0, sin(a2) * r2)
-		_add_generated_child(pillar)
-
-	var glow_pillar_mat := StandardMaterial3D.new()
-	glow_pillar_mat.albedo_color = Color(0.18, 0.75, 1.0)
-	glow_pillar_mat.emission_enabled = true
-	glow_pillar_mat.emission = Color(0.10, 0.60, 0.95)
-	glow_pillar_mat.emission_energy_multiplier = 1.8
-	for i in range(5):
-		var gp := MeshInstance3D.new()
-		var gpm := CylinderMesh.new()
-		gpm.top_radius = 0.15
-		gpm.bottom_radius = 0.25
-		gpm.height = _randf_range(2.0, 4.0)
-		gp.mesh = gpm
-		gp.material_override = glow_pillar_mat
-		var a3: float = TAU * float(i) / 5.0
-		gp.position = Vector3(cos(a3) * 8.0, gpm.height * 0.5, sin(a3) * 8.0)
-		_add_generated_child(gp)
-
-		var gl := OmniLight3D.new()
-		gl.light_color = Color(0.15, 0.70, 1.0)
-		gl.light_energy = 1.5
-		gl.omni_range = 10.0
-		gl.position = Vector3(cos(a3) * 8.0, 1.5, sin(a3) * 8.0)
-		_add_generated_child(gl)
 
 
 func _scatter_cave_items() -> void:
@@ -2865,50 +2359,6 @@ func _scatter_cave_items() -> void:
 		discovered += 1
 
 	current_map_available_discoveries += discovered
-
-
-func _create_map_nexus_terrain() -> void:
-	var floor_mat := StandardMaterial3D.new()
-	floor_mat.albedo_color = Color(0.08, 0.09, 0.14)
-	floor_mat.roughness = 0.80
-
-	var floor := MeshInstance3D.new()
-	floor.name = "MapNexusFloor"
-	var floor_mesh := CylinderMesh.new()
-	floor_mesh.top_radius = 48.0
-	floor_mesh.bottom_radius = 48.0
-	floor_mesh.height = 0.6
-	floor_mesh.radial_segments = 40
-	floor.mesh = floor_mesh
-	floor.material_override = floor_mat
-	floor.position.y = -0.3
-	_add_generated_child(floor)
-
-	var body := StaticBody3D.new()
-	body.name = "MapNexusFloorBody"
-	var col_shape := CollisionShape3D.new()
-	var col_cyl := CylinderShape3D.new()
-	col_cyl.radius = 48.0
-	col_cyl.height = 0.6
-	col_shape.shape = col_cyl
-	col_shape.position.y = -0.3
-	body.add_child(col_shape)
-	_add_generated_child(body)
-
-	var wall_mat := StandardMaterial3D.new()
-	wall_mat.albedo_color = Color(0.12, 0.13, 0.20)
-	wall_mat.roughness = 0.9
-	for i in range(36):
-		var angle: float = TAU * float(i) / 36.0
-		var wall := MeshInstance3D.new()
-		wall.name = "MapNexusWall_" + str(i)
-		var wall_mesh := BoxMesh.new()
-		wall_mesh.size = Vector3(2.5, 8.0, 0.6)
-		wall.mesh = wall_mesh
-		wall.material_override = wall_mat
-		wall.position = Vector3(cos(angle) * 47.5, 4.0, sin(angle) * 47.5)
-		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
-		_add_generated_child(wall)
 
 
 func _scatter_map_nexus_gates() -> void:
@@ -3046,279 +2496,6 @@ func _on_map_nexus_gate_body_entered(body: Node3D, slot_index: int) -> void:
 	_load_map(current_world_id, target_map_id)
 
 
-func _create_world_bounds() -> void:
-	var half: float = _world_half_size()
-	var wall_height: float = 80.0
-	var wall_thickness: float = 4.0
-	var wall_center_y: float = 18.0
-	var wall_length: float = float(_effective_grid_size()) * CELL_SIZE + wall_thickness * 2.0
-
-	var bounds := Node3D.new()
-	bounds.name = "WorldEdgeBarriers"
-	_add_generated_child(bounds)
-	_add_box_collision(bounds, Vector3(half, wall_center_y, 0.0), Vector3(wall_thickness, wall_height, wall_length))
-	_add_box_collision(bounds, Vector3(-half, wall_center_y, 0.0), Vector3(wall_thickness, wall_height, wall_length))
-	_add_box_collision(bounds, Vector3(0.0, wall_center_y, half), Vector3(wall_length, wall_height, wall_thickness))
-	_add_box_collision(bounds, Vector3(0.0, wall_center_y, -half), Vector3(wall_length, wall_height, wall_thickness))
-	_add_box_collision(bounds, Vector3(0.0, -45.0, 0.0), Vector3(wall_length * 2.0, 0.2, wall_length * 2.0))
-
-
-func _create_water() -> void:
-	var water := MeshInstance3D.new()
-	water.name = "RiverAndLakeWater"
-
-	var water_size: float = float(_effective_grid_size()) * CELL_SIZE * 0.94
-
-	var mesh := PlaneMesh.new()
-	mesh.size = Vector2(water_size, water_size)
-
-	if graphics_level <= 0:
-		mesh.subdivide_width = 32
-		mesh.subdivide_depth = 32
-	elif graphics_level == 1:
-		mesh.subdivide_width = 64
-		mesh.subdivide_depth = 64
-	else:
-		mesh.subdivide_width = 128
-		mesh.subdivide_depth = 128
-
-	water.mesh = mesh
-	water.position.y = WATER_LEVEL
-
-	var water_shader := Shader.new()
-	water_shader.code = """
-shader_type spatial;
-
-render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_burley, specular_schlick_ggx;
-
-uniform vec4 shallow_color : source_color = vec4(0.10, 0.34, 0.52, 0.34);
-uniform vec4 deep_color : source_color = vec4(0.03, 0.16, 0.32, 0.44);
-uniform vec3 sky_tint : source_color = vec3(0.34, 0.56, 0.82);
-
-uniform float wave_speed : hint_range(0.0, 5.0) = 0.65;
-uniform float wave_height : hint_range(0.0, 0.5) = 0.045;
-uniform float wave_scale : hint_range(0.1, 20.0) = 4.0;
-uniform float normal_strength : hint_range(0.0, 5.0) = 0.85;
-uniform float sheen_strength : hint_range(0.0, 1.0) = 0.28;
-uniform float alpha_boost : hint_range(0.0, 1.0) = 0.0;
-
-varying vec3 v_normal;
-varying vec3 v_world_position;
-
-float wave_value(vec2 p, float t) {
-	float a = sin(p.x * wave_scale + t * wave_speed);
-	float b = sin(p.y * wave_scale * 1.37 + t * wave_speed * 1.11);
-	float c = sin((p.x + p.y) * wave_scale * 0.71 + t * wave_speed * 0.63);
-	return (a + b + c * 0.65) / 2.65;
-}
-
-void vertex() {
-	float t = TIME;
-	vec2 p = VERTEX.xz * 0.08;
-
-	float h = wave_value(p, t) * wave_height;
-	VERTEX.y += h;
-
-	float e = 0.08;
-	float hx = wave_value(p + vec2(e, 0.0), t) * wave_height;
-	float hz = wave_value(p + vec2(0.0, e), t) * wave_height;
-
-	vec3 local_normal = normalize(vec3(
-		-(hx - h) * normal_strength,
-		1.0,
-		-(hz - h) * normal_strength
-	));
-
-	NORMAL = local_normal;
-	v_normal = normalize((MODEL_MATRIX * vec4(local_normal, 0.0)).xyz);
-	v_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-}
-
-void fragment() {
-	vec3 n = normalize(v_normal);
-	vec3 view_dir = normalize(CAMERA_POSITION_WORLD - v_world_position);
-
-	float fresnel = pow(1.0 - clamp(dot(n, view_dir), 0.0, 1.0), 3.0);
-
-	float ripple = sin(v_world_position.x * 0.32 + TIME * wave_speed * 1.4)
-		* sin(v_world_position.z * 0.25 - TIME * wave_speed * 1.0);
-	ripple = ripple * 0.5 + 0.5;
-
-	vec3 base_color = mix(shallow_color.rgb, deep_color.rgb, 0.45);
-	base_color += vec3(ripple * 0.018);
-
-	// Do NOT add sky color directly. Mix toward it gently.
-	float sheen = clamp(fresnel * sheen_strength, 0.0, 0.35);
-	ALBEDO = mix(base_color, sky_tint, sheen);
-
-	ALPHA = mix(shallow_color.a, deep_color.a, 0.45) + fresnel * 0.08 + alpha_boost;
-	ALPHA = clamp(ALPHA, 0.24, 0.52);
-
-	ROUGHNESS = 0.18;
-	METALLIC = 0.0;
-	SPECULAR = 0.35;
-}
-"""
-
-	var mat := ShaderMaterial.new()
-	mat.shader = water_shader
-
-	if _is_current_map_water():
-		mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.36))
-		mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.48))
-		mat.set_shader_parameter("sky_tint", Color(0.32, 0.54, 0.82))
-		mat.set_shader_parameter("wave_height", 0.075 if graphics_level >= 2 else 0.045)
-		mat.set_shader_parameter("wave_speed", 0.90 if graphics_level >= 2 else 0.65)
-		mat.set_shader_parameter("wave_scale", 3.1)
-		mat.set_shader_parameter("normal_strength", 1.05 if graphics_level >= 2 else 0.75)
-		mat.set_shader_parameter("sheen_strength", 0.28)
-		mat.set_shader_parameter("alpha_boost", 0.02)
-	else:
-		mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.30))
-		mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.40))
-		mat.set_shader_parameter("sky_tint", Color(0.36, 0.60, 0.88))
-		mat.set_shader_parameter("wave_height", 0.045 if graphics_level >= 2 else 0.025)
-		mat.set_shader_parameter("wave_speed", 0.60 if graphics_level >= 2 else 0.40)
-		mat.set_shader_parameter("wave_scale", 4.4)
-		mat.set_shader_parameter("normal_strength", 0.85 if graphics_level >= 2 else 0.60)
-		mat.set_shader_parameter("sheen_strength", 0.32)
-		mat.set_shader_parameter("alpha_boost", 0.0)
-
-	water.material_override = mat
-	_add_generated_child(water)
-
-	var water_collision := StaticBody3D.new()
-	water_collision.name = "WaterCollision"
-	water_collision.collision_layer = 4
-	water_collision.collision_mask = 0
-
-	var water_shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(water_size, 0.2, water_size)
-	water_shape.shape = box
-
-	water_collision.add_child(water_shape)
-	water_collision.position.y = WATER_LEVEL
-	_add_generated_child(water_collision)
-
-func _create_sky_clouds() -> void:
-	if _is_current_map_moon() or _is_current_map_cave():
-		return
-	if graphics_level == 0:
-		return
-
-	var cloud_root := Node3D.new()
-	cloud_root.name = "SkyClouds"
-
-	var cloud_shader := Shader.new()
-	cloud_shader.code = """
-shader_type spatial;
-
-render_mode blend_mix, depth_draw_never, cull_disabled, unshaded;
-
-uniform float time_offset : hint_range(0.0, 1000.0) = 0.0;
-uniform float time_scale : hint_range(0.0, 1.0) = 0.025;
-uniform float density : hint_range(0.0, 1.0) = 0.38;
-uniform float coverage : hint_range(0.0, 1.0) = 0.55;
-uniform float softness : hint_range(0.0, 1.0) = 0.25;
-uniform vec3 cloud_color : source_color = vec3(1.0, 0.98, 0.92);
-uniform vec3 cloud_shadow_color : source_color = vec3(0.70, 0.74, 0.78);
-
-float hash2(vec2 p) {
-	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-float noise2(vec2 p) {
-	vec2 i = floor(p);
-	vec2 f = fract(p);
-	f = f * f * (3.0 - 2.0 * f);
-
-	float a = hash2(i);
-	float b = hash2(i + vec2(1.0, 0.0));
-	float c = hash2(i + vec2(0.0, 1.0));
-	float d = hash2(i + vec2(1.0, 1.0));
-
-	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-
-float fbm(vec2 p) {
-	float v = 0.0;
-	float amp = 0.5;
-
-	for (int i = 0; i < 5; i++) {
-		v += amp * noise2(p);
-		p = p * 2.05 + vec2(13.2, 7.1);
-		amp *= 0.5;
-	}
-
-	return v;
-}
-
-void fragment() {
-	float t = TIME * time_scale + time_offset;
-
-	vec2 p = UV * 5.0;
-	p += vec2(t * 0.35, t * 0.10);
-
-	float large = fbm(p);
-	float detail = fbm(p * 2.7 + vec2(31.7, 19.4));
-	float cloud = large * 0.75 + detail * 0.25;
-
-	float threshold = 1.0 - coverage;
-	float alpha = smoothstep(threshold, threshold + softness, cloud) * density;
-
-	vec2 centered = UV * 2.0 - 1.0;
-	float edge = max(abs(centered.x), abs(centered.y));
-	alpha *= 1.0 - smoothstep(0.72, 1.0, edge);
-
-	vec3 color = mix(cloud_shadow_color, cloud_color, clamp(cloud + 0.12, 0.0, 1.0));
-
-	ALBEDO = color;
-	ALPHA = alpha;
-}
-"""
-
-	var near_clouds := MeshInstance3D.new()
-	near_clouds.name = "CloudLayerNear"
-	var near_mesh := PlaneMesh.new()
-	near_mesh.size = Vector2(900.0, 900.0)
-	near_clouds.mesh = near_mesh
-	near_clouds.position = Vector3(0.0, 115.0, 0.0)
-
-	var mat := ShaderMaterial.new()
-	mat.shader = cloud_shader
-	mat.set_shader_parameter("time_offset", float(world_seed % 1000))
-	mat.set_shader_parameter("time_scale", 0.025)
-	mat.set_shader_parameter("density", 0.42 if graphics_level >= 2 else 0.28)
-	mat.set_shader_parameter("coverage", 0.56)
-	mat.set_shader_parameter("softness", 0.25)
-	mat.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.92))
-	mat.set_shader_parameter("cloud_shadow_color", Color(0.70, 0.74, 0.78))
-	near_clouds.material_override = mat
-	cloud_root.add_child(near_clouds)
-
-	var far_clouds := MeshInstance3D.new()
-	far_clouds.name = "CloudLayerFar"
-	var far_mesh := PlaneMesh.new()
-	far_mesh.size = Vector2(1300.0, 1300.0)
-	far_clouds.mesh = far_mesh
-	far_clouds.position = Vector3(0.0, 170.0, 0.0)
-
-	var mat2 := ShaderMaterial.new()
-	mat2.shader = cloud_shader
-	mat2.set_shader_parameter("time_offset", float(world_seed % 1000) + 250.0)
-	mat2.set_shader_parameter("time_scale", 0.014)
-	mat2.set_shader_parameter("density", 0.22 if graphics_level >= 2 else 0.12)
-	mat2.set_shader_parameter("coverage", 0.62)
-	mat2.set_shader_parameter("softness", 0.35)
-	mat2.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.94))
-	mat2.set_shader_parameter("cloud_shadow_color", Color(0.72, 0.76, 0.82))
-	far_clouds.material_override = mat2
-	cloud_root.add_child(far_clouds)
-
-	_add_generated_child(cloud_root)
-
-
 func _create_visible_sun() -> void:
 	if sun_light == null:
 		return
@@ -3347,183 +2524,6 @@ func _create_visible_sun() -> void:
 	sun_disc.position = dir * 650.0
 
 	_add_generated_child(sun_disc)
-
-func _create_moon_sky() -> void:
-	_begin_generation_channel("moon_sky")
-	var sky := Node3D.new()
-	sky.name = "MoonSkyDetails"
-
-	var star_mat := StandardMaterial3D.new()
-	star_mat.albedo_color = Color(0.75, 0.86, 1.0)
-	star_mat.emission_enabled = true
-	star_mat.emission = Color(0.7, 0.85, 1.0)
-	star_mat.emission_energy_multiplier = 1.8
-	star_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-
-	for i in range(200):
-		var angle := _randf_range(0.0, TAU)
-		var elev := _randf_range(15.0, 75.0)
-		var dist := _randf_range(600.0, 1000.0)
-		var star := MeshInstance3D.new()
-		var mesh := SphereMesh.new()
-		mesh.radius = _randf_range(0.3, 0.8)
-		mesh.height = mesh.radius * 2.0
-		star.mesh = mesh
-		star.material_override = star_mat
-		var sx := cos(angle) * cos(deg_to_rad(elev)) * dist
-		var sy := sin(deg_to_rad(elev)) * dist
-		var sz := sin(angle) * cos(deg_to_rad(elev)) * dist
-		star.position = Vector3(sx, sy, sz)
-		sky.add_child(star)
-
-	var earth := Node3D.new()
-	earth.name = "DistantBlueWorld"
-	earth.position = Vector3(500.0, 100.0, -360.0)
-
-	var earth_mesh := SphereMesh.new()
-	earth_mesh.radius = 80.0
-	earth_mesh.height = 160.0
-	earth_mesh.radial_segments = 32
-	earth_mesh.rings = 16
-	var earth_surf := SurfaceTool.new()
-	earth_surf.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var e_verts: Array[Vector3] = []
-	var e_colors: Array[Color] = []
-	var e_normals: Array[Vector3] = []
-	var e_u: Array[Vector2] = []
-	for lat in range(17):
-		var theta1: float = float(lat) / 16.0 * PI
-		var theta2: float = float(lat + 1) / 16.0 * PI
-		for lon in range(33):
-			var phi1: float = float(lon) / 32.0 * TAU
-			var phi2: float = float(lon + 1) / 32.0 * TAU
-			var p1 := _sphere_point(80.0, theta1, phi1)
-			var p2 := _sphere_point(80.0, theta2, phi1)
-			var p3 := _sphere_point(80.0, theta2, phi2)
-			var p4 := _sphere_point(80.0, theta1, phi2)
-			var c1 := _earth_color(p1, world_seed)
-			var c2 := _earth_color(p2, world_seed)
-			var c3 := _earth_color(p3, world_seed)
-			var c4 := _earth_color(p4, world_seed)
-			var n := p1.normalized()
-			e_verts.push_back(p1); e_verts.push_back(p2); e_verts.push_back(p3)
-			e_colors.push_back(c1); e_colors.push_back(c2); e_colors.push_back(c3)
-			e_normals.push_back(n); e_normals.push_back(n); e_normals.push_back(n)
-			e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0))
-			e_verts.push_back(p1); e_verts.push_back(p3); e_verts.push_back(p4)
-			e_colors.push_back(c1); e_colors.push_back(c3); e_colors.push_back(c4)
-			e_normals.push_back(n); e_normals.push_back(n); e_normals.push_back(n)
-			e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0)); e_u.push_back(Vector2(0,0))
-	for i in range(e_verts.size()):
-		earth_surf.set_uv(e_u[i])
-		earth_surf.set_color(e_colors[i])
-		earth_surf.set_normal(e_normals[i])
-		earth_surf.add_vertex(e_verts[i])
-	earth_surf.generate_normals()
-	var earth_body := MeshInstance3D.new()
-	earth_body.mesh = earth_surf.commit()
-	var earth_mat := StandardMaterial3D.new()
-	earth_mat.vertex_color_use_as_albedo = true
-	earth_mat.roughness = 0.85
-	earth_body.material_override = earth_mat
-	earth.add_child(earth_body)
-
-	var atmos_mat := StandardMaterial3D.new()
-	atmos_mat.albedo_color = Color(0.35, 0.65, 1.0, 0.35)
-	atmos_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	atmos_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	atmos_mat.emission_enabled = true
-	atmos_mat.emission = Color(0.15, 0.40, 0.90)
-	atmos_mat.emission_energy_multiplier = 0.6
-	atmos_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	var atmos_mesh := SphereMesh.new()
-	atmos_mesh.radius = 83.0
-	atmos_mesh.height = 166.0
-	var atmos := MeshInstance3D.new()
-	atmos.mesh = atmos_mesh
-	atmos.material_override = atmos_mat
-	earth.add_child(atmos)
-
-	for ci in range(8):
-		var c_angle := _randf_range(0.0, TAU)
-		var c_lat := _randf_range(-PI * 0.35, PI * 0.35)
-		var c_dist := _randf_range(0.6, 0.85)
-		var c_pt := _sphere_point(82.5, c_lat, c_angle) * c_dist
-		var cloud_mat := StandardMaterial3D.new()
-		cloud_mat.albedo_color = Color(0.95, 0.97, 1.0, 0.55)
-		cloud_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		cloud_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		cloud_mat.emission_enabled = true
-		cloud_mat.emission = Color(0.8, 0.85, 0.95)
-		cloud_mat.emission_energy_multiplier = 0.4
-		cloud_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		var c_mesh := SphereMesh.new()
-		c_mesh.radius = _randf_range(4.0, 12.0)
-		c_mesh.height = c_mesh.radius * _randf_range(0.3, 0.6)
-		var cloud := MeshInstance3D.new()
-		cloud.mesh = c_mesh
-		cloud.material_override = cloud_mat
-		cloud.position = c_pt
-		cloud.rotation_degrees = Vector3(_randf_range(-20, 20), _randf_range(0, 360), _randf_range(-10, 10))
-		earth.add_child(cloud)
-
-	sky.add_child(earth)
-
-	var rim := MeshInstance3D.new()
-	rim.name = "MoonHorizonGlow"
-	var rim_mesh := TorusMesh.new()
-	rim_mesh.outer_radius = 600.0
-	rim_mesh.inner_radius = 598.0
-	rim.mesh = rim_mesh
-	rim.position = Vector3(0.0, -6.0, -900.0)
-	rim.rotation_degrees.x = 90.0
-	var rim_mat := StandardMaterial3D.new()
-	rim_mat.albedo_color = Color(0.18, 0.45, 0.95, 0.20)
-	rim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	rim_mat.emission_enabled = true
-	rim_mat.emission = Color(0.08, 0.22, 0.65)
-	rim_mat.emission_energy_multiplier = 0.8
-	rim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	rim.material_override = rim_mat
-	sky.add_child(rim)
-
-	_add_generated_child(sky)
-
-
-static func _sphere_point(r: float, theta: float, phi: float) -> Vector3:
-	return Vector3(r * sin(theta) * cos(phi), r * cos(theta), r * sin(theta) * sin(phi))
-
-
-func _earth_color(p: Vector3, seed: int) -> Color:
-	var n: Vector3 = p.normalized()
-	var lon := atan2(n.z, n.x)
-	var lat := acos(n.y)
-	var sx := cos(lat) * 3.5 + 1000.0
-	var sz := sin(lat) * 2.8 + float(seed) * 0.1
-	var noise_val := sin(lon * 3.0 + sx) * 0.5 + sin(lon * 7.0 + sx * 1.3) * 0.25 + sin(lon * 13.0 + sx * 0.7) * 0.15
-	noise_val += sin(lat * 4.0 + sz) * 0.3 + sin(lat * 8.0 + sz * 1.5) * 0.15
-	var land: float = clamp((noise_val + 1.0) * 0.5, 0.0, 1.0)
-	if land > 0.52:
-		var green: float = 0.45 + sin(noise_val * 17.0) * 0.10
-		return Color(0.12, green, 0.08)
-	elif land > 0.44:
-		return Color(0.72, 0.68, 0.52)
-	elif land > 0.38:
-		return Color(0.30, 0.38, 0.48)
-	return Color(0.08, 0.22, 0.55)
-
-
-func _add_triangle(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, color_a: Color, color_b: Color, color_c: Color) -> void:
-	st.set_uv(Vector2(a.x, a.z) * 0.04)
-	st.set_color(color_a)
-	st.add_vertex(a)
-	st.set_uv(Vector2(b.x, b.z) * 0.04)
-	st.set_color(color_b)
-	st.add_vertex(b)
-	st.set_uv(Vector2(c.x, c.z) * 0.04)
-	st.set_color(color_c)
-	st.add_vertex(c)
-
 
 func _spawn_player() -> void:
 	_begin_generation_channel("spawn")
@@ -3937,7 +2937,8 @@ func _check_moon_shrine_completion() -> void:
 		_set_world(current_world_id, world)
 		_save_world_data()
 		last_discovery_text = "Moon Pilgrim: all shrines completed!"
-		_award_achievement("moon_pilgrim")
+		if discovery_tracker != null:
+			discovery_tracker.award_achievement("moon_pilgrim")
 
 
 func _scatter_moon_platforms() -> void:
@@ -4692,7 +3693,7 @@ func _create_gates() -> void:
 		area.body_entered.connect(_on_gate_body_entered.bind(gate_index))
 		gate.add_child(area)
 		_add_discovery_area(gate, Vector3(0.0, 1.8, 0.0), 5.0, "gate_" + str(gate_index), "World Gate " + str(gate_index + 1), "gate")
-		_add_gate_audio(gate, gate_index)
+		AudioManager.add_gate_audio(gate)
 
 		_add_generated_child(gate)
 		_add_cylinder_collision(gate, left_post.position, 0.32, post_mesh.height)
@@ -4704,7 +3705,7 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 	if body.name != "Player" or current_world_id == "" or current_map_id == "":
 		return
 
-	_award_achievement("gate_crasher")
+	if discovery_tracker != null: discovery_tracker.award_achievement("gate_crasher")
 
 	var world: Dictionary = _get_world(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
@@ -4852,14 +3853,14 @@ func _try_grab_lichen() -> void:
 	var closest: Node3D = _find_closest_lichen(player_pos, 10.0)
 	if closest != null:
 		if closest.name == "ThrownLichen":
-			_award_achievement("lichen_catcher")
+			if discovery_tracker != null: discovery_tracker.award_achievement("lichen_catcher")
 		closest.queue_free()
 		lichen_count += 1
 		if is_instance_valid(player) and player.has_method(&"set"):
 			player.set("lichen_count", lichen_count)
 		last_discovery_text = "Grabbed lichen. Carry: " + str(lichen_count)
 		if lichen_count >= 50:
-			_award_achievement("collector_50")
+			if discovery_tracker != null: discovery_tracker.award_achievement("collector_50")
 
 
 func _throw_lichen() -> void:
@@ -4998,85 +3999,7 @@ func _seed_color(seed_value: int, alpha: float = 1.0) -> Color:
 	return Color.from_hsv(hue, 0.72, 1.0, alpha)
 
 
-func _setup_music() -> void:
-	_begin_generation_channel("music")
-	var dir := DirAccess.open("res://audio/music")
-	if dir == null:
-		return
-	var files: Array[String] = []
-	dir.list_dir_begin()
-	var fname: String = dir.get_next()
-	while fname != "":
-		if fname.ends_with(".ogg") or fname.ends_with(".mp3") or fname.ends_with(".wav"):
-			files.append("res://audio/music/" + fname)
-		fname = dir.get_next()
-	dir.list_dir_end()
-	if files.is_empty():
-		return
-	var player := AudioStreamPlayer.new()
-	player.name = "MusicPlayer"
-	player.stream = load(files[_randi() % files.size()])
-	player.autoplay = true
-	player.volume_db = -14.0
-	_add_generated_child(player)
 
-
-func _generate_wav_stream(freqs: Array[float], duration: float, vol: float) -> AudioStreamWAV:
-	var sample_rate: int = 22050
-	var num_samples: int = int(sample_rate * duration)
-	var data: PackedByteArray = PackedByteArray()
-	data.resize(num_samples * 2)
-	var fade: int = int(sample_rate * 0.02)
-	for i in range(num_samples):
-		var t: float = float(i) / float(sample_rate)
-		var s: float = 0.0
-		for f in freqs:
-			s += sin(TAU * f * t)
-		s /= float(freqs.size())
-		var env: float = 1.0
-		if i < fade:
-			env = float(i) / float(fade)
-		elif i > num_samples - fade:
-			env = float(num_samples - i) / float(fade)
-		s *= env * vol
-		data.encode_s16(i * 2, int(clamp(s * 30000.0, -32768.0, 32767.0)))
-	var stream := AudioStreamWAV.new()
-	stream.data = data
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.stereo = false
-	stream.mix_rate = sample_rate
-	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	return stream
-
-
-func _setup_moon_audio() -> void:
-	var p := AudioStreamPlayer.new()
-	p.name = "MoonDrone"
-	p.volume_db = -2.0
-	p.stream = _generate_wav_stream([55.0, 72.0, 88.0, 105.0, 220.0, 330.0, 440.0], 8.0, 0.50)
-	_add_generated_child(p)
-	p.play()
-
-
-func _setup_water_audio() -> void:
-	var p := AudioStreamPlayer.new()
-	p.name = "WaterAmbient"
-	p.volume_db = -3.0
-	p.stream = _generate_wav_stream([75.0, 92.0, 110.0, 220.0, 440.0, 660.0], 6.0, 0.50)
-	_add_generated_child(p)
-	p.play()
-
-
-func _add_gate_audio(gate: Node3D, _gate_index: int) -> void:
-	var p := AudioStreamPlayer3D.new()
-	p.name = "GateHum"
-	p.volume_db = -2.0
-	p.max_distance = 100.0
-	p.attenuation_model = 1
-	p.position = Vector3(0.0, 2.0, 0.0)
-	p.stream = _generate_wav_stream([330.0, 440.0, 550.0], 4.0, 0.25)
-	gate.add_child(p)
-	p.call_deferred("play")
 
 
 func _add_box_collision(parent: Node3D, local_position: Vector3, size: Vector3) -> void:

@@ -403,41 +403,117 @@ func _place_rivers() -> void:
 				generated_root.add_child(bed)
 
 
+func _water_shader() -> Shader:
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+
+render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_burley, specular_schlick_ggx;
+
+uniform vec4 shallow_color : source_color = vec4(0.15, 0.40, 0.50, 0.34);
+uniform vec4 deep_color : source_color = vec4(0.05, 0.15, 0.30, 0.44);
+uniform vec3 sky_tint : source_color = vec3(0.34, 0.56, 0.82);
+uniform float wave_strength : hint_range(0.0, 1.0) = 0.08;
+uniform float wave_speed : hint_range(0.0, 2.0) = 0.12;
+uniform float wave_scale : hint_range(0.1, 20.0) = 4.0;
+uniform float normal_strength : hint_range(0.0, 5.0) = 0.85;
+uniform float sheen_strength : hint_range(0.0, 1.0) = 0.32;
+uniform float alpha_boost : hint_range(0.0, 1.0) = 0.0;
+
+varying vec3 v_normal;
+varying vec3 v_world_position;
+
+float wave_value(vec2 p, float t) {
+	float a = sin(p.x * wave_scale + t * wave_speed);
+	float b = sin(p.y * wave_scale * 1.37 + t * wave_speed * 1.11);
+	float c = sin((p.x + p.y) * wave_scale * 0.71 + t * wave_speed * 0.63);
+	return (a + b + c * 0.65) / 2.65;
+}
+
+void vertex() {
+	float t = TIME;
+	vec2 p = VERTEX.xz * 0.08;
+	float h = wave_value(p, t) * wave_strength;
+	VERTEX.y += h;
+
+	float e = 0.08;
+	float hx = wave_value(p + vec2(e, 0.0), t) * wave_strength;
+	float hz = wave_value(p + vec2(0.0, e), t) * wave_strength;
+	vec3 local_normal = normalize(vec3(
+		-(hx - h) * normal_strength,
+		1.0,
+		-(hz - h) * normal_strength
+	));
+	NORMAL = local_normal;
+	v_normal = normalize((MODEL_MATRIX * vec4(local_normal, 0.0)).xyz);
+	v_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+	vec3 n = normalize(v_normal);
+	vec3 view_dir = normalize(CAMERA_POSITION_WORLD - v_world_position);
+	float fresnel = pow(1.0 - clamp(dot(n, view_dir), 0.0, 1.0), 3.0);
+	float ripple = sin(v_world_position.x * 0.32 + TIME * wave_speed * 1.4)
+		* sin(v_world_position.z * 0.25 - TIME * wave_speed * 1.0);
+	ripple = ripple * 0.5 + 0.5;
+
+	vec3 base_color = mix(shallow_color.rgb, deep_color.rgb, 0.45);
+	base_color += vec3(ripple * 0.018);
+	float sheen = clamp(fresnel * sheen_strength, 0.0, 0.35);
+	ALBEDO = mix(base_color, sky_tint, sheen);
+	ALPHA = clamp(mix(shallow_color.a, deep_color.a, 0.45) + fresnel * 0.08 + alpha_boost, 0.24, 0.52);
+	ROUGHNESS = 0.18;
+	METALLIC = 0.0;
+	SPECULAR = 0.35;
+}
+"""
+	return shader
+
+
 func _create_water() -> void:
 	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE:
 		return
 	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_NEXUS:
 		return
 
-	var water_size: float = float(_effective_grid_size()) * CELL_SIZE
+	var water_size: float = float(_effective_grid_size()) * CELL_SIZE * 0.94
 
 	var water := MeshInstance3D.new()
 	water.name = "RiverAndLakeWater"
 	var water_mesh := PlaneMesh.new()
 	water_mesh.size = Vector2(water_size, water_size)
-	water_mesh.subdivide_depth = 8
-	water_mesh.subdivide_width = 8
+	if graphics_level <= 0:
+		water_mesh.subdivide_width = 32
+		water_mesh.subdivide_depth = 32
+	elif graphics_level == 1:
+		water_mesh.subdivide_width = 64
+		water_mesh.subdivide_depth = 64
+	else:
+		water_mesh.subdivide_width = 128
+		water_mesh.subdivide_depth = 128
 	water.mesh = water_mesh
 	water.position.y = WATER_LEVEL
-	water.rotation_degrees.x = 90.0
 
-	var mat: ShaderMaterial
-	if graphics_level >= 1 and not (map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_NEXUS):
-		mat = ShaderMaterial.new()
-		mat.shader = preload("res://shaders/water.gdshader")
-		mat.set_shader_parameter("wave_strength", 0.10)
-		mat.set_shader_parameter("wave_speed", 0.15)
-		mat.set_shader_parameter("deep_color", Color(0.05, 0.15, 0.30))
-		mat.set_shader_parameter("shallow_color", Color(0.15, 0.40, 0.50))
-		mat.set_shader_parameter("sheen_strength", 0.32)
-		mat.set_shader_parameter("alpha_boost", 0.0)
+	var mat := ShaderMaterial.new()
+	mat.shader = _water_shader()
+	if map_type == WorldGraph.MAP_WATER:
+		mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.36))
+		mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.48))
+		mat.set_shader_parameter("sky_tint", Color(0.32, 0.54, 0.82))
+		mat.set_shader_parameter("wave_strength", 0.075 if graphics_level >= 2 else 0.045)
+		mat.set_shader_parameter("wave_speed", 0.90 if graphics_level >= 2 else 0.65)
+		mat.set_shader_parameter("wave_scale", 3.1)
+		mat.set_shader_parameter("normal_strength", 1.05 if graphics_level >= 2 else 0.75)
+		mat.set_shader_parameter("sheen_strength", 0.28)
+		mat.set_shader_parameter("alpha_boost", 0.02)
 	else:
-		mat = ShaderMaterial.new()
-		mat.shader = preload("res://shaders/water.gdshader")
-		mat.set_shader_parameter("wave_strength", 0.04)
-		mat.set_shader_parameter("wave_speed", 0.08)
-		mat.set_shader_parameter("deep_color", Color(0.05, 0.15, 0.30))
-		mat.set_shader_parameter("shallow_color", Color(0.15, 0.40, 0.50))
+		mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.30))
+		mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.40))
+		mat.set_shader_parameter("sky_tint", Color(0.36, 0.60, 0.88))
+		mat.set_shader_parameter("wave_strength", 0.045 if graphics_level >= 2 else 0.025)
+		mat.set_shader_parameter("wave_speed", 0.60 if graphics_level >= 2 else 0.40)
+		mat.set_shader_parameter("wave_scale", 4.4)
+		mat.set_shader_parameter("normal_strength", 0.85 if graphics_level >= 2 else 0.60)
 		mat.set_shader_parameter("sheen_strength", 0.32)
 		mat.set_shader_parameter("alpha_boost", 0.0)
 
@@ -467,40 +543,123 @@ func _create_sky_clouds() -> void:
 
 	var cloud_root := Node3D.new()
 	cloud_root.name = "SkyClouds"
+
+	var cloud_shader := Shader.new()
+	cloud_shader.code = """
+shader_type spatial;
+
+render_mode blend_mix, depth_draw_never, cull_disabled, unshaded;
+
+uniform float time_offset : hint_range(0.0, 1000.0) = 0.0;
+uniform float time_scale : hint_range(0.0, 1.0) = 0.025;
+uniform float density : hint_range(0.0, 1.0) = 0.38;
+uniform float coverage : hint_range(0.0, 1.0) = 0.55;
+uniform float softness : hint_range(0.0, 1.0) = 0.25;
+uniform vec3 cloud_color : source_color = vec3(1.0, 0.98, 0.92);
+uniform vec3 cloud_shadow_color : source_color = vec3(0.70, 0.74, 0.78);
+
+float hash2(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise2(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash2(i);
+	float b = hash2(i + vec2(1.0, 0.0));
+	float c = hash2(i + vec2(0.0, 1.0));
+	float d = hash2(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+	float v = 0.0;
+	float amp = 0.5;
+	for (int i = 0; i < 5; i++) {
+		v += amp * noise2(p);
+		p = p * 2.05 + vec2(13.2, 7.1);
+		amp *= 0.5;
+	}
+	return v;
+}
+
+void fragment() {
+	float t = TIME * time_scale + time_offset;
+	vec2 p = UV * 5.0;
+	p += vec2(t * 0.35, t * 0.10);
+	float large = fbm(p);
+	float detail = fbm(p * 2.7 + vec2(31.7, 19.4));
+	float cloud = large * 0.75 + detail * 0.25;
+	float threshold = 1.0 - coverage;
+	float alpha = smoothstep(threshold, threshold + softness, cloud) * density;
+	vec2 centered = UV * 2.0 - 1.0;
+	float edge = max(abs(centered.x), abs(centered.y));
+	alpha *= 1.0 - smoothstep(0.72, 1.0, edge);
+	vec3 color = mix(cloud_shadow_color, cloud_color, clamp(cloud + 0.12, 0.0, 1.0));
+	ALBEDO = color;
+	ALPHA = alpha;
+}
+"""
+
+	var near_clouds := MeshInstance3D.new()
+	near_clouds.name = "CloudLayerNear"
+	var near_mesh := PlaneMesh.new()
+	near_mesh.size = Vector2(900.0, 900.0)
+	near_clouds.mesh = near_mesh
+	near_clouds.position = Vector3(0.0, 115.0, 0.0)
+
+	var mat := ShaderMaterial.new()
+	mat.shader = cloud_shader
+	mat.set_shader_parameter("time_offset", float(world_seed % 1000))
+	mat.set_shader_parameter("time_scale", 0.025)
+	mat.set_shader_parameter("density", 0.42 if graphics_level >= 2 else 0.28)
+	mat.set_shader_parameter("coverage", 0.56)
+	mat.set_shader_parameter("softness", 0.25)
+	mat.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.92))
+	mat.set_shader_parameter("cloud_shadow_color", Color(0.70, 0.74, 0.78))
+	near_clouds.material_override = mat
+	cloud_root.add_child(near_clouds)
+
+	var far_clouds := MeshInstance3D.new()
+	far_clouds.name = "CloudLayerFar"
+	var far_mesh := PlaneMesh.new()
+	far_mesh.size = Vector2(1300.0, 1300.0)
+	far_clouds.mesh = far_mesh
+	far_clouds.position = Vector3(0.0, 170.0, 0.0)
+
+	var mat2 := ShaderMaterial.new()
+	mat2.shader = cloud_shader
+	mat2.set_shader_parameter("time_offset", float(world_seed % 1000) + 250.0)
+	mat2.set_shader_parameter("time_scale", 0.014)
+	mat2.set_shader_parameter("density", 0.22 if graphics_level >= 2 else 0.12)
+	mat2.set_shader_parameter("coverage", 0.62)
+	mat2.set_shader_parameter("softness", 0.35)
+	mat2.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.94))
+	mat2.set_shader_parameter("cloud_shadow_color", Color(0.72, 0.76, 0.82))
+	far_clouds.material_override = mat2
+	cloud_root.add_child(far_clouds)
+
 	generated_root.add_child(cloud_root)
-
-	var cloud_mat := StandardMaterial3D.new()
-	cloud_mat.albedo_color = Color(0.90, 0.92, 0.95, 0.55)
-	cloud_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	cloud_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	cloud_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-
-	var half: float = _world_half_size() * 0.45
-	for i in range(120):
-		var cp := MeshInstance3D.new()
-		var cm := BoxMesh.new()
-		var w: float = randf_range(15.0, 50.0)
-		var d: float = randf_range(10.0, 30.0)
-		var h: float = randf_range(1.5, 4.5)
-		cm.size = Vector3(w, h, d)
-		cp.mesh = cm
-		cp.material_override = cloud_mat
-		cp.position = Vector3(randf_range(-half, half), randf_range(65.0, 90.0), randf_range(-half, half))
-		cloud_root.add_child(cp)
 
 
 func _earth_color(p: Vector3, seed: int) -> Color:
-	var rng := StableRng.new(seed)
-	var px: float = p.x * 0.5 + rng.randf() * 0.2
-	var pz: float = p.z * 0.5 + rng.randf() * 0.2
-	var land: float = noise.get_noise_2d(px * 1.5 + 50.0, pz * 1.5 + 100.0) * 0.3 + 0.3
-	land += rng.randf() * 0.1
-	if land < 0.38:
-		return Color(0.22, 0.40, 0.70, 1.0)
-	var hue: float = rng.randf_range(0.25, 0.35)
-	var sat: float = rng.randf_range(0.45, 0.70)
-	var val: float = rng.randf_range(0.30, 0.55)
-	return Color.from_hsv(hue, sat, val, 1.0)
+	var n: Vector3 = p.normalized()
+	var lon := atan2(n.z, n.x)
+	var lat := acos(n.y)
+	var sx := cos(lat) * 3.5 + 1000.0
+	var sz := sin(lat) * 2.8 + float(seed) * 0.1
+	var noise_val := sin(lon * 3.0 + sx) * 0.5 + sin(lon * 7.0 + sx * 1.3) * 0.25 + sin(lon * 13.0 + sx * 0.7) * 0.15
+	noise_val += sin(lat * 4.0 + sz) * 0.3 + sin(lat * 8.0 + sz * 1.5) * 0.15
+	var land: float = clamp((noise_val + 1.0) * 0.5, 0.0, 1.0)
+	if land > 0.52:
+		var green: float = 0.45 + sin(noise_val * 17.0) * 0.10
+		return Color(0.12, green, 0.08)
+	elif land > 0.44:
+		return Color(0.72, 0.68, 0.52)
+	elif land > 0.38:
+		return Color(0.30, 0.38, 0.48)
+	return Color(0.08, 0.22, 0.55)
 
 
 func _create_moon_sky() -> void:
@@ -510,46 +669,62 @@ func _create_moon_sky() -> void:
 
 	var earth := Node3D.new()
 	earth.name = "DistantBlueWorld"
-	earth.position = Vector3(500.0, 100.0, -360.0)
+	earth.position = Vector3(500.0, 115.0, -440.0)
 
-	var segs: int = 18
-	var rings: int = 12
-	var e_verts: PackedVector3Array = []
-	var e_normals: PackedVector3Array = []
-	var e_colors: PackedColorArray = []
-	var e_u: Array[Vector2] = []
-	for lon in range(segs):
-		for lat in range(rings):
-			var theta1: float = float(lon) / float(segs) * TAU
-			var theta2: float = float(lon + 1) / float(segs) * TAU
-			var phi1: float = float(lat) / float(rings) * PI
-			var phi2: float = float(lat + 1) / float(rings) * PI
-			for corner in range(4):
-				var theta: float = theta1 if corner % 2 == 0 else theta2
-				var phi: float = phi1 if corner < 2 else phi2
-				var cp: Vector3 = Vector3(sin(theta) * sin(phi), cos(phi), cos(theta) * sin(phi))
-				e_verts.push_back(cp * 58.0)
-				e_normals.push_back(cp)
-				var seed: int = StableRng.mix_seed(world_seed, int(cp.x * 100), int(cp.z * 100))
-				e_colors.push_back(_earth_color(cp, seed))
-				e_u.push_back(Vector2(0, 0))
+	var star_rng := StableRng.new(StableRng.mix_string(world_seed, "moon_stars"))
+	var star_mat := StandardMaterial3D.new()
+	star_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	star_mat.albedo_color = Color(0.78, 0.88, 1.0)
+	star_mat.emission_enabled = true
+	star_mat.emission = Color(0.62, 0.78, 1.0)
+	star_mat.emission_energy_multiplier = 1.8
+	star_mat.no_depth_test = true
+	var star_count: int = 180 if graphics_level >= 1 else 90
+	for star_index in range(star_count):
+		var star_angle: float = star_rng.randf_range(0.0, TAU)
+		var star_elev: float = star_rng.randf_range(10.0, 82.0)
+		var star_dist: float = star_rng.randf_range(700.0, 1250.0)
+		var star := MeshInstance3D.new()
+		star.name = "MoonStar"
+		var star_mesh := SphereMesh.new()
+		var radius: float = star_rng.randf_range(0.45, 1.2)
+		star_mesh.radius = radius
+		star_mesh.height = radius * 2.0
+		star_mesh.radial_segments = 6
+		star_mesh.rings = 3
+		star.mesh = star_mesh
+		star.material_override = star_mat
+		star.position = Vector3(cos(star_angle) * cos(deg_to_rad(star_elev)) * star_dist, sin(deg_to_rad(star_elev)) * star_dist, sin(star_angle) * cos(deg_to_rad(star_elev)) * star_dist)
+		sky.add_child(star)
 
-	var arrays: Array = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = e_verts
-	arrays[Mesh.ARRAY_NORMAL] = e_normals
-	arrays[Mesh.ARRAY_COLOR] = e_colors
-	arrays[Mesh.ARRAY_TEX_UV] = e_u
-
-	var arr_mesh := ArrayMesh.new()
-	arr_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-
+	var planet_radius: float = 80.0
+	var earth_surf := SurfaceTool.new()
+	earth_surf.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for lat in range(16):
+		var theta1: float = float(lat) / 16.0 * PI
+		var theta2: float = float(lat + 1) / 16.0 * PI
+		for lon in range(32):
+			var phi1: float = float(lon) / 32.0 * TAU
+			var phi2: float = float(lon + 1) / 32.0 * TAU
+			var p1 := _sphere_point(planet_radius, theta1, phi1)
+			var p2 := _sphere_point(planet_radius, theta2, phi1)
+			var p3 := _sphere_point(planet_radius, theta2, phi2)
+			var p4 := _sphere_point(planet_radius, theta1, phi2)
+			_add_planet_vertex(earth_surf, p1)
+			_add_planet_vertex(earth_surf, p2)
+			_add_planet_vertex(earth_surf, p3)
+			_add_planet_vertex(earth_surf, p1)
+			_add_planet_vertex(earth_surf, p3)
+			_add_planet_vertex(earth_surf, p4)
+	earth_surf.generate_normals()
 	var sphere_mi := MeshInstance3D.new()
-	sphere_mi.mesh = arr_mesh
+	sphere_mi.name = "PlanetSurface"
+	sphere_mi.mesh = earth_surf.commit()
+	var planet_mat := StandardMaterial3D.new()
+	planet_mat.vertex_color_use_as_albedo = true
+	planet_mat.roughness = 0.85
+	sphere_mi.material_override = planet_mat
 	earth.add_child(sphere_mi)
-
-	var glow_mesh := ArrayMesh.new()
-	glow_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
 	var glow_mat_earth := StandardMaterial3D.new()
 	glow_mat_earth.albedo_color = Color(0.30, 0.60, 1.0, 0.12)
@@ -558,9 +733,13 @@ func _create_moon_sky() -> void:
 	glow_mat_earth.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
 	var glow_mi := MeshInstance3D.new()
+	var glow_mesh := SphereMesh.new()
+	glow_mesh.radius = planet_radius * 1.04
+	glow_mesh.height = planet_radius * 2.08
+	glow_mesh.radial_segments = 48
+	glow_mesh.rings = 24
 	glow_mi.mesh = glow_mesh
 	glow_mi.material_override = glow_mat_earth
-	glow_mi.scale = Vector3(1.0, 1.0, 1.0) * 1.05
 	earth.add_child(glow_mi)
 
 	var cloud_mat := StandardMaterial3D.new()
@@ -569,21 +748,52 @@ func _create_moon_sky() -> void:
 	cloud_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	cloud_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
-	for cb in range(22):
-		var theta: float = randf_range(0.0, TAU)
-		var phi: float = randf_range(0.3, PI - 0.3)
-		var dir: Vector3 = Vector3(sin(theta) * sin(phi), cos(phi), cos(theta) * sin(phi)).normalized()
+	var planet_rng := StableRng.new(StableRng.mix_string(world_seed, "moon_planet_clouds"))
+	for cb in range(8):
+		var cloud_theta: float = planet_rng.randf_range(0.0, TAU)
+		var cloud_phi: float = planet_rng.randf_range(-PI * 0.35, PI * 0.35)
+		var cloud_dir: Vector3 = _sphere_point(planet_radius + 2.5, cloud_phi, cloud_theta).normalized()
 		var cloud_blob := MeshInstance3D.new()
 		var cbm := SphereMesh.new()
-		var cr: float = randf_range(3.0, 8.0)
+		var cr: float = planet_rng.randf_range(4.0, 12.0)
 		cbm.radius = cr
-		cbm.height = cr * 2.0
+		cbm.height = cr * planet_rng.randf_range(0.3, 0.6)
 		cloud_blob.mesh = cbm
 		cloud_blob.material_override = cloud_mat
-		cloud_blob.position = dir * 58.5
+		cloud_blob.position = cloud_dir * planet_rng.randf_range(planet_radius * 0.62, planet_radius * 0.86)
+		cloud_blob.rotation_degrees = Vector3(planet_rng.randf_range(-20, 20), planet_rng.randf_range(0, 360), planet_rng.randf_range(-10, 10))
 		earth.add_child(cloud_blob)
 
 	sky.add_child(earth)
+
+	var rim := MeshInstance3D.new()
+	rim.name = "MoonHorizonGlow"
+	var rim_mesh := TorusMesh.new()
+	rim_mesh.outer_radius = 600.0
+	rim_mesh.inner_radius = 598.0
+	rim.mesh = rim_mesh
+	rim.position = Vector3(0.0, -6.0, -900.0)
+	rim.rotation_degrees.x = 90.0
+	var rim_mat := StandardMaterial3D.new()
+	rim_mat.albedo_color = Color(0.18, 0.45, 0.95, 0.20)
+	rim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rim_mat.emission_enabled = true
+	rim_mat.emission = Color(0.08, 0.22, 0.65)
+	rim_mat.emission_energy_multiplier = 0.8
+	rim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rim.material_override = rim_mat
+	sky.add_child(rim)
+
+
+func _add_planet_vertex(surface: SurfaceTool, point: Vector3) -> void:
+	surface.set_uv(Vector2(0.0, 0.0))
+	surface.set_color(_earth_color(point, world_seed))
+	surface.set_normal(point.normalized())
+	surface.add_vertex(point)
+
+
+static func _sphere_point(r: float, theta: float, phi: float) -> Vector3:
+	return Vector3(r * sin(theta) * cos(phi), r * cos(theta), r * sin(theta) * sin(phi))
 
 
 func _create_map_nexus_terrain() -> void:
