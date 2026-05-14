@@ -1,6 +1,7 @@
 extends RefCounted
 class_name TreeFactory
 
+const MapContext = preload("res://scripts/core/MapContext.gd")
 const TREE_COUNT_BASE: int = 720
 
 static var _material_cache: Dictionary = {}
@@ -10,7 +11,19 @@ static func clear_cache() -> void:
 	_material_cache.clear()
 
 
-static func scatter_trees(parent: Node3D, world_seed: int, density_level: int, graphics_level: int, water_level: float, height_fn: Callable, grid_size: int, cell_size: float) -> void:
+static func scatter_trees(parent: Node3D, world_seed: int, density_level: int, graphics_level: int, context: MapContext) -> void:
+	_scatter_trees_internal(
+		parent,
+		world_seed,
+		density_level,
+		graphics_level,
+		context.water_level,
+		Callable(context, "height_at_world"),
+		context.world_half_size() * 0.88
+	)
+
+
+static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_level: int, graphics_level: int, water_level: float, height_fn: Callable, half: float) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "trees"))
 	var dmult: float = _density_mult(density_level)
 	var count: int = int(float(TREE_COUNT_BASE) * dmult)
@@ -19,7 +32,6 @@ static func scatter_trees(parent: Node3D, world_seed: int, density_level: int, g
 	root.name = "Trees"
 	parent.add_child(root)
 
-	var half: float = float(grid_size) * cell_size * 0.44
 	var trunk_seg: int = [8, 14, 22, 32][clampi(graphics_level, 0, 3)]
 	var leaf_seg: int = [12, 18, 28, 40][clampi(graphics_level, 0, 3)]
 	var leaf_rings: int = [6, 10, 16, 24][clampi(graphics_level, 0, 3)]
@@ -97,7 +109,7 @@ static func _build_pine_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, densit
 	var trunk_mat: StandardMaterial3D = _get_tree_material("pine_trunk", Color(0.38, 0.22, 0.10))
 	var leaf_color: Color = _build_leaf_color(world_seed, pos, rng)
 	leaf_color = Color.from_hsv(0.30, rng.randf_range(0.50, 0.75), rng.randf_range(0.35, 0.55))
-	var leaf_mat: StandardMaterial3D = _get_tree_material("pine_leaf_" + str(leaf_color), leaf_color)
+	var leaf_mat: StandardMaterial3D = _get_tree_material("pine_leaf_" + _color_key(leaf_color), leaf_color)
 	var trunk := MeshInstance3D.new()
 	var trunk_mesh := CylinderMesh.new()
 	trunk_mesh.radial_segments = [6, 8, 12, 18][clampi(graphics_level, 0, 3)]
@@ -131,7 +143,7 @@ static func _build_broadleaf_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, l
 	var leaf_color: Color = _build_leaf_color(world_seed, pos, rng)
 	leaf_color.s = rng.randf_range(0.75, 1.0)
 	leaf_color.v = rng.randf_range(0.60, 0.90)
-	var leaf_mat: StandardMaterial3D = _get_tree_material("broad_leaf_" + str(leaf_color), leaf_color)
+	var leaf_mat: StandardMaterial3D = _get_tree_material("broad_leaf_" + _color_key(leaf_color), leaf_color)
 	var trunk := MeshInstance3D.new()
 	var trunk_mesh := CylinderMesh.new()
 	trunk_mesh.radial_segments = [6, 8, 12, 18][clampi(graphics_level, 0, 3)]
@@ -168,7 +180,7 @@ static func _build_round_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, leaf_
 	var trunk_height: float = rng.randf_range(2.0, 3.3)
 	var trunk_mat: StandardMaterial3D = _get_tree_material("round_trunk", Color(0.32, 0.19, 0.09))
 	var leaf_color: Color = _build_leaf_color(world_seed, pos, rng)
-	var leaf_mat: StandardMaterial3D = _get_tree_material("round_leaf_" + str(leaf_color), leaf_color)
+	var leaf_mat: StandardMaterial3D = _get_tree_material("round_leaf_" + _color_key(leaf_color), leaf_color)
 	var trunk := MeshInstance3D.new()
 	var trunk_mesh := CylinderMesh.new()
 	trunk_mesh.radial_segments = [6, 8, 12, 18][clampi(graphics_level, 0, 3)]
@@ -204,7 +216,7 @@ static func _build_sparse_tree(tree: Node3D, trunk_seg: int, leaf_seg: int, leaf
 	var leaf_color: Color = _build_leaf_color(world_seed, pos, rng)
 	leaf_color.s *= 0.6
 	leaf_color.v *= 0.7
-	var leaf_mat: StandardMaterial3D = _get_tree_material("sparse_leaf_" + str(leaf_color), leaf_color)
+	var leaf_mat: StandardMaterial3D = _get_tree_material("sparse_leaf_" + _color_key(leaf_color), leaf_color)
 	var trunk := MeshInstance3D.new()
 	var trunk_mesh := CylinderMesh.new()
 	trunk_mesh.radial_segments = [6, 8, 12, 18][clampi(graphics_level, 0, 3)]
@@ -271,3 +283,11 @@ static func _build_leaf_color(world_seed: int, pos: Vector3, rng: StableRng) -> 
 	if biome > 0.25:
 		return Color.from_hsv(0.28 + hue_shift, sat, val)
 	return Color.from_hsv(0.32 + hue_shift, sat * 0.8, val * 0.8)
+
+
+static func _qf(value: float) -> float:
+	return round(value * 1000.0) / 1000.0
+
+
+static func _color_key(color: Color) -> String:
+	return "%s,%s,%s,%s" % [_qf(color.r), _qf(color.g), _qf(color.b), _qf(color.a)]

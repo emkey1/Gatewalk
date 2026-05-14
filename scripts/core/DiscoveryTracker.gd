@@ -24,6 +24,7 @@ const ACHIEVEMENT_DEFS := {
 	"gate_room_finder": {"name": "Gate Room Discoverer", "desc": "Find a gate room"},
 	"world_traveler": {"name": "World Traveler", "desc": "Visit 5 different maps"},
 	"cavern_explorer": {"name": "Cavern Explorer", "desc": "Discover a cave map"},
+	"arctic_explorer": {"name": "Arctic Explorer", "desc": "Discover an arctic map"},
 	"island_hopper": {"name": "Island Hopper", "desc": "Discover a water map"},
 	"collector_50": {"name": "Lichensmith", "desc": "Collect 50 lichen"},
 	"moon_pilgrim": {"name": "Moon Pilgrim", "desc": "Complete all 9 moon shrines"},

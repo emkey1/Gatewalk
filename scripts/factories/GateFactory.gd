@@ -2,6 +2,7 @@ extends RefCounted
 class_name GateFactory
 
 const StableRng = preload("res://scripts/core/StableRng.gd")
+const MapContext = preload("res://scripts/core/MapContext.gd")
 
 const GATE_DIRECTIONS: Array[Vector3] = [
 	Vector3(1.0, 0.0, 0.0),
@@ -13,17 +14,32 @@ const GATE_DIRECTIONS: Array[Vector3] = [
 
 static func create_gates(
 	parent: Node3D, world_seed: int, target_seeds: Array[int],
-	height_fn: Callable, river_distance_fn: Callable,
-	water_level: float, grid_size: int, cell_size: int,
+	context: MapContext,
 	on_body_entered: Callable
 ) -> void:
 	var gate_root := Node3D.new()
 	gate_root.name = "Gates"
 	parent.add_child(gate_root)
 
+	var gate_mat := _gate_material()
+	var post_mesh := CylinderMesh.new()
+	post_mesh.top_radius = 0.22
+	post_mesh.bottom_radius = 0.28
+	post_mesh.height = 4.0
+	var arch_mesh := BoxMesh.new()
+	arch_mesh.size = Vector3(2.8, 0.35, 0.5)
+	var gate_area_box := BoxShape3D.new()
+	gate_area_box.size = Vector3(3.5, 5.0, 3.5)
+
 	for gate_index in range(GATE_DIRECTIONS.size()):
 		var dir: Vector3 = GATE_DIRECTIONS[gate_index]
-		var gate_pos: Vector3 = _find_gate_position(dir, height_fn, river_distance_fn, water_level, grid_size, cell_size)
+		var gate_pos: Vector3 = _find_gate_position(
+			dir,
+			Callable(context, "height_at_world"),
+			Callable(context, "river_distance"),
+			context.water_level,
+			context.world_half_size() * 0.72
+		)
 
 		var gate := Node3D.new()
 		gate.name = "Gate_" + str(gate_index)
@@ -31,12 +47,7 @@ static func create_gates(
 		gate.rotation.y = atan2(-dir.x, -dir.z)
 		gate_root.add_child(gate)
 
-		var gate_mat := _gate_material()
 		var left_post := MeshInstance3D.new()
-		var post_mesh := CylinderMesh.new()
-		post_mesh.top_radius = 0.22
-		post_mesh.bottom_radius = 0.28
-		post_mesh.height = 4.0
 		left_post.mesh = post_mesh
 		left_post.position = Vector3(-1.1, 2.0, 0.0)
 		left_post.material_override = gate_mat
@@ -49,8 +60,6 @@ static func create_gates(
 		gate.add_child(right_post)
 
 		var arch := MeshInstance3D.new()
-		var arch_mesh := BoxMesh.new()
-		arch_mesh.size = Vector3(2.8, 0.35, 0.5)
 		arch.mesh = arch_mesh
 		arch.position = Vector3(0.0, 4.0, 0.0)
 		arch.material_override = gate_mat
@@ -74,9 +83,7 @@ static func create_gates(
 		area.monitoring = true
 		area.monitorable = true
 		var area_shape := CollisionShape3D.new()
-		var area_box := BoxShape3D.new()
-		area_box.size = Vector3(3.5, 5.0, 3.5)
-		area_shape.shape = area_box
+		area_shape.shape = gate_area_box
 		area_shape.position = Vector3(0.0, 1.8, 0.0)
 		area.add_child(area_shape)
 		area.position = gate_pos
@@ -88,6 +95,10 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 	var gate_mat := StandardMaterial3D.new()
 	gate_mat.albedo_color = Color(0.30, 0.24, 0.42)
 	gate_mat.roughness = 0.72
+	var arch_mesh := BoxMesh.new()
+	arch_mesh.size = Vector3(1.2, 4.0, 1.2)
+	var slot_area_box := BoxShape3D.new()
+	slot_area_box.size = Vector3(3.0, 3.0, 3.0)
 
 	var core_mat := StandardMaterial3D.new()
 	core_mat.albedo_color = Color(0.42, 0.30, 0.58)
@@ -114,8 +125,6 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 
 		var arch := MeshInstance3D.new()
 		arch.name = "GateRoomGate_" + str(si)
-		var arch_mesh := BoxMesh.new()
-		arch_mesh.size = Vector3(1.2, 4.0, 1.2)
 		arch.mesh = arch_mesh
 		arch.material_override = gate_mat
 		arch.position = slot_pos
@@ -127,9 +136,7 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 		area.collision_mask = 2
 		area.monitoring = true
 		var area_shape := CollisionShape3D.new()
-		var area_box := BoxShape3D.new()
-		area_box.size = Vector3(3.0, 3.0, 3.0)
-		area_shape.shape = area_box
+		area_shape.shape = slot_area_box
 		area.add_child(area_shape)
 		area.position = slot_pos
 		area.body_entered.connect(on_body_entered.bind(si))
@@ -140,6 +147,10 @@ static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_ent
 	var gate_mat := StandardMaterial3D.new()
 	gate_mat.albedo_color = Color(0.18, 0.28, 0.40)
 	gate_mat.roughness = 0.68
+	var arch_mesh := BoxMesh.new()
+	arch_mesh.size = Vector3(1.5, 4.0, 1.5)
+	var slot_area_box := BoxShape3D.new()
+	slot_area_box.size = Vector3(4.0, 4.0, 4.0)
 
 	var core_mat := StandardMaterial3D.new()
 	core_mat.albedo_color = Color(0.18, 0.45, 0.60, 0.18)
@@ -167,8 +178,6 @@ static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_ent
 
 		var arch := MeshInstance3D.new()
 		arch.name = "MapNexusGate_" + str(si)
-		var arch_mesh := BoxMesh.new()
-		arch_mesh.size = Vector3(1.5, 4.0, 1.5)
 		arch.mesh = arch_mesh
 		arch.material_override = gate_mat
 		arch.position = slot_pos
@@ -180,9 +189,7 @@ static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_ent
 		area.collision_mask = 2
 		area.monitoring = true
 		var area_shape := CollisionShape3D.new()
-		var area_box := BoxShape3D.new()
-		area_box.size = Vector3(4.0, 4.0, 4.0)
-		area_shape.shape = area_box
+		area_shape.shape = slot_area_box
 		area.add_child(area_shape)
 		area.position = slot_pos
 		area.body_entered.connect(on_body_entered.bind(si))
@@ -245,9 +252,8 @@ static func _seed_color(seed_value: int, alpha: float = 1.0) -> Color:
 
 static func _find_gate_position(
 	direction: Vector3, height_fn: Callable, river_distance_fn: Callable,
-	water_level: float, grid_size: int, cell_size: float
+	water_level: float, max_distance: float
 ) -> Vector3:
-	var max_distance: float = float(grid_size) * cell_size * 0.36
 	for step in range(8):
 		var distance: float = max_distance - float(step) * 12.0
 		var x: float = direction.x * distance

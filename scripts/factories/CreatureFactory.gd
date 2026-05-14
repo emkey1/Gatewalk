@@ -1,10 +1,19 @@
 extends RefCounted
 class_name CreatureFactory
 
+const MapContext = preload("res://scripts/core/MapContext.gd")
 
-static func scatter_birds(parent: Node3D, world_seed: int, height_fn: Callable, grid_size: int, cell_size: float) -> void:
+static func scatter_birds(parent: Node3D, world_seed: int, context: MapContext) -> void:
+	_scatter_birds_internal(
+		parent,
+		world_seed,
+		Callable(context, "height_at_world"),
+		context.world_half_size() * 0.88
+	)
+
+
+static func _scatter_birds_internal(parent: Node3D, world_seed: int, height_fn: Callable, half: float) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "birds"))
-	var half: float = float(grid_size) * cell_size * 0.44
 
 	var placed := 0
 	var attempts := 0
@@ -27,9 +36,18 @@ static func scatter_birds(parent: Node3D, world_seed: int, height_fn: Callable, 
 		placed += 1
 
 
-static func scatter_fish(parent: Node3D, world_seed: int, height_fn: Callable, grid_size: int, cell_size: float, water_level: float) -> void:
+static func scatter_fish(parent: Node3D, world_seed: int, context: MapContext) -> void:
+	_scatter_fish_internal(
+		parent,
+		world_seed,
+		Callable(context, "height_at_world"),
+		context.world_half_size() * 0.88,
+		context.water_level
+	)
+
+
+static func _scatter_fish_internal(parent: Node3D, world_seed: int, height_fn: Callable, half: float, water_level: float) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "fish"))
-	var half: float = float(grid_size) * cell_size * 0.44
 
 	var placed := 0
 	var target: int = 3

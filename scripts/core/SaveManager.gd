@@ -42,9 +42,11 @@ static func normalize_save_data(raw_data: Dictionary) -> Dictionary:
 			universes[universe_id] = create_universe_record("Universe 1")
 			normalized["universes"] = universes
 			normalized["current_universe_id"] = universe_id
-		elif str(normalized.get("current_universe_id", "")) == "":
-			normalized["current_universe_id"] = str(universes.keys()[0])
-		_normalize_current_universe(normalized)
+		else:
+			var current_id: String = str(normalized.get("current_universe_id", ""))
+			if current_id == "" or not universes.has(current_id):
+				normalized["current_universe_id"] = str(universes.keys()[0])
+		_normalize_all_universes(normalized)
 		return normalized
 
 	var migrated := default_save_data()
@@ -100,10 +102,7 @@ static func new_id(prefix: String) -> String:
 	return prefix + "_" + time_part + "_" + tick_part
 
 
-static func _migrate_v2_to_v3(save_data: Dictionary) -> void:
-	var universe := current_universe(save_data)
-	if universe.is_empty():
-		return
+static func _migrate_v2_to_v3_universe(universe: Dictionary) -> Dictionary:
 	var worlds: Dictionary = universe.get("worlds", {})
 	for world_key in worlds.keys():
 		var world: Dictionary = worlds[world_key] as Dictionary
@@ -131,21 +130,16 @@ static func _migrate_v2_to_v3(save_data: Dictionary) -> void:
 		if not world.has("root_map"):
 			var map_keys: Array = maps.keys()
 			world["root_map"] = str(map_keys[0]) if not map_keys.is_empty() else ""
-		if not world.has("current_map"):
-			world["current_map"] = world.get("root_map", "")
-		worlds[world_key] = world
+			if not world.has("current_map"):
+				world["current_map"] = world.get("root_map", "")
+			worlds[world_key] = world
 	universe["worlds"] = worlds
-	set_current_universe(save_data, universe)
+	return universe
 
 
-static func _normalize_current_universe(save_data: Dictionary) -> void:
-	var universe := current_universe(save_data)
-	if universe.is_empty():
-		return
-	var version: int = int(save_data.get("version", 0))
-	if version < 3:
-		_migrate_v2_to_v3(save_data)
-		save_data["version"] = 3
+static func _normalize_universe_record(universe: Dictionary, save_version: int) -> Dictionary:
+	if save_version < 3:
+		universe = _migrate_v2_to_v3_universe(universe)
 	if not universe.has("settings"):
 		universe["settings"] = {}
 	var settings: Dictionary = universe.get("settings", {})
@@ -159,4 +153,18 @@ static func _normalize_current_universe(save_data: Dictionary) -> void:
 	universe["achievements"] = universe.get("achievements", {})
 	universe["maps_visited"] = universe.get("maps_visited", [])
 	universe["lichen_count"] = int(universe.get("lichen_count", 0))
-	set_current_universe(save_data, universe)
+	return universe
+
+
+static func _normalize_all_universes(save_data: Dictionary) -> void:
+	var universes: Dictionary = save_data.get("universes", {})
+	if universes.is_empty():
+		return
+	var version: int = int(save_data.get("version", 0))
+	var normalized_universes: Dictionary = {}
+	for universe_id in universes.keys():
+		var universe: Dictionary = universes[universe_id]
+		normalized_universes[universe_id] = _normalize_universe_record(universe, version)
+	save_data["universes"] = normalized_universes
+	if version < SAVE_VERSION:
+		save_data["version"] = SAVE_VERSION

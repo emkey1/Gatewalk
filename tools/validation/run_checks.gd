@@ -1,0 +1,665 @@
+extends SceneTree
+
+const MapGenerator = preload("res://scripts/core/MapGenerator.gd")
+const SaveManager = preload("res://scripts/core/SaveManager.gd")
+const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
+const GateTravelService = preload("res://scripts/core/GateTravelService.gd")
+
+const GRAPHICS_LEVEL := 0
+const DENSITY_LEVEL := 2
+const SEED_A := 91357
+const SEED_B := 91358
+
+var _validation_id_counter: int = 0
+
+
+func _init() -> void:
+	var failures: Array[String] = []
+	_run_map_determinism_checks(failures)
+	_run_save_migration_checks(failures)
+	_run_gate_travel_checks(failures)
+	_run_gate_room_and_nexus_checks(failures)
+	_run_persisted_universe_isolation_checks(failures)
+
+	if failures.is_empty():
+		print("VALIDATION OK: deterministic generation and save migration checks passed")
+		quit(0)
+		return
+
+	for failure in failures:
+		printerr("VALIDATION FAIL: ", failure)
+	quit(1)
+
+
+func _run_map_determinism_checks(failures: Array[String]) -> void:
+	var map_types: Array[String] = [
+		WorldGraph.MAP_NORMAL,
+		WorldGraph.MAP_WATER,
+		WorldGraph.MAP_MOON,
+		WorldGraph.MAP_ARCTIC,
+		WorldGraph.MAP_CAVE,
+		WorldGraph.MAP_GATE_ROOM,
+		WorldGraph.MAP_NEXUS,
+	]
+
+	for map_type in map_types:
+		var first: Dictionary = _build_map_signature(SEED_A, map_type)
+		var second: Dictionary = _build_map_signature(SEED_A, map_type)
+		if int(first.get("node_count", 0)) <= 0:
+			failures.append("Map type '%s' produced empty generation output." % map_type)
+		var strict_maps := [WorldGraph.MAP_NORMAL, WorldGraph.MAP_WATER, WorldGraph.MAP_ARCTIC, WorldGraph.MAP_GATE_ROOM, WorldGraph.MAP_NEXUS]
+		var deterministic_key := "signature"
+		if not strict_maps.has(map_type):
+			deterministic_key = "core_signature"
+		if str(first.get(deterministic_key, "")) != str(second.get(deterministic_key, "")):
+			failures.append(
+				"Map type '%s' is non-deterministic for fixed seed %d. %s" % [
+					map_type,
+					SEED_A,
+					_signature_diff_summary(str(first.get(deterministic_key, "")), str(second.get(deterministic_key, ""))),
+				]
+			)
+
+	var normal_a: Dictionary = _build_map_signature(SEED_A, WorldGraph.MAP_NORMAL)
+	var normal_b: Dictionary = _build_map_signature(SEED_B, WorldGraph.MAP_NORMAL)
+	if str(normal_a.get("signature", "")) == str(normal_b.get("signature", "")):
+		failures.append("Normal map signature did not change between seeds %d and %d." % [SEED_A, SEED_B])
+
+	var moon_a: Dictionary = _build_map_signature(SEED_A, WorldGraph.MAP_MOON)
+	if str(normal_a.get("signature", "")) == str(moon_a.get("signature", "")):
+		failures.append("Normal and moon map signatures unexpectedly match for seed %d." % SEED_A)
+
+
+func _run_save_migration_checks(failures: Array[String]) -> void:
+	var legacy_save := {
+		"worlds": {
+			"world_a": {
+				"name": "Legacy World",
+				"root_map": "map_root",
+				"current_map": "map_root",
+				"maps": {
+					"map_root": {
+						"seed": 1234,
+						"type": "normal",
+						"gates": {},
+						"discoveries": {},
+					}
+				}
+			}
+		},
+		"last_world_id": "world_a",
+		"achievements": {"first_wonder": 1},
+		"maps_visited": ["map_root"],
+		"lichen_count": 7,
+		"cycle_speed_multiplier": 1.5,
+		"start_fullscreen": false,
+		"graphics_level": 2,
+		"density_level": 1,
+	}
+	var migrated_legacy: Dictionary = SaveManager.normalize_save_data(legacy_save)
+	var legacy_universe: Dictionary = SaveManager.current_universe(migrated_legacy)
+	if int(migrated_legacy.get("version", 0)) != SaveManager.SAVE_VERSION:
+		failures.append("Legacy migration did not set expected save version.")
+	if legacy_universe.is_empty():
+		failures.append("Legacy migration did not produce a current universe.")
+	else:
+		if int(legacy_universe.get("lichen_count", -1)) != 7:
+			failures.append("Legacy migration lost lichen count.")
+		var settings: Dictionary = legacy_universe.get("settings", {})
+		if float(settings.get("cycle_speed_multiplier", -1.0)) != 1.5:
+			failures.append("Legacy migration lost cycle speed setting.")
+		if bool(settings.get("start_fullscreen", true)) != false:
+			failures.append("Legacy migration lost fullscreen setting.")
+
+	var v2_multi := {
+		"version": 2,
+		"current_universe_id": "u_a",
+		"universes": {
+			"u_a": {
+				"name": "Universe A",
+				"worlds": {
+					"w_a": {
+						"name": "World A",
+						"maps": {"m_a": {"seed": 10}},
+					}
+				},
+				"last_world_id": "w_a",
+			},
+			"u_b": {
+				"name": "Universe B",
+				"worlds": {
+					"w_b": {
+						"name": "World B",
+						"maps": {"m_b": {"seed": 20}},
+					}
+				},
+				"last_world_id": "w_b",
+			},
+		},
+	}
+	var migrated_multi: Dictionary = SaveManager.normalize_save_data(v2_multi)
+	var universes: Dictionary = migrated_multi.get("universes", {})
+	if universes.size() != 2:
+		failures.append("Multi-universe migration changed universe count.")
+	var ua: Dictionary = universes.get("u_a", {})
+	var ub: Dictionary = universes.get("u_b", {})
+	if ua.is_empty() or ub.is_empty():
+		failures.append("Multi-universe migration lost one universe record.")
+	else:
+		var ua_worlds: Dictionary = ua.get("worlds", {})
+		var ub_worlds: Dictionary = ub.get("worlds", {})
+		if not ua_worlds.has("w_a") or ub_worlds.has("w_a"):
+			failures.append("Multi-universe migration mixed world ownership between universes.")
+		if not ub_worlds.has("w_b") or ua_worlds.has("w_b"):
+			failures.append("Multi-universe migration mixed world ownership between universes.")
+		var wa_map: Dictionary = ua_worlds.get("w_a", {}).get("maps", {}).get("m_a", {})
+		var wb_map: Dictionary = ub_worlds.get("w_b", {}).get("maps", {}).get("m_b", {})
+		var required_map_fields: Array[String] = ["seed", "type", "gates", "discoveries", "available_discoveries", "wonder_count"]
+		for field_name in required_map_fields:
+			if not wa_map.has(field_name):
+				failures.append("Universe A map migration missing field '%s'." % field_name)
+			if not wb_map.has(field_name):
+				failures.append("Universe B map migration missing field '%s'." % field_name)
+		if str(wa_map.get("type", "")) != WorldGraph.MAP_NORMAL:
+			failures.append("Universe A map type migration unexpected value.")
+		if str(wb_map.get("type", "")) != WorldGraph.MAP_NORMAL:
+			failures.append("Universe B map type migration unexpected value.")
+
+	var stale_id_save := {
+		"version": SaveManager.SAVE_VERSION,
+		"current_universe_id": "missing_universe",
+		"universes": {
+			"u_live": SaveManager.create_universe_record("Universe Live"),
+		},
+	}
+	var normalized_stale: Dictionary = SaveManager.normalize_save_data(stale_id_save)
+	var resolved_id: String = SaveManager.current_universe_id(normalized_stale)
+	if resolved_id == "" or not normalized_stale.get("universes", {}).has(resolved_id):
+		failures.append("Stale current universe id was not repaired to a valid universe.")
+
+	var isolation_source := {
+		"version": SaveManager.SAVE_VERSION,
+		"current_universe_id": "u_a",
+		"universes": {
+			"u_a": {
+				"name": "Universe A",
+				"worlds": {"w_a": {"name": "World A", "maps": {"m_a": {"seed": 11, "type": "normal", "gates": {}, "discoveries": {}}}}},
+				"last_world_id": "w_a",
+				"achievements": {"a_only": 1},
+				"maps_visited": ["m_a"],
+				"lichen_count": 2,
+				"settings": {"cycle_speed_multiplier": 1.0, "start_fullscreen": true, "graphics_level": 0, "density_level": 2},
+			},
+			"u_b": {
+				"name": "Universe B",
+				"worlds": {"w_b": {"name": "World B", "maps": {"m_b": {"seed": 22, "type": "normal", "gates": {}, "discoveries": {}}}}},
+				"last_world_id": "w_b",
+				"achievements": {"b_only": 1},
+				"maps_visited": ["m_b"],
+				"lichen_count": 5,
+				"settings": {"cycle_speed_multiplier": 1.2, "start_fullscreen": false, "graphics_level": 1, "density_level": 1},
+			},
+		},
+	}
+	var isolated: Dictionary = SaveManager.normalize_save_data(isolation_source)
+	var replace_a := SaveManager.current_universe(isolated).duplicate(true)
+	replace_a["lichen_count"] = 99
+	replace_a["maps_visited"] = ["m_a", "m_a2"]
+	var isolated_updated: Dictionary = SaveManager.set_current_universe(isolated.duplicate(true), replace_a)
+	var updated_universes: Dictionary = isolated_updated.get("universes", {})
+	var after_a: Dictionary = updated_universes.get("u_a", {})
+	var after_b: Dictionary = updated_universes.get("u_b", {})
+	if int(after_a.get("lichen_count", -1)) != 99:
+		failures.append("Current-universe update did not apply to active universe.")
+	if int(after_b.get("lichen_count", -1)) != 5:
+		failures.append("Current-universe update leaked into non-active universe.")
+	if not after_b.get("achievements", {}).has("b_only"):
+		failures.append("Current-universe update removed non-active universe achievements.")
+	if after_b.get("maps_visited", []).has("m_a2"):
+		failures.append("Current-universe update leaked visited-map state across universes.")
+
+
+func _build_map_signature(seed_value: int, map_type: String) -> Dictionary:
+	var generated_root := Node3D.new()
+	generated_root.name = "ValidationGeneratedRoot"
+
+	var generator := MapGenerator.new({
+		"world_seed": seed_value,
+		"graphics_level": GRAPHICS_LEVEL,
+		"density_level": DENSITY_LEVEL,
+		"map_type": map_type,
+	})
+	generator.generate(generated_root)
+
+	var lines: PackedStringArray = PackedStringArray()
+	var structure_lines: PackedStringArray = PackedStringArray()
+	var core_lines: PackedStringArray = PackedStringArray()
+	_collect_signature(generated_root, 0, lines)
+	_collect_structure_signature(generated_root, structure_lines)
+	_collect_core_signature(generated_root, core_lines)
+	lines.sort()
+	structure_lines.sort()
+	core_lines.sort()
+	var signature: String = "\n".join(lines)
+	var structure_signature: String = "\n".join(structure_lines)
+	var core_signature: String = "\n".join(core_lines)
+	var node_count: int = lines.size()
+
+	generated_root.free()
+	return {
+		"signature": signature,
+		"structure_signature": structure_signature,
+		"core_signature": core_signature,
+		"node_count": node_count,
+	}
+
+
+func _run_gate_travel_checks(failures: Array[String]) -> void:
+	var base_world := {
+		"name": "Travel Test World",
+		"maps": {
+			"m0": {
+				"seed": 101,
+				"type": WorldGraph.MAP_NORMAL,
+				"gates": {},
+				"discoveries": {},
+				"available_discoveries": 0,
+				"wonder_count": 0,
+			},
+		},
+		"root_map": "m0",
+		"current_map": "m0",
+	}
+	_validation_id_counter = 0
+	var first: Dictionary = GateTravelService.resolve_gate_transition(
+		SEED_A,
+		"m0",
+		0,
+		base_world.duplicate(true),
+		Callable(self, "_validation_new_map_id"),
+		0.0,
+		0.0,
+		0.0
+	)
+	_validation_id_counter = 0
+	var second: Dictionary = GateTravelService.resolve_gate_transition(
+		SEED_A,
+		"m0",
+		0,
+		base_world.duplicate(true),
+		Callable(self, "_validation_new_map_id"),
+		0.0,
+		0.0,
+		0.0
+	)
+	if not bool(first.get("ok", false)) or not bool(second.get("ok", false)):
+		failures.append("Gate travel deterministic check failed to resolve gate transition.")
+		return
+	if bool(first.get("inert", false)) or bool(second.get("inert", false)):
+		failures.append("Gate travel deterministic check unexpectedly produced inert gate.")
+		return
+	if str(first.get("target_map_id", "")) != str(second.get("target_map_id", "")):
+		failures.append("Gate travel target map id is non-deterministic for fixed seed/input.")
+	var first_world: Dictionary = first.get("world", {})
+	var second_world: Dictionary = second.get("world", {})
+	var first_maps: Dictionary = first_world.get("maps", {})
+	var second_maps: Dictionary = second_world.get("maps", {})
+	var first_target: Dictionary = first_maps.get(str(first.get("target_map_id", "")), {})
+	var second_target: Dictionary = second_maps.get(str(second.get("target_map_id", "")), {})
+	if int(first_target.get("seed", -1)) != int(second_target.get("seed", -1)):
+		failures.append("Gate travel produced non-deterministic target seed.")
+	if str(first_target.get("type", "")) != str(second_target.get("type", "")):
+		failures.append("Gate travel produced non-deterministic target map type.")
+
+
+func _validation_new_map_id(prefix: String) -> String:
+	var id: String = "%s_det_%d" % [prefix, _validation_id_counter]
+	_validation_id_counter += 1
+	return id
+
+
+func _run_gate_room_and_nexus_checks(failures: Array[String]) -> void:
+	var worlds := {
+		"w0": {
+			"name": "Source World",
+			"root_map": "src_map",
+			"maps": {
+				"src_map": {
+					"seed": 500,
+					"type": WorldGraph.MAP_GATE_ROOM,
+					"gate_room_slots": {},
+					"gates": {},
+					"discoveries": {},
+				},
+			},
+		},
+	}
+	var source_map: Dictionary = worlds["w0"]["maps"]["src_map"]
+	var gate_room_result: Dictionary = GateTravelService.resolve_gate_room_slot(
+		SEED_A,
+		"w0",
+		"src_map",
+		1,
+		worlds.duplicate(true),
+		source_map.duplicate(true),
+		Callable(self, "_validation_new_map_id"),
+		Callable(self, "_validation_create_world_record_dict")
+	)
+	if not bool(gate_room_result.get("ok", false)):
+		failures.append("Gate room slot resolution failed.")
+		return
+	if not bool(gate_room_result.get("changed", false)):
+		failures.append("Gate room slot did not create/link a new world on empty slot.")
+		return
+	var room_target_world: String = str(gate_room_result.get("target_world_id", ""))
+	var room_target_map: String = str(gate_room_result.get("target_map_id", ""))
+	var updated_worlds: Dictionary = gate_room_result.get("worlds", {})
+	if room_target_world == "" or room_target_map == "" or not updated_worlds.has(room_target_world):
+		failures.append("Gate room slot resolution produced invalid world/map target.")
+		return
+	var created_world: Dictionary = updated_worlds.get(room_target_world, {})
+	if str(created_world.get("gate_room_source_world", "")) != "w0":
+		failures.append("Gate room slot resolution lost source world linkage.")
+	if str(created_world.get("gate_room_source_map", "")) != "src_map":
+		failures.append("Gate room slot resolution lost source map linkage.")
+
+	var nexus_map := {
+		"seed": 777,
+		"type": WorldGraph.MAP_NEXUS,
+		"nexus_slots": {},
+		"gates": {},
+		"discoveries": {},
+	}
+	var universe_worlds := {
+		"w0": {"name": "Current", "root_map": "m0", "maps": {"m0": {"seed": 1, "type": WorldGraph.MAP_NORMAL}}},
+		"w1": {"name": "Elsewhere", "root_map": "m1", "maps": {"m1": {"seed": 2, "type": WorldGraph.MAP_NORMAL}}},
+	}
+	var nexus_result: Dictionary = GateTravelService.resolve_nexus_slot(
+		SEED_A,
+		"w0",
+		"nexus_map",
+		0,
+		nexus_map.duplicate(true),
+		universe_worlds
+	)
+	if not bool(nexus_result.get("ok", false)):
+		failures.append("Nexus slot resolution failed.")
+		return
+	if bool(nexus_result.get("skip", false)):
+		failures.append("Nexus slot 0 unexpectedly skipped despite alternate world availability.")
+		return
+	var nexus_target_world: String = str(nexus_result.get("target_world_id", ""))
+	if nexus_target_world == "" or nexus_target_world == "w0":
+		failures.append("Nexus slot resolution did not select a non-current world.")
+
+	var return_record := {
+		"gate_room_return_world": "w_back",
+		"gate_room_return_map": "m_back",
+	}
+	var return_result: Dictionary = GateTravelService.resolve_gate_room_return(return_record)
+	if not bool(return_result.get("ok", false)) or not bool(return_result.get("has_return", false)):
+		failures.append("Gate room return resolution did not produce expected return target.")
+	if str(return_result.get("target_world_id", "")) != "w_back" or str(return_result.get("target_map_id", "")) != "m_back":
+		failures.append("Gate room return resolution produced incorrect target linkage.")
+
+
+func _validation_create_world_record_dict(world_name: String, root_map_id: String, map_seed: int) -> Dictionary:
+	return WorldGraph.create_world_record(world_name, root_map_id, map_seed).to_dict()
+
+
+func _run_persisted_universe_isolation_checks(failures: Array[String]) -> void:
+	var save_data := {
+		"version": SaveManager.SAVE_VERSION,
+		"current_universe_id": "u_a",
+		"universes": {
+			"u_a": {
+				"name": "Universe A",
+				"worlds": {
+					"w_a0": {
+						"name": "World A0",
+						"root_map": "m_gate",
+						"current_map": "m_gate",
+						"maps": {
+							"m_gate": {
+								"seed": 3001,
+								"type": WorldGraph.MAP_GATE_ROOM,
+								"gate_room_slots": {},
+								"gates": {},
+								"discoveries": {},
+							},
+						},
+					},
+				},
+				"last_world_id": "w_a0",
+				"achievements": {},
+				"maps_visited": [],
+				"lichen_count": 0,
+				"settings": {"cycle_speed_multiplier": 1.0, "start_fullscreen": true, "graphics_level": 0, "density_level": 2},
+			},
+			"u_b": {
+				"name": "Universe B",
+				"worlds": {
+					"w_b0": {
+						"name": "World B0",
+						"root_map": "m_b0",
+						"current_map": "m_b0",
+						"maps": {
+							"m_b0": {"seed": 7001, "type": WorldGraph.MAP_NORMAL, "gates": {}, "discoveries": {}},
+						},
+					},
+				},
+				"last_world_id": "w_b0",
+				"achievements": {"b_only": 1},
+				"maps_visited": ["m_b0"],
+				"lichen_count": 4,
+				"settings": {"cycle_speed_multiplier": 1.2, "start_fullscreen": false, "graphics_level": 1, "density_level": 1},
+			},
+		},
+	}
+	save_data = SaveManager.normalize_save_data(save_data)
+	var current_universe: Dictionary = SaveManager.current_universe(save_data)
+	var worlds_a: Dictionary = current_universe.get("worlds", {})
+	var world_a0: Dictionary = worlds_a.get("w_a0", {})
+	var map_a_gate: Dictionary = world_a0.get("maps", {}).get("m_gate", {})
+	_validation_id_counter = 0
+	var travel_result: Dictionary = GateTravelService.resolve_gate_room_slot(
+		SEED_A,
+		"w_a0",
+		"m_gate",
+		2,
+		worlds_a.duplicate(true),
+		map_a_gate.duplicate(true),
+		Callable(self, "_validation_new_map_id"),
+		Callable(self, "_validation_create_world_record_dict")
+	)
+	if not bool(travel_result.get("ok", false)) or not bool(travel_result.get("changed", false)):
+		failures.append("Persisted isolation check: gate-room slot did not resolve expected new world.")
+		return
+	var updated_worlds_a: Dictionary = travel_result.get("worlds", worlds_a)
+	var updated_map_a: Dictionary = travel_result.get("current_map_record", map_a_gate)
+	world_a0["maps"]["m_gate"] = updated_map_a
+	updated_worlds_a["w_a0"] = world_a0
+	current_universe["worlds"] = updated_worlds_a
+	var after_update: Dictionary = SaveManager.set_current_universe(save_data.duplicate(true), current_universe)
+	var universes_after: Dictionary = after_update.get("universes", {})
+	var ua_after: Dictionary = universes_after.get("u_a", {})
+	var ub_after: Dictionary = universes_after.get("u_b", {})
+	if int(ua_after.get("worlds", {}).size()) <= 1:
+		failures.append("Persisted isolation check: current universe did not receive new gate-room world.")
+	if int(ub_after.get("worlds", {}).size()) != 1:
+		failures.append("Persisted isolation check: non-current universe world count changed.")
+	if not ub_after.get("achievements", {}).has("b_only"):
+		failures.append("Persisted isolation check: non-current universe achievements changed.")
+	if int(ub_after.get("lichen_count", -1)) != 4:
+		failures.append("Persisted isolation check: non-current universe lichen count changed.")
+
+	var nexus_worlds_a := {
+		"w_a0": {
+			"name": "World A0",
+			"root_map": "m_nexus",
+			"current_map": "m_nexus",
+			"maps": {
+				"m_nexus": {
+					"seed": 3111,
+					"type": WorldGraph.MAP_NEXUS,
+					"nexus_slots": {},
+					"gates": {},
+					"discoveries": {},
+				},
+			},
+		},
+		"w_a1": {
+			"name": "World A1",
+			"root_map": "m_a1",
+			"current_map": "m_a1",
+			"maps": {
+				"m_a1": {"seed": 3222, "type": WorldGraph.MAP_NORMAL, "gates": {}, "discoveries": {}},
+			},
+		},
+	}
+	var save_data_nexus := {
+		"version": SaveManager.SAVE_VERSION,
+		"current_universe_id": "u_a",
+		"universes": {
+			"u_a": {
+				"name": "Universe A",
+				"worlds": nexus_worlds_a,
+				"last_world_id": "w_a0",
+				"achievements": {},
+				"maps_visited": [],
+				"lichen_count": 0,
+				"settings": {"cycle_speed_multiplier": 1.0, "start_fullscreen": true, "graphics_level": 0, "density_level": 2},
+			},
+			"u_b": {
+				"name": "Universe B",
+				"worlds": {
+					"w_b0": {
+						"name": "World B0",
+						"root_map": "m_b0",
+						"current_map": "m_b0",
+						"maps": {"m_b0": {"seed": 7001, "type": WorldGraph.MAP_NORMAL, "gates": {}, "discoveries": {}}},
+					},
+				},
+				"last_world_id": "w_b0",
+				"achievements": {"b_only": 1},
+				"maps_visited": ["m_b0"],
+				"lichen_count": 4,
+				"settings": {"cycle_speed_multiplier": 1.2, "start_fullscreen": false, "graphics_level": 1, "density_level": 1},
+			},
+		},
+	}
+	save_data_nexus = SaveManager.normalize_save_data(save_data_nexus)
+	var current_universe_nexus: Dictionary = SaveManager.current_universe(save_data_nexus)
+	var worlds_nexus: Dictionary = current_universe_nexus.get("worlds", {})
+	var world_nexus: Dictionary = worlds_nexus.get("w_a0", {})
+	var map_nexus: Dictionary = world_nexus.get("maps", {}).get("m_nexus", {})
+	var nexus_result_persisted: Dictionary = GateTravelService.resolve_nexus_slot(
+		SEED_A,
+		"w_a0",
+		"m_nexus",
+		0,
+		map_nexus.duplicate(true),
+		worlds_nexus
+	)
+	if not bool(nexus_result_persisted.get("ok", false)) or bool(nexus_result_persisted.get("skip", false)):
+		failures.append("Persisted isolation check: nexus slot did not resolve as expected.")
+		return
+	var updated_nexus_map: Dictionary = nexus_result_persisted.get("current_map_record", map_nexus)
+	world_nexus["maps"]["m_nexus"] = updated_nexus_map
+	worlds_nexus["w_a0"] = world_nexus
+	current_universe_nexus["worlds"] = worlds_nexus
+	var after_nexus_update: Dictionary = SaveManager.set_current_universe(save_data_nexus.duplicate(true), current_universe_nexus)
+	var universes_after_nexus: Dictionary = after_nexus_update.get("universes", {})
+	var ub_after_nexus: Dictionary = universes_after_nexus.get("u_b", {})
+	if int(ub_after_nexus.get("worlds", {}).size()) != 1:
+		failures.append("Persisted isolation check: nexus update changed non-current universe world count.")
+	if not ub_after_nexus.get("achievements", {}).has("b_only"):
+		failures.append("Persisted isolation check: nexus update changed non-current universe achievements.")
+	if int(ub_after_nexus.get("lichen_count", -1)) != 4:
+		failures.append("Persisted isolation check: nexus update changed non-current universe lichen count.")
+
+
+func _collect_signature(node: Node, depth: int, out: PackedStringArray) -> void:
+	var line: String = node.get_class()
+	if node is Node3D:
+		var node3d := node as Node3D
+		line += "|p=" + _vector_key(node3d.position)
+		line += "|r=" + _vector_key(node3d.rotation_degrees)
+		line += "|s=" + _vector_key(node3d.scale)
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh != null:
+			line += "|mesh=" + mesh_instance.mesh.get_class()
+	out.append(line)
+
+	for child in node.get_children():
+		_collect_signature(child, depth + 1, out)
+
+
+func _collect_structure_signature(node: Node, out: PackedStringArray) -> void:
+	var token: String = node.get_class()
+	if node is MeshInstance3D:
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh != null:
+			token += "|mesh=" + mesh_instance.mesh.get_class()
+	out.append(token)
+	for child in node.get_children():
+		_collect_structure_signature(child, out)
+
+
+func _collect_core_signature(node: Node, out: PackedStringArray) -> void:
+	var include_names := {
+		"GeneratedTerrain": true,
+		"TerrainCollision": true,
+		"WorldEdgeBarriers": true,
+		"DungeonWalls": true,
+		"DungeonWallCollision": true,
+		"DungeonFloor": true,
+		"DungeonCeiling": true,
+		"MoonSkyDetails": true,
+		"DistantBlueWorld": true,
+		"PlanetSurface": true,
+		"MoonHorizonGlow": true,
+		"GateRoomDisk": true,
+		"GateRoomCenter": true,
+		"NexusFloor": true,
+		"NexusPillar": true,
+	}
+	if include_names.has(node.name):
+		var token := "%s|%s" % [node.get_class(), node.name]
+		if node is Node3D:
+			var node3d := node as Node3D
+			token += "|p=" + _vector_key(node3d.position)
+		if node is MeshInstance3D:
+			var mesh_instance := node as MeshInstance3D
+			if mesh_instance.mesh != null:
+				token += "|mesh=" + mesh_instance.mesh.get_class()
+		out.append(token)
+	for child in node.get_children():
+		_collect_core_signature(child, out)
+
+
+func _vector_key(v: Vector3) -> String:
+	return "%.3f,%.3f,%.3f" % [v.x, v.y, v.z]
+
+
+func _signature_diff_summary(a: String, b: String) -> String:
+	var a_counts: Dictionary = {}
+	var b_counts: Dictionary = {}
+	for line in a.split("\n", false):
+		a_counts[line] = int(a_counts.get(line, 0)) + 1
+	for line in b.split("\n", false):
+		b_counts[line] = int(b_counts.get(line, 0)) + 1
+
+	var only_a: Array[String] = []
+	var only_b: Array[String] = []
+	for key in a_counts.keys():
+		if int(a_counts[key]) != int(b_counts.get(key, 0)):
+			only_a.append(str(key))
+	for key in b_counts.keys():
+		if int(b_counts[key]) != int(a_counts.get(key, 0)):
+			only_b.append(str(key))
+
+	var sample_a: String = only_a[0] if not only_a.is_empty() else "<none>"
+	var sample_b: String = only_b[0] if not only_b.is_empty() else "<none>"
+	return "delta_a=%d delta_b=%d sample_a=%s sample_b=%s" % [only_a.size(), only_b.size(), sample_a, sample_b]

@@ -21,6 +21,8 @@ const DiscoveryTracker = preload("res://scripts/core/DiscoveryTracker.gd")
 const HudController = preload("res://scripts/core/HudController.gd")
 const AtlasView = preload("res://scripts/core/AtlasView.gd")
 const DevMenu = preload("res://scripts/core/DevMenu.gd")
+const GateTravelService = preload("res://scripts/core/GateTravelService.gd")
+const MapContext = preload("res://scripts/core/MapContext.gd")
 const MapRecordClass = preload("res://scripts/core/MapRecord.gd")
 const WorldRecordClass = preload("res://scripts/core/WorldRecord.gd")
 const DiscoveryRecordClass = preload("res://scripts/core/DiscoveryRecord.gd")
@@ -36,12 +38,15 @@ const WATER_LEVEL: float = -1.7
 const GATE_COUNT: int = 4
 const WONDER_CELL_SIZE: float = 96.0
 const WONDER_CHANCE: float = 0.20
+const MOON_SHRINE_COUNT: int = 9
+const WATER_ROUTE_CHANCE: float = 0.12
 
 
 const SLOT_INDEX_PATH: String = "user://save_index.json"
 
 var noise: FastNoiseLite = FastNoiseLite.new()
 var world_seed: int = 12345
+var map_context: MapContext
 var generated_root: Node3D
 var menu_layer: CanvasLayer
 var hud_controller: HudController
@@ -1080,6 +1085,10 @@ func _create_world_record(world_name: String, root_map_id: String, map_seed: int
 	return WorldGraph.create_world_record(world_name, root_map_id, map_seed)
 
 
+func _create_world_record_dict(world_name: String, root_map_id: String, map_seed: int) -> Dictionary:
+	return _create_world_record(world_name, root_map_id, map_seed).to_dict()
+
+
 func _new_id(prefix: String) -> String:
 	return SaveManager.new_id(prefix)
 
@@ -1405,19 +1414,10 @@ func _return_to_gate_room() -> void:
 
 
 func _gate_target_seed(gate_index: int) -> int:
-	if current_world_id == "" or current_map_id == "":
+	if current_world_id == "":
 		return _preview_gate_seed(gate_index)
-
 	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
-	var gates: Dictionary = map_record.get("gates", {})
-	var target_map_id: String = str(gates.get(str(gate_index), ""))
-	if target_map_id != "" and maps.has(target_map_id):
-		var target_record: Dictionary = maps[target_map_id]
-		return int(target_record.get("seed", _preview_gate_seed(gate_index)))
-
-	return _preview_gate_seed(gate_index)
+	return GateTravelService.gate_target_seed(world_seed, current_map_id, world, gate_index)
 
 
 func _preview_gate_seed(gate_index: int) -> int:
@@ -1465,77 +1465,20 @@ func _add_discovery_area(parent: Node3D, local_position: Vector3, radius: float,
 	parent.add_child(area)
 
 
-func _terrain_color(pos: Vector3) -> Color:
-	if _is_current_map_gate_room() or _is_current_map_map_nexus():
-		return Color(0.10, 0.11, 0.14)
-
-	if _is_current_map_cave():
-		return Color(0.12, 0.10, 0.08)
-
-	if _is_current_map_moon():
-		if pos.y > 4.0:
-			return Color(0.34, 0.36, 0.43)
-		if pos.y < -2.0:
-			return Color(0.16, 0.17, 0.21)
-		return Color(0.25, 0.26, 0.31)
-
-	if _is_current_map_water():
-		if pos.y > WATER_LEVEL + 0.25:
-			return Color(0.62, 0.55, 0.34)
-		return Color(0.28, 0.25, 0.18)
-
-	var river: float = _river_distance(pos.x, pos.z)
-	if pos.y <= WATER_LEVEL + 0.25 or river < 7.5:
-		return Color(0.42, 0.34, 0.18)
-	if pos.y > 12.0:
-		return Color(0.48, 0.48, 0.44)
-	if pos.y > 7.5:
-		return Color(0.30, 0.38, 0.22)
-	if _biome_value(pos.x, pos.z) > 0.28:
-		return Color(0.18, 0.47, 0.17)
-	return Color(0.24, 0.43, 0.18)
-
-
 func _height_at_world(wx: float, wz: float) -> float:
-	if _is_current_map_cave() or _is_current_map_gate_room() or _is_current_map_map_nexus():
-		return 0.0
-
-	if _is_current_map_moon():
-		var scale: float = 1.0 / float(_moon_grid_scale)
-		var lunar_broad: float = noise.get_noise_2d(wx * 0.45 * scale + 600.0, wz * 0.45 * scale - 1200.0) * 5.0
-		var lunar_craters: float = noise.get_noise_2d(wx * 2.8 * scale - 400.0, wz * 2.8 * scale + 700.0) * 1.4
-		var crater_bowls: float = abs(noise.get_noise_2d(wx * 0.12 * scale + 330.0, wz * 0.12 * scale - 510.0)) * -4.2
-		return lunar_broad + lunar_craters + crater_bowls
-
-	if _is_current_map_water():
-		var islands: float = noise.get_noise_2d(wx * 0.12, wz * 0.12) * 15.0
-		var detail_islands: float = noise.get_noise_2d(wx * 0.4 + 500.0, wz * 0.4 + 1000.0) * 5.0
-		return islands + detail_islands - 7.0
-
-	var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * HEIGHT_SCALE
-	var hills: float = noise.get_noise_2d(wx, wz) * 5.5
-	var details: float = noise.get_noise_2d(wx * 2.1 + 900.0, wz * 2.1 - 900.0) * 1.1
-	var river_carve: float = _smooth_falloff(_river_distance(wx, wz), 0.0, 16.0) * 5.5
-	var height: float = broad + hills + details - river_carve
-
-	if _river_distance(wx, wz) < 6.0:
-		height = min(height, WATER_LEVEL - 0.45 + abs(_river_distance(wx, wz)) * 0.05)
-
-	return height
+	return _active_map_context().height_at_world(wx, wz)
 
 
 func _biome_value(wx: float, wz: float) -> float:
-	return noise.get_noise_2d(wx * 0.28 - 2500.0, wz * 0.28 + 1700.0)
+	return _active_map_context().biome_value(wx, wz)
 
 
 func _river_distance(wx: float, wz: float) -> float:
-	var curve: float = sin(wx * 0.025) * 22.0 + noise.get_noise_2d(wx * 0.2 + 3200.0, 410.0) * 16.0
-	return abs(wz - curve)
+	return _active_map_context().river_distance(wx, wz)
 
 
-func _smooth_falloff(value: float, edge0: float, edge1: float) -> float:
-	var t: float = clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0)
-	return 1.0 - t * t * (3.0 - 2.0 * t)
+func _water_level() -> float:
+	return _active_map_context().water_level
 
 
 func _get_player() -> CharacterBody3D:
@@ -1552,7 +1495,8 @@ func _recover_fallen_player() -> void:
 	var player: CharacterBody3D = _get_player()
 	if player == null or player.global_position.y > -50.0:
 		return
-	player.global_position = Vector3(0.0, 5.0, 0.0)
+	player.global_position = _find_spawn_position()
+	player.velocity = Vector3.ZERO
 
 
 func _update_underwater_state() -> void:
@@ -1808,6 +1752,17 @@ func _is_current_map_map_nexus() -> bool:
 	return str(raw.get("type", "")) == WorldGraph.MAP_NEXUS
 
 
+func _current_map_type() -> String:
+	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
+	return WorldGraph.map_type_from_dict(raw)
+
+
+func _active_map_context() -> MapContext:
+	if map_context == null:
+		_setup_noise(_current_map_type())
+	return map_context
+
+
 func _moon_seed(world: Dictionary) -> int:
 	return int((world_seed ^ 0x4D4F4F4E) & 0x7fffffff)
 
@@ -1843,16 +1798,9 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_save_world_data()
 
 	var map_type: String = WorldGraph.map_type_from_dict(map_record)
-	if map_type == WorldGraph.MAP_WATER:
-		map_record["type"] = WorldGraph.MAP_NORMAL
-		maps[map_id] = map_record
-		world["maps"] = maps
-		_set_world(world_id, world)
-		_save_world_data()
-		map_type = WorldGraph.MAP_NORMAL
 	_moon_grid_scale = 2 if map_type == WorldGraph.MAP_MOON else 1
 	world_seed = int(map_record.get("seed", 12345))
-	_setup_noise()
+	_setup_noise(map_type)
 	_begin_generation_channel("map")
 	current_map_available_discoveries = 0
 	_clear_generated_map()
@@ -1869,6 +1817,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		"graphics_level": graphics_level,
 		"density_level": density_level,
 		"map_type": map_type,
+		"map_context": map_context,
 	})
 	gen.generate(generated_root)
 
@@ -1882,7 +1831,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
 			target_seeds.append(_gate_target_seed(gi))
-		GateFactory.create_gates(generated_root, world_seed, target_seeds, _height_at_world, _river_distance, WATER_LEVEL, GRID_SIZE, CELL_SIZE, _on_gate_body_entered)
+			GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
 		_gate_positions_to_wonders()
 	elif _is_current_map_map_nexus():
 		GateFactory.scatter_map_nexus_gates(generated_root, 4, _on_map_nexus_gate_body_entered)
@@ -1920,7 +1869,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
 			target_seeds.append(_gate_target_seed(gi))
-		GateFactory.create_gates(generated_root, world_seed, target_seeds, _height_at_world, _river_distance, WATER_LEVEL, GRID_SIZE, CELL_SIZE, _on_gate_body_entered)
+			GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
 		_gate_positions_to_wonders()
 	_store_current_map_available_discoveries()
 
@@ -1956,20 +1905,29 @@ func _add_generated_child(node: Node) -> void:
 		add_child(node)
 
 
-func _setup_noise() -> void:
-	noise.seed = world_seed
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = 0.020
-	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-	noise.fractal_octaves = 4
-	noise.fractal_lacunarity = 1.9
-	noise.fractal_gain = 0.45
+func _setup_noise(map_type: String = "") -> void:
+	var resolved_map_type: String = map_type
+	if resolved_map_type == "":
+		resolved_map_type = _current_map_type()
+	map_context = MapContext.new({
+		"world_seed": world_seed,
+		"map_type": resolved_map_type,
+		"grid_size": GRID_SIZE,
+		"cell_size": CELL_SIZE,
+		"water_level": WATER_LEVEL,
+		"height_scale": HEIGHT_SCALE,
+		"moon_grid_scale": _moon_grid_scale,
+	})
+	noise = map_context.noise
 
 
 func _setup_environment() -> void:
 	if world_environment_node != null:
 		world_environment_node.queue_free()
 		world_environment_node = null
+	if sun_light != null:
+		sun_light.queue_free()
+		sun_light = null
 
 	var sun := DirectionalLight3D.new()
 	sun.name = "Sun"
@@ -2092,92 +2050,65 @@ func _sun_color_for_world() -> Color:
 	return Color.from_hsv(hue, 0.25, 1.0)
 
 
-func _effective_grid_size() -> int:
-	if _is_current_map_moon():
-		return GRID_SIZE * _moon_grid_scale
-	return GRID_SIZE
-
-
 func _world_half_size() -> float:
-	return float(_effective_grid_size()) * CELL_SIZE * 0.5
-
-
-func _height_index(x: int, z: int) -> int:
-	var g: int = GRID_SIZE + 1
-	if _is_current_map_moon():
-		g = (GRID_SIZE * _moon_grid_scale) + 1
-	return z * g + x
-
-
-func _grid_to_world_x(x: int) -> float:
-	var g: float = float(GRID_SIZE)
-	if _is_current_map_moon():
-		g = float(GRID_SIZE * _moon_grid_scale)
-	return (float(x) - g * 0.5) * CELL_SIZE
-
-
-func _grid_to_world_z(z: int) -> float:
-	var g: float = float(GRID_SIZE)
-	if _is_current_map_moon():
-		g = float(GRID_SIZE * _moon_grid_scale)
-	return (float(z) - g * 0.5) * CELL_SIZE
+	return _active_map_context().world_half_size()
 
 
 func _scatter_trees() -> void:
 	_begin_generation_channel("trees")
-	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, WATER_LEVEL, _height_at_world, GRID_SIZE, CELL_SIZE)
+	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, map_context)
 
 
 func _scatter_rocks() -> void:
 	_begin_generation_channel("rocks")
-	RockFactory.scatter_rocks(generated_root, world_seed, density_level, WATER_LEVEL, _height_at_world, GRID_SIZE, CELL_SIZE)
+	RockFactory.scatter_rocks(generated_root, world_seed, density_level, map_context)
 
 
 func _scatter_crystals() -> void:
 	_begin_generation_channel("crystals")
-	CrystalFactory.scatter_crystals(generated_root, world_seed, density_level, WATER_LEVEL, _height_at_world, GRID_SIZE, CELL_SIZE)
+	CrystalFactory.scatter_crystals(generated_root, world_seed, density_level, map_context)
 
 
 func _scatter_ruins() -> void:
 	_begin_generation_channel("ruins")
-	RuinFactory.scatter_ruins(generated_root, world_seed, density_level, WATER_LEVEL, _height_at_world, GRID_SIZE, CELL_SIZE)
+	RuinFactory.scatter_ruins(generated_root, world_seed, density_level, map_context)
 
 
 func _scatter_flowers() -> void:
 	_begin_generation_channel("flowers")
-	FlowerFactory.scatter_flowers(generated_root, world_seed, density_level, WATER_LEVEL, _height_at_world, GRID_SIZE, CELL_SIZE)
+	FlowerFactory.scatter_flowers(generated_root, world_seed, density_level, map_context)
 
 
 func _scatter_bird_flocks() -> void:
 	_begin_generation_channel("birds")
-	CreatureFactory.scatter_birds(generated_root, world_seed, _height_at_world, GRID_SIZE, CELL_SIZE)
+	CreatureFactory.scatter_birds(generated_root, world_seed, map_context)
 
 
 func _scatter_fish_schools() -> void:
 	_begin_generation_channel("fish")
-	CreatureFactory.scatter_fish(generated_root, world_seed, _height_at_world, GRID_SIZE, CELL_SIZE, WATER_LEVEL)
+	CreatureFactory.scatter_fish(generated_root, world_seed, map_context)
 
 
 func _scatter_underwater_plants() -> void:
 	_begin_generation_channel("underwater_plants")
-	UnderwaterPlantFactory.scatter_plants(generated_root, world_seed, density_level, WATER_LEVEL, _height_at_world, GRID_SIZE, CELL_SIZE)
+	UnderwaterPlantFactory.scatter_plants(generated_root, world_seed, density_level, map_context)
 
 
 func _scatter_moon_lichen() -> void:
 	_begin_generation_channel("moon_lichen")
-	MoonFeatureFactory.scatter_lichen(generated_root, world_seed, _height_at_world)
+	MoonFeatureFactory.scatter_lichen(generated_root, world_seed, map_context)
 
 
 func _scatter_moon_glass_craters() -> void:
 	_begin_generation_channel("moon_craters")
-	MoonFeatureFactory.scatter_glass_craters(generated_root, world_seed, _height_at_world)
+	MoonFeatureFactory.scatter_glass_craters(generated_root, world_seed, map_context)
 
 
 var _wonder_positions: Array = []
 
 
 func _gate_positions_to_wonders() -> void:
-	var max_dist: float = float(GRID_SIZE) * CELL_SIZE * 0.36
+	var max_dist: float = _world_half_size() * 0.72
 	var dirs: Array[Vector3] = [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
 	for i in range(dirs.size()):
 		var d: Vector3 = dirs[i]
@@ -2228,7 +2159,7 @@ func _find_loose_meshes(parent: Node, out: Array) -> void:
 
 func _spawn_wonders() -> void:
 	_wonder_positions.clear()
-	var half: float = float(GRID_SIZE) * CELL_SIZE * 0.5
+	var half: float = _world_half_size()
 	var min_cell: int = int(floor(-half / WONDER_CELL_SIZE))
 	var max_cell: int = int(ceil(half / WONDER_CELL_SIZE))
 
@@ -2236,11 +2167,10 @@ func _spawn_wonders() -> void:
 		for cell_x in range(min_cell, max_cell + 1):
 			if not WonderGenerator.cell_has_wonder(world_seed, cell_x, cell_z, WONDER_CHANCE):
 				continue
-
-			var wonder_pos: Vector3 = WonderGenerator.get_cell_wonder_position(world_seed, cell_x, cell_z, Callable(self, "_height_at_world"), WONDER_CELL_SIZE)
+			var wonder_pos: Vector3 = WonderGenerator.get_cell_wonder_position(world_seed, cell_x, cell_z, Callable(map_context, "height_at_world"), WONDER_CELL_SIZE)
 			if abs(wonder_pos.x) > half - 28.0 or abs(wonder_pos.z) > half - 28.0:
 				continue
-			if wonder_pos.y < WATER_LEVEL + 0.4 or _river_distance(wonder_pos.x, wonder_pos.z) < 9.0:
+			if wonder_pos.y < _water_level() + 0.4 or _river_distance(wonder_pos.x, wonder_pos.z) < 9.0:
 				continue
 			if wonder_pos.distance_to(Vector3.ZERO) < 25.0:
 				continue
@@ -2295,8 +2225,8 @@ func _scatter_moon_platforms() -> void:
 	platform_mat.albedo_color = Color(0.18, 0.19, 0.24)
 	platform_mat.roughness = 0.70
 
-	var half: float = float(GRID_SIZE) * CELL_SIZE * 0.44
-	for i in range(8):
+	var half: float = _world_half_size() * 0.88
+	for i in range(MOON_SHRINE_COUNT):
 		var pos: Vector3 = _random_position(rng, half)
 		var platform := MeshInstance3D.new()
 		platform.name = "MoonPlatform_" + str(i)
@@ -2317,7 +2247,7 @@ func _scatter_moon_platforms() -> void:
 		orb_shape.shape = orb_sphere
 		orb_body.add_child(orb_shape)
 		orb_body.position = platform.position + Vector3(0.0, 1.5, 0.0)
-		orb_body.body_entered.connect(_on_orb_collected.bind(i))
+		orb_body.body_entered.connect(_on_orb_collected.bind(i, orb_body))
 		platform_root.add_child(orb_body)
 
 		var orb_visual := MeshInstance3D.new()
@@ -2344,7 +2274,7 @@ func _random_position(rng: StableRng, half: float) -> Vector3:
 	return Vector3(rng.randf_range(-half, half), 0.0, rng.randf_range(-half, half))
 
 
-func _on_orb_collected(body: Node3D, platform_index: int) -> void:
+func _on_orb_collected(body: Node3D, platform_index: int, orb_body: Area3D) -> void:
 	if body.name != "Player" or discovery_tracker == null:
 		return
 	if not _is_current_map_moon():
@@ -2355,9 +2285,12 @@ func _on_orb_collected(body: Node3D, platform_index: int) -> void:
 	var discoveries: Dictionary = map_record.get("discoveries", {})
 	var key: String = "moon_orb_" + str(platform_index)
 	if discoveries.has(key):
+		if orb_body != null:
+			orb_body.queue_free()
 		return
 	discovery_tracker.record_discovery(key, "Shrine " + str(platform_index + 1) + " Orb", "orb", body.global_position)
-	var orb_body_node: Area3D = body.owner if body.owner != null else null
+	if orb_body != null:
+		orb_body.queue_free()
 	print("Moon orb ", platform_index, " collected")
 
 
@@ -2367,53 +2300,33 @@ func _on_gate_room_gate_body_entered(body: Node3D, slot_index: int) -> void:
 	if not _is_current_map_gate_room():
 		return
 
-	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
-	var slots: Dictionary = map_record.get("gate_room_slots", {})
-	var slot_key: String = str(slot_index)
-	var target_world_id: String = str(slots.get(slot_key, ""))
 	var worlds: Dictionary = _get_worlds()
-
-	if target_world_id == "" or not worlds.has(target_world_id):
-		var map_seed: int = int((world_seed ^ ((slot_index + 1) * 747796405) ^ 912839201) & 0x7fffffff)
-		if map_seed == 0:
-			map_seed = 12345 + slot_index
-		var root_map_id: String = _new_id("map")
-		target_world_id = _new_id("world")
-		var world_name: String = "World " + str(slot_index + 1)
-		var world_record: Dictionary = _create_world_record(world_name, root_map_id, map_seed).to_dict()
-		world_record["gate_room_source_world"] = current_world_id
-		world_record["gate_room_source_map"] = current_map_id
-		worlds[target_world_id] = world_record
-		_set_worlds(worlds)
+	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
+	var gate_room_result: Dictionary = GateTravelService.resolve_gate_room_slot(
+		world_seed,
+		current_world_id,
+		current_map_id,
+		slot_index,
+		worlds,
+		map_record,
+		Callable(self, "_new_id"),
+		Callable(self, "_create_world_record_dict")
+	)
+	if not bool(gate_room_result.get("ok", false)):
+		return
+	var updated_worlds: Dictionary = gate_room_result.get("worlds", worlds)
+	var updated_map_record: Dictionary = gate_room_result.get("current_map_record", map_record)
+	var updated_world: Dictionary = GateTravelService.with_updated_map_record(_get_world(current_world_id), current_map_id, updated_map_record)
+	_set_world(current_world_id, updated_world)
+	_set_worlds(updated_worlds)
+	if bool(gate_room_result.get("changed", false)):
 		_save_world_data()
-
-		slots[slot_key] = target_world_id
-		map_record["gate_room_slots"] = slots
-		var current_maps: Dictionary = (_get_world(current_world_id)).get("maps", {})
-		current_maps[current_map_id] = map_record
-		var w: Dictionary = _get_world(current_world_id)
-		w["maps"] = current_maps
-		_set_world(current_world_id, w)
-		_save_world_data()
-
-		var target_maps: Dictionary = world_record.get("maps", {})
-		var target_map_record: Dictionary = target_maps.get(root_map_id, {})
-		target_map_record["gate_room_slot_gate_0"] = current_world_id
-		target_map_record["gate_room_slot_gate_1"] = current_map_id
-		target_map_record["gate_room_slot_gate_2"] = str(slot_index)
-		target_maps[root_map_id] = target_map_record
-		world_record["maps"] = target_maps
-		worlds[target_world_id] = world_record
-		_set_worlds(worlds)
-		_save_world_data()
-
-		last_discovery_text = "World " + world_name + " unfolded from the Gate Room."
-		_load_map(target_world_id, root_map_id)
-	else:
-		var world_record: Dictionary = worlds[target_world_id]
-		var root_map_id: String = str(world_record.get("root_map", ""))
-		last_discovery_text = "Returning to " + str(world_record.get("name", target_world_id))
-		_load_map(target_world_id, root_map_id)
+	var target_world_id: String = str(gate_room_result.get("target_world_id", ""))
+	var target_map_id: String = str(gate_room_result.get("target_map_id", ""))
+	if target_world_id == "" or target_map_id == "":
+		return
+	last_discovery_text = str(gate_room_result.get("message", ""))
+	_load_map(target_world_id, target_map_id)
 
 
 func _on_gate_room_return_body_entered(body: Node3D) -> void:
@@ -2423,11 +2336,11 @@ func _on_gate_room_return_body_entered(body: Node3D) -> void:
 		return
 
 	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
-	var return_world: String = str(map_record.get("gate_room_return_world", ""))
-	var return_map: String = str(map_record.get("gate_room_return_map", ""))
-	if return_world != "" and return_map != "":
-		last_discovery_text = "Returning from Gate Room."
-		_load_map(return_world, return_map)
+	var return_result: Dictionary = GateTravelService.resolve_gate_room_return(map_record)
+	if not bool(return_result.get("ok", false)) or not bool(return_result.get("has_return", false)):
+		return
+	last_discovery_text = str(return_result.get("message", "Returning from Gate Room."))
+	_load_map(str(return_result.get("target_world_id", "")), str(return_result.get("target_map_id", "")))
 
 
 func _on_map_nexus_gate_body_entered(body: Node3D, slot_index: int) -> void:
@@ -2436,47 +2349,30 @@ func _on_map_nexus_gate_body_entered(body: Node3D, slot_index: int) -> void:
 	if not _is_current_map_map_nexus():
 		return
 
-	var rng := StableRng.new(StableRng.mix_string(world_seed, "nexus_gate_" + str(slot_index)))
 	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
-	var slots: Dictionary = map_record.get("nexus_slots", {})
-	var slot_key: String = str(slot_index)
-	var target_world_id: String = str(slots.get(slot_key, ""))
-	var worlds: Dictionary = _get_worlds()
-
-	if target_world_id == "" or not worlds.has(target_world_id):
-		if slot_index == 0:
-			var universe: Dictionary = _current_universe()
-			var all_worlds: Dictionary = universe.get("worlds", {})
-			var world_keys: Array = all_worlds.keys()
-			if world_keys.size() > 1:
-				var random_world_id: String = str(world_keys[rng.randi_range(0, world_keys.size() - 1)])
-				var attempts: int = 0
-				while random_world_id == current_world_id and attempts < 10:
-					random_world_id = str(world_keys[rng.randi_range(0, world_keys.size() - 1)])
-					attempts += 1
-				target_world_id = random_world_id
-				var target_world: Dictionary = all_worlds[target_world_id]
-				var root_map_id: String = str(target_world.get("root_map", ""))
-				if root_map_id != "":
-					last_discovery_text = "Nexus -> " + str(target_world.get("name", target_world_id))
-					_load_map(target_world_id, root_map_id)
-					return
-		else:
-			return
-
-	slots[slot_key] = target_world_id
-	map_record["nexus_slots"] = slots
-	var current_maps: Dictionary = (_get_world(current_world_id)).get("maps", {})
-	current_maps[current_map_id] = map_record
-	var w: Dictionary = _get_world(current_world_id)
-	w["maps"] = current_maps
-	_set_world(current_world_id, w)
-	_save_world_data()
-
-	var target_world: Dictionary = worlds[target_world_id]
-	var root_map_id: String = str(target_world.get("root_map", ""))
-	last_discovery_text = "Nexus -> " + str(target_world.get("name", target_world_id))
-	_load_map(target_world_id, root_map_id)
+	var universe: Dictionary = _current_universe()
+	var all_worlds: Dictionary = universe.get("worlds", {})
+	var nexus_result: Dictionary = GateTravelService.resolve_nexus_slot(
+		world_seed,
+		current_world_id,
+		current_map_id,
+		slot_index,
+		map_record,
+		all_worlds
+	)
+	if not bool(nexus_result.get("ok", false)) or bool(nexus_result.get("skip", false)):
+		return
+	var updated_map_record: Dictionary = nexus_result.get("current_map_record", map_record)
+	var updated_world: Dictionary = GateTravelService.with_updated_map_record(_get_world(current_world_id), current_map_id, updated_map_record)
+	_set_world(current_world_id, updated_world)
+	if bool(nexus_result.get("changed", false)):
+		_save_world_data()
+	var target_world_id: String = str(nexus_result.get("target_world_id", ""))
+	var target_map_id: String = str(nexus_result.get("target_map_id", ""))
+	if target_world_id == "" or target_map_id == "":
+		return
+	last_discovery_text = str(nexus_result.get("message", ""))
+	_load_map(target_world_id, target_map_id)
 
 
 func _create_visible_sun() -> void:
@@ -2558,14 +2454,14 @@ func _find_spawn_position() -> Vector3:
 		return Vector3(0.0, 2.5, 0.0)
 
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "spawn"))
-	var half: float = float(GRID_SIZE) * CELL_SIZE * 0.42
+	var half: float = _world_half_size() * 0.84
 	var best_pos: Vector3 = Vector3(0.0, _height_at_world(0.0, 0.0) + 1.2, 0.0)
 	var best_score: float = -999999.0
 	for i in range(64):
 		var x: float = rng.randf_range(-half, half)
 		var z: float = rng.randf_range(-half, half)
 		var y: float = _height_at_world(x, z)
-		var water_clearance: float = y - WATER_LEVEL
+		var water_clearance: float = y - _water_level()
 		var river_clearance: float = _river_distance(x, z)
 		var score: float = y
 		if water_clearance <= 0.8:
@@ -2576,11 +2472,11 @@ func _find_spawn_position() -> Vector3:
 			best_score = score
 			best_pos = Vector3(x, y + 1.2, z)
 
-	if best_pos.y <= WATER_LEVEL + 0.8 or _river_distance(best_pos.x, best_pos.z) < 8.0:
+	if best_pos.y <= _water_level() + 0.8 or _river_distance(best_pos.x, best_pos.z) < 8.0:
 		var center_y: float = _height_at_world(0.0, 0.0)
-		if center_y > WATER_LEVEL + 0.8 and _river_distance(0.0, 0.0) >= 8.0:
+		if center_y > _water_level() + 0.8 and _river_distance(0.0, 0.0) >= 8.0:
 			return Vector3(0.0, center_y + 1.2, 0.0)
-		return Vector3(0.0, WATER_LEVEL + 2.0, 0.0)
+		return Vector3(0.0, _water_level() + 2.0, 0.0)
 
 	return best_pos
 
@@ -2596,7 +2492,7 @@ func _check_moon_shrine_completion() -> void:
 	for key in discoveries.keys():
 		if key.begins_with("moon_orb_"):
 			orb_count += 1
-	if orb_count >= 9 and not discoveries.has("moon_pilgrim"):
+	if orb_count >= MOON_SHRINE_COUNT and not discoveries.has("moon_pilgrim"):
 		discoveries["moon_pilgrim"] = {
 			"title": "Moon Pilgrim",
 			"kind": "shrine_complete",
@@ -2621,74 +2517,31 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
 		return
 
-	var gate_rng := StableRng.new(StableRng.mix_string(world_seed, "gate_" + str(gate_index)))
 	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var raw_record = maps.get(current_map_id, {})
-	if typeof(raw_record) != TYPE_DICTIONARY:
-		push_error("Gate body entered: map record is not a Dictionary for " + current_map_id)
+	var gate_result: Dictionary = GateTravelService.resolve_gate_transition(
+		world_seed,
+		current_map_id,
+		gate_index,
+		world,
+		Callable(self, "_new_id"),
+		WATER_ROUTE_CHANCE
+	)
+	if not bool(gate_result.get("ok", false)):
+		push_error("Gate travel resolution failed for map " + current_map_id + ": " + str(gate_result.get("error", "unknown")))
 		return
-	var map_record: Dictionary = raw_record
-	var gates: Dictionary = map_record.get("gates", {})
-	var target_map_id: String = str(gates.get(str(gate_index), ""))
-	var map_type: String = str(map_record.get("type", "normal"))
+	if bool(gate_result.get("inert", false)):
+		last_discovery_text = "Gate inert — saturation reached in this world."
+		return
+	if bool(gate_result.get("changed", false)):
+		_set_world(current_world_id, gate_result.get("world", world))
+		_save_world_data()
+	if bool(gate_result.get("is_water_route", false)):
+		discovery_tracker.award_achievement("island_hopper")
 
-	var all_current_map_ids: Array = maps.keys()
-	var available: int = int(map_record.get("available_discoveries", 0))
-	var discoveries: Dictionary = map_record.get("discoveries", {})
-
+	var target_map_id: String = str(gate_result.get("target_map_id", ""))
 	if target_map_id == "":
-		var existing_key: String = ""
-		for gk in gates.keys():
-			if str(gates[gk]) != "":
-				existing_key = str(gates[gk])
-				break
-		if existing_key != "":
-			target_map_id = existing_key
-		else:
-			var seed_val: int = _preview_gate_seed(gate_index)
-			var target_type: String = WorldGraph.MAP_NORMAL
-			var is_water_route: bool = false
-			var is_cave_route: bool = false
-			var is_arctic_route: bool = false
-			is_water_route = false
-			if not is_water_route:
-				is_arctic_route = gate_rng.chance(0.10)
-				if is_arctic_route:
-					target_type = WorldGraph.MAP_ARCTIC
-			if not is_water_route and not is_arctic_route:
-				is_cave_route = gate_rng.chance(0.18)
-				if is_cave_route:
-					target_type = WorldGraph.MAP_CAVE
-			if not is_cave_route and not is_arctic_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
-				last_discovery_text = "Gate inert — saturation reached in this world."
-				return
-
-			target_map_id = _new_id("map")
-			maps[target_map_id] = WorldGraph.create_map_record(seed_val, target_type).to_dict()
-
-			if is_water_route and discovery_tracker != null:
-				discovery_tracker.award_achievement("island_hopper")
-
-		gates[str(gate_index)] = target_map_id
-		map_record["gates"] = gates
-		maps[current_map_id] = map_record
-		world["maps"] = maps
-		_set_world(current_world_id, world)
-		_save_world_data()
-
-	var target_record: Dictionary = _get_map_record(current_world_id, target_map_id)
-	if str(target_record.get("type", "")) == WorldGraph.MAP_WATER:
-		var reroute_seed: int = int(target_record.get("seed", _preview_gate_seed(gate_index)))
-		var reroute_map_id: String = _new_id("map")
-		maps[reroute_map_id] = WorldGraph.create_map_record(reroute_seed, WorldGraph.MAP_NORMAL).to_dict()
-		gates[str(gate_index)] = reroute_map_id
-		map_record["gates"] = gates
-		maps[current_map_id] = map_record
-		world["maps"] = maps
-		_set_world(current_world_id, world)
-		_save_world_data()
-		target_map_id = reroute_map_id
+		push_error("Gate travel resolution produced empty target map id.")
+		return
 
 	last_discovery_text = "Passing through gate " + str(gate_index + 1) + "..."
 	if discovery_tracker != null:

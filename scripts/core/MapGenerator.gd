@@ -1,6 +1,8 @@
 extends RefCounted
 class_name MapGenerator
 
+const MapContext = preload("res://scripts/core/MapContext.gd")
+
 const GRID_SIZE: int = 224
 const CELL_SIZE: float = 2.0
 const HEIGHT_SCALE: float = 15.0
@@ -11,6 +13,7 @@ var graphics_level: int
 var density_level: int
 var map_type: String
 var moon_grid_scale: int = 1
+var map_context: MapContext
 
 var noise: FastNoiseLite
 var height_values: PackedFloat32Array
@@ -18,22 +21,31 @@ var generated_root: Node3D
 
 
 func _init(config: Dictionary) -> void:
+	map_context = config.get("map_context", null)
 	world_seed = int(config.get("world_seed", 12345))
 	graphics_level = int(config.get("graphics_level", 0))
 	density_level = int(config.get("density_level", 2))
 	map_type = str(config.get("map_type", WorldGraph.MAP_NORMAL))
+	if map_context != null:
+		world_seed = map_context.world_seed
+		map_type = map_context.map_type
+		moon_grid_scale = map_context.moon_grid_scale
 
 
 func generate(root: Node3D) -> void:
 	generated_root = root
 	noise = FastNoiseLite.new()
-	noise.seed = world_seed
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.frequency = 0.020
-	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-	noise.fractal_octaves = 4
-	noise.fractal_lacunarity = 1.9
-	noise.fractal_gain = 0.45
+	if map_context == null:
+		map_context = MapContext.new({
+			"world_seed": world_seed,
+			"map_type": map_type,
+			"grid_size": GRID_SIZE,
+			"cell_size": CELL_SIZE,
+			"water_level": WATER_LEVEL,
+			"height_scale": HEIGHT_SCALE,
+			"moon_grid_scale": moon_grid_scale,
+		})
+	noise = map_context.noise
 
 	if map_type == WorldGraph.MAP_MOON:
 		moon_grid_scale = 2
@@ -62,13 +74,11 @@ func generate(root: Node3D) -> void:
 
 
 func _effective_grid_size() -> int:
-	if map_type == WorldGraph.MAP_MOON:
-		return GRID_SIZE * moon_grid_scale
-	return GRID_SIZE
+	return _ensure_context().effective_grid_size()
 
 
 func _world_half_size() -> float:
-	return float(_effective_grid_size()) * CELL_SIZE * 0.5
+	return _ensure_context().world_half_size()
 
 
 func _height_index(x: int, z: int) -> int:
@@ -79,55 +89,15 @@ func _height_index(x: int, z: int) -> int:
 
 
 func _grid_to_world_x(x: int) -> float:
-	var g: float = float(GRID_SIZE)
-	var c: float = float(CELL_SIZE)
-	if map_type == WorldGraph.MAP_MOON:
-		g = float(GRID_SIZE * moon_grid_scale)
-		c = float(CELL_SIZE)
-	return (float(x) - g * 0.5) * c
+	return _ensure_context().grid_to_world_x(x)
 
 
 func _grid_to_world_z(z: int) -> float:
-	var g: float = float(GRID_SIZE)
-	var c: float = float(CELL_SIZE)
-	if map_type == WorldGraph.MAP_MOON:
-		g = float(GRID_SIZE * moon_grid_scale)
-		c = float(CELL_SIZE)
-	return (float(z) - g * 0.5) * c
+	return _ensure_context().grid_to_world_z(z)
 
 
 func _height_at_world(wx: float, wz: float) -> float:
-	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_NEXUS:
-		return 0.0
-
-	if map_type == WorldGraph.MAP_MOON:
-		var scale: float = 1.0 / float(moon_grid_scale)
-		var lunar_broad: float = noise.get_noise_2d(wx * 0.45 * scale + 600.0, wz * 0.45 * scale - 1200.0) * 5.0
-		var lunar_craters: float = noise.get_noise_2d(wx * 2.8 * scale - 400.0, wz * 2.8 * scale + 700.0) * 1.4
-		var crater_bowls: float = abs(noise.get_noise_2d(wx * 0.12 * scale + 330.0, wz * 0.12 * scale - 510.0)) * -4.2
-		return lunar_broad + lunar_craters + crater_bowls
-
-	if map_type == WorldGraph.MAP_ARCTIC:
-		var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * HEIGHT_SCALE
-		var hills: float = noise.get_noise_2d(wx, wz) * 5.5
-		var details: float = noise.get_noise_2d(wx * 2.1 + 900.0, wz * 2.1 - 900.0) * 1.1
-		return broad + hills + details
-
-	if map_type == WorldGraph.MAP_WATER:
-		var islands: float = noise.get_noise_2d(wx * 0.12, wz * 0.12) * 15.0
-		var detail_islands: float = noise.get_noise_2d(wx * 0.4 + 500.0, wz * 0.4 + 1000.0) * 5.0
-		return islands + detail_islands - 7.0
-
-	var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * HEIGHT_SCALE
-	var hills: float = noise.get_noise_2d(wx, wz) * 5.5
-	var details: float = noise.get_noise_2d(wx * 2.1 + 900.0, wz * 2.1 - 900.0) * 1.1
-	var river_carve: float = _smooth_falloff(_river_distance(wx, wz), 0.0, 16.0) * 5.5
-	var height: float = broad + hills + details - river_carve
-
-	if _river_distance(wx, wz) < 6.0:
-		height = min(height, WATER_LEVEL - 0.45 + abs(_river_distance(wx, wz)) * 0.05)
-
-	return height
+	return _ensure_context().height_at_world(wx, wz)
 
 
 func _raw_height_at_grid(x: int, z: int) -> float:
@@ -185,12 +155,26 @@ func _terrain_color(pos: Vector3) -> Color:
 
 
 func _biome_value(wx: float, wz: float) -> float:
-	return noise.get_noise_2d(wx * 0.28 - 2500.0, wz * 0.28 + 1700.0)
+	return _ensure_context().biome_value(wx, wz)
 
 
 func _river_distance(wx: float, wz: float) -> float:
-	var curve: float = sin(wx * 0.025) * 22.0 + noise.get_noise_2d(wx * 0.2 + 3200.0, 410.0) * 16.0
-	return abs(wz - curve)
+	return _ensure_context().river_distance(wx, wz)
+
+
+func _ensure_context() -> MapContext:
+	if map_context == null:
+		map_context = MapContext.new({
+			"world_seed": world_seed,
+			"map_type": map_type,
+			"grid_size": GRID_SIZE,
+			"cell_size": CELL_SIZE,
+			"water_level": WATER_LEVEL,
+			"height_scale": HEIGHT_SCALE,
+			"moon_grid_scale": moon_grid_scale,
+		})
+		noise = map_context.noise
+	return map_context
 
 
 func _smooth_falloff(value: float, edge0: float, edge1: float) -> float:

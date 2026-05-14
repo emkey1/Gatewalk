@@ -1,10 +1,22 @@
 extends RefCounted
 class_name RuinFactory
 
+const MapContext = preload("res://scripts/core/MapContext.gd")
 const RUIN_COUNT_BASE: int = 14
 
 
-static func scatter_ruins(parent: Node3D, world_seed: int, density_level: int, water_level: float, height_fn: Callable, grid_size: int, cell_size: float) -> void:
+static func scatter_ruins(parent: Node3D, world_seed: int, density_level: int, context: MapContext) -> void:
+	_scatter_ruins_internal(
+		parent,
+		world_seed,
+		density_level,
+		context.water_level,
+		Callable(context, "height_at_world"),
+		context.world_half_size() * 0.88
+	)
+
+
+static func _scatter_ruins_internal(parent: Node3D, world_seed: int, density_level: int, water_level: float, height_fn: Callable, half: float) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "ruins"))
 	var dmult: float = _density_mult(density_level)
 	var count: int = int(float(RUIN_COUNT_BASE) * dmult)
@@ -13,7 +25,6 @@ static func scatter_ruins(parent: Node3D, world_seed: int, density_level: int, w
 	root.name = "Ruins"
 	parent.add_child(root)
 
-	var half: float = float(grid_size) * cell_size * 0.44
 	for i in range(count):
 		var pos: Vector3 = _random_land_position(rng, half, water_level, height_fn)
 		if pos.distance_to(Vector3.ZERO) < 30.0:

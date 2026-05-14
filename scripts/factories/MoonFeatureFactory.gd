@@ -1,15 +1,19 @@
 extends RefCounted
 class_name MoonFeatureFactory
 
+const MapContext = preload("res://scripts/core/MapContext.gd")
 
-static func scatter_lichen(parent: Node3D, world_seed: int, height_fn: Callable) -> void:
+static func scatter_lichen(parent: Node3D, world_seed: int, context: MapContext) -> void:
+	_scatter_lichen_internal(parent, world_seed, Callable(context, "height_at_world"), context.world_half_size() * 0.88)
+
+
+static func _scatter_lichen_internal(parent: Node3D, world_seed: int, height_fn: Callable, half: float) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "moon_lichen"))
 
 	var root := Node3D.new()
 	root.name = "MoonLichens"
 	parent.add_child(root)
 
-	var half: float = 224.0 * 2.0 * 0.44
 	for i in range(180):
 		var pos: Vector3 = _random_position(rng, half, height_fn)
 		if pos.distance_to(Vector3.ZERO) < 10.0:
@@ -58,13 +62,16 @@ static func scatter_lichen(parent: Node3D, world_seed: int, height_fn: Callable)
 		root.add_child(body)
 
 
-static func scatter_glass_craters(parent: Node3D, world_seed: int, height_fn: Callable) -> void:
+static func scatter_glass_craters(parent: Node3D, world_seed: int, context: MapContext) -> void:
+	_scatter_glass_craters_internal(parent, world_seed, Callable(context, "height_at_world"), context.world_half_size() * 0.44)
+
+
+static func _scatter_glass_craters_internal(parent: Node3D, world_seed: int, height_fn: Callable, half: float) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "moon_craters"))
 	var root := Node3D.new()
 	root.name = "MoonGlassCraters"
 	parent.add_child(root)
 
-	var half: float = 112.0 * 2.0 * 0.44
 	for i in range(32):
 		var pos: Vector3 = _random_position(rng, half, height_fn)
 		_try_place_glass_crater(root, i, pos, rng)
