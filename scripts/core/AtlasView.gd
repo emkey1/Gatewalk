@@ -50,10 +50,10 @@ func refresh() -> void:
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -370.0
-	panel.offset_top = -160.0
-	panel.offset_right = 370.0
-	panel.offset_bottom = 160.0
+	panel.offset_left = -430.0
+	panel.offset_top = -210.0
+	panel.offset_right = 430.0
+	panel.offset_bottom = 210.0
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.06, 0.08, 0.12, 0.95)
 	panel_style.corner_radius_top_left = 8
@@ -69,7 +69,7 @@ func refresh() -> void:
 	panel.add_child(container)
 
 	var viewport := SubViewport.new()
-	viewport.size = Vector2i(740, 280)
+	viewport.size = Vector2i(860, 360)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	viewport.transparent_bg = false
 	container.add_child(viewport)
@@ -77,10 +77,10 @@ func refresh() -> void:
 	var world_3d := World3D.new()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.12, 0.16, 0.24)
+	env.background_color = Color(0.04, 0.06, 0.10)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.55, 0.62, 0.80)
-	env.ambient_light_energy = 2.0
+	env.ambient_light_color = Color(0.45, 0.54, 0.72)
+	env.ambient_light_energy = 1.3
 	world_3d.environment = env
 	viewport.world_3d = world_3d
 
@@ -89,23 +89,44 @@ func refresh() -> void:
 	viewport.add_child(root)
 
 	var camera := Camera3D.new()
-	camera.position = Vector3(0.0, 18.0, 32.0)
-	camera.rotation_degrees = Vector3(-52.0, 0.0, 0.0)
+	camera.position = Vector3(0.0, 20.0, 39.0)
+	camera.rotation_degrees = Vector3(-40.0, 0.0, 0.0)
 	camera.current = true
 	root.add_child(camera)
 
 	var light := DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-40.0, -20.0, 0.0)
-	light.light_energy = 5.0
+	light.light_energy = 3.6
 	root.add_child(light)
+
+	var fill := OmniLight3D.new()
+	fill.position = Vector3(0.0, 8.0, 0.0)
+	fill.light_energy = 0.75
+	fill.omni_range = 120.0
+	fill.light_color = Color(0.45, 0.58, 0.90)
+	root.add_child(fill)
+
+	var grid_floor := MeshInstance3D.new()
+	var floor_mesh := PlaneMesh.new()
+	floor_mesh.size = Vector2(56.0, 56.0)
+	grid_floor.mesh = floor_mesh
+	grid_floor.position = Vector3(0.0, -2.2, 0.0)
+	grid_floor.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	var floor_mat := StandardMaterial3D.new()
+	floor_mat.albedo_color = Color(0.06, 0.08, 0.12)
+	floor_mat.emission_enabled = true
+	floor_mat.emission = Color(0.08, 0.12, 0.20)
+	floor_mat.emission_energy_multiplier = 0.22
+	grid_floor.material_override = floor_mat
+	root.add_child(grid_floor)
 
 	_build_graph_3d(root)
 
 	var legend := Label.new()
-	legend.text = "Map node (sphere) — current map is larger. Gate links — colored by destination seed. Gate points (small spheres) — uncolored = ungated. [TAB] to close."
+	legend.text = "Node color = map type. Node size = discovery completion. Link glow = destination seed. Gold dots = linked gates. Gray dots = unopened gates. [TAB] close."
 	legend.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	legend.add_theme_font_size_override("font_size", 10)
-	legend.add_theme_color_override("font_color", Color(0.55, 0.60, 0.70))
+	legend.add_theme_color_override("font_color", Color(0.66, 0.73, 0.86))
 	legend.anchor_left = 0.0
 	legend.anchor_top = 1.0
 	legend.anchor_right = 1.0
@@ -116,6 +137,34 @@ func refresh() -> void:
 	legend.offset_right = -8.0
 	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(legend)
+
+	var world_info := Label.new()
+	var world: Dictionary = get_world_fn.call(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_count: int = maps.size()
+	var linked_gates: int = 0
+	for map_key in maps.keys():
+		var raw = maps[map_key]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var gates: Dictionary = raw.get("gates", {})
+		for gate_key in gates.keys():
+			if str(gates[gate_key]) != "":
+				linked_gates += 1
+	world_info.text = "Atlas: " + str(world.get("name", current_world_id)) + " | maps " + str(map_count) + " | linked gates " + str(linked_gates)
+	world_info.anchor_left = 0.0
+	world_info.anchor_top = 0.0
+	world_info.anchor_right = 1.0
+	world_info.anchor_bottom = 0.0
+	world_info.offset_left = 12.0
+	world_info.offset_top = 8.0
+	world_info.offset_right = -12.0
+	world_info.offset_bottom = 30.0
+	world_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	world_info.add_theme_font_size_override("font_size", 11)
+	world_info.add_theme_color_override("font_color", Color(0.90, 0.94, 1.0))
+	world_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(world_info)
 
 	atlas_layer.visible = false
 
@@ -177,10 +226,8 @@ func _build_graph_3d(root: Node3D) -> void:
 
 	var positions: Dictionary = {}
 	var gate_positions: Dictionary = {}
-	var radius: float = 7.0 + float(map_ids.size()) * 0.45
 	for i in range(map_ids.size()):
-		var angle: float = TAU * float(i) / float(map_ids.size())
-		positions[map_ids[i]] = Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+		positions[map_ids[i]] = _atlas_layout_point(i, map_ids.size())
 		for gate_index in range(gate_count):
 			gate_positions[_gate_graph_key(map_ids[i], gate_index)] = positions[map_ids[i]] + _gate_offset(gate_index)
 
@@ -217,11 +264,17 @@ func _build_graph_3d(root: Node3D) -> void:
 		var discoveries: Dictionary = map_record.get("discoveries", {})
 		var pins: Dictionary = map_record.get("pins", {})
 		var available: int = int(map_record.get("available_discoveries", 0))
+		var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
 		var pos: Vector3 = positions[map_id]
 		var is_current: bool = map_id == current_map_id
 
 		var node_mesh := SphereMesh.new()
-		var node_radius: float = 1.0 if is_current else 0.70
+		var completion_ratio: float = 0.0
+		if available > 0:
+			completion_ratio = clamp(float(discoveries.size()) / float(available), 0.0, 1.0)
+		var node_radius: float = (0.70 + completion_ratio * 0.35)
+		if is_current:
+			node_radius += 0.35
 		node_mesh.radius = node_radius
 		node_mesh.height = node_radius * 2.0
 		node_mesh.radial_segments = 32
@@ -231,10 +284,10 @@ func _build_graph_3d(root: Node3D) -> void:
 		node_instance.mesh = node_mesh
 		node_instance.position = pos
 		var node_mat := StandardMaterial3D.new()
-		node_mat.albedo_color = Color(0.55, 0.65, 0.85) if is_current else Color(0.35, 0.45, 0.60)
+		node_mat.albedo_color = _map_node_color(map_type, is_current)
 		node_mat.emission_enabled = true
-		node_mat.emission = Color(0.45, 0.60, 0.90) if is_current else Color(0.20, 0.30, 0.50)
-		node_mat.emission_energy_multiplier = 1.5
+		node_mat.emission = node_mat.albedo_color * 0.7
+		node_mat.emission_energy_multiplier = 1.35 if is_current else 0.85
 		node_instance.material_override = node_mat
 		root.add_child(node_instance)
 
@@ -259,7 +312,7 @@ func _build_graph_3d(root: Node3D) -> void:
 			root.add_child(gate_marker)
 
 		var label := Label3D.new()
-		label.text = "MAP " + short_id_fn.call(map_id)
+		label.text = "MAP " + short_id_fn.call(map_id) + " [" + map_type + "]"
 		label.position = pos + Vector3(0.0, -1.4, 0.0)
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		label.font_size = 32
@@ -270,7 +323,7 @@ func _build_graph_3d(root: Node3D) -> void:
 
 		var stats_label := Label3D.new()
 		var completion_text: String = completion_text_fn.call(discoveries.size(), available)
-		stats_label.text = completion_text + " | Pins: " + str(pins.size())
+		stats_label.text = completion_text + " | Pins: " + str(pins.size()) + " | Gates: " + str(map_record.get("gates", {}).size()) + "/" + str(gate_count)
 		stats_label.position = pos + Vector3(0.0, -1.8, 0.0)
 		stats_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		stats_label.font_size = 20
@@ -286,10 +339,43 @@ func _gate_graph_key(map_id: String, gate_index: int) -> String:
 
 func _gate_offset(gate_index: int) -> Vector3:
 	match gate_index:
-		0: return Vector3(1.0, 0.0, 0.0)
-		1: return Vector3(-1.0, 0.0, 0.0)
-		2: return Vector3(0.0, 0.0, 1.0)
-		_: return Vector3(0.0, 0.0, -1.0)
+		0: return Vector3(1.4, 0.0, 0.0)
+		1: return Vector3(-1.4, 0.0, 0.0)
+		2: return Vector3(0.0, 0.0, 1.4)
+		_: return Vector3(0.0, 0.0, -1.4)
+
+
+func _atlas_layout_point(index: int, count: int) -> Vector3:
+	if count <= 1:
+		return Vector3.ZERO
+	var cols: int = int(ceil(sqrt(float(count))))
+	var row: int = index / cols
+	var col: int = index % cols
+	var spacing: float = 7.2
+	var x: float = (float(col) - float(cols - 1) * 0.5) * spacing
+	var z: float = (float(row) - float(cols - 1) * 0.5) * spacing
+	var wave: float = sin(float(index) * 0.8) * 0.8
+	return Vector3(x, wave, z)
+
+
+func _map_node_color(map_type: String, is_current: bool) -> Color:
+	var base: Color = Color(0.42, 0.52, 0.66)
+	match map_type:
+		WorldGraph.MAP_CAVE:
+			base = Color(0.45, 0.40, 0.34)
+		WorldGraph.MAP_MOON:
+			base = Color(0.62, 0.76, 0.92)
+		WorldGraph.MAP_ARCTIC:
+			base = Color(0.68, 0.86, 0.92)
+		WorldGraph.MAP_GATE_ROOM:
+			base = Color(0.82, 0.68, 0.96)
+		WorldGraph.MAP_NEXUS:
+			base = Color(0.96, 0.75, 0.52)
+		WorldGraph.MAP_WATER:
+			base = Color(0.40, 0.70, 0.92)
+	if is_current:
+		return base.lightened(0.28)
+	return base
 
 
 func _gate_color(map_record: Dictionary, maps: Dictionary, gate_index: int) -> Color:
@@ -304,9 +390,14 @@ func _gate_color(map_record: Dictionary, maps: Dictionary, gate_index: int) -> C
 
 func _add_link(root: Node3D, start_pos: Vector3, end_pos: Vector3, color: Color) -> void:
 	var line_mesh := ImmediateMesh.new()
-	line_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	line_mesh.surface_add_vertex(start_pos)
-	line_mesh.surface_add_vertex(end_pos)
+	line_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	var mid: Vector3 = (start_pos + end_pos) * 0.5 + Vector3(0.0, 1.2, 0.0)
+	var segments: int = 8
+	for i in range(segments + 1):
+		var t: float = float(i) / float(segments)
+		var a: Vector3 = start_pos.lerp(mid, t)
+		var b: Vector3 = mid.lerp(end_pos, t)
+		line_mesh.surface_add_vertex(a.lerp(b, t))
 	line_mesh.surface_end()
 
 	var line_instance := MeshInstance3D.new()

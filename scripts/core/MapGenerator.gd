@@ -57,7 +57,7 @@ func generate(root: Node3D) -> void:
 
 		if map_type == WorldGraph.MAP_MOON:
 			_create_moon_sky()
-		elif map_type != WorldGraph.MAP_WATER:
+		elif map_type != WorldGraph.MAP_WATER and map_type != WorldGraph.MAP_ARCTIC:
 			_create_sky_clouds()
 
 
@@ -107,6 +107,12 @@ func _height_at_world(wx: float, wz: float) -> float:
 		var crater_bowls: float = abs(noise.get_noise_2d(wx * 0.12 * scale + 330.0, wz * 0.12 * scale - 510.0)) * -4.2
 		return lunar_broad + lunar_craters + crater_bowls
 
+	if map_type == WorldGraph.MAP_ARCTIC:
+		var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * HEIGHT_SCALE
+		var hills: float = noise.get_noise_2d(wx, wz) * 5.5
+		var details: float = noise.get_noise_2d(wx * 2.1 + 900.0, wz * 2.1 - 900.0) * 1.1
+		return broad + hills + details
+
 	if map_type == WorldGraph.MAP_WATER:
 		var islands: float = noise.get_noise_2d(wx * 0.12, wz * 0.12) * 15.0
 		var detail_islands: float = noise.get_noise_2d(wx * 0.4 + 500.0, wz * 0.4 + 1000.0) * 5.0
@@ -153,6 +159,13 @@ func _terrain_color(pos: Vector3) -> Color:
 		if pos.y < -2.0:
 			return Color(0.16, 0.17, 0.21)
 		return Color(0.25, 0.26, 0.31)
+
+	if map_type == WorldGraph.MAP_ARCTIC:
+		if pos.y > 8.0:
+			return Color(0.75, 0.78, 0.85)
+		if pos.y > 3.0:
+			return Color(0.65, 0.70, 0.78)
+		return Color(0.55, 0.60, 0.68)
 
 	if map_type == WorldGraph.MAP_WATER:
 		if pos.y > WATER_LEVEL + 0.25:
@@ -528,7 +541,7 @@ func _create_world_bounds() -> void:
 
 
 func _place_rivers() -> void:
-	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_WATER:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC:
 		return
 	var g: int = _effective_grid_size()
 	var river_mat := StandardMaterial3D.new()
@@ -616,7 +629,7 @@ void fragment() {
 
 
 func _create_water() -> void:
-	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_ARCTIC:
 		return
 	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_NEXUS:
 		return
@@ -669,7 +682,7 @@ func _create_water() -> void:
 
 
 func _create_sky_clouds() -> void:
-	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_ARCTIC:
 		return
 	if graphics_level == 0:
 		return

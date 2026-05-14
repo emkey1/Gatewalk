@@ -28,6 +28,7 @@ var _get_player_fn: Callable
 var _is_moon_fn: Callable
 var _is_water_fn: Callable
 var _is_cave_fn: Callable
+var _is_arctic_fn: Callable
 var _is_gate_room_fn: Callable
 
 var _trail: Array = []
@@ -161,6 +162,7 @@ func update(data: Dictionary) -> void:
 	var warning_text: String = str(data.get("warning_text", ""))
 	var flashlight_text: String = str(data.get("flashlight_text", ""))
 	var discovery_line: String = str(data.get("discovery_line", "Seek gates, ruins, and wonders."))
+	var recent_discoveries: Array = data.get("recent_discoveries", [])
 	var maps_line: String = str(data.get("maps_line", ""))
 	var atlas_summary: String = str(data.get("atlas_summary", ""))
 	var map_completion: String = str(data.get("map_completion", ""))
@@ -197,6 +199,9 @@ func update(data: Dictionary) -> void:
 
 	if warning_text != "":
 		hud_label.text += "\n" + warning_text
+
+	if recent_discoveries.size() > 0:
+		hud_label.text += "\nRecent: " + ", ".join(recent_discoveries)
 
 	var stamina: float = float(data.get("stamina", -1.0))
 	if stamina_bar != null and stamina >= 0.0:

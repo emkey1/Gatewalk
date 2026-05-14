@@ -14,6 +14,7 @@ var save_world_data_fn: Callable
 var seed_for_new_record_fn: Callable
 var create_map_record_fn: Callable
 var create_water_map_record_fn: Callable
+var create_arctic_map_record_fn: Callable
 var create_cave_map_record_fn: Callable
 var new_id_fn: Callable
 var moon_seed_fn: Callable

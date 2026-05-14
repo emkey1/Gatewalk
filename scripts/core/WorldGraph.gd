@@ -4,6 +4,7 @@ class_name WorldGraph
 const MAP_NORMAL := "normal"
 const MAP_MOON := "moon"
 const MAP_WATER := "water"
+const MAP_ARCTIC := "arctic"
 const MAP_GATE_ROOM := "gate_room"
 const MAP_CAVE := "cave"
 const MAP_NEXUS := "map_nexus"

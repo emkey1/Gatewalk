@@ -88,6 +88,7 @@ func _ready() -> void:
 	hud_controller._is_moon_fn = _is_current_map_moon
 	hud_controller._is_water_fn = _is_current_map_water
 	hud_controller._is_cave_fn = _is_current_map_cave
+	hud_controller._is_arctic_fn = _is_current_map_arctic
 	hud_controller._is_gate_room_fn = _is_current_map_gate_room
 	add_child(hud_controller)
 
@@ -124,6 +125,7 @@ func _ready() -> void:
 	dev_menu.create_map_record_fn = _create_map_record
 	dev_menu.create_water_map_record_fn = _create_water_map_record
 	dev_menu.create_cave_map_record_fn = _create_cave_map_record
+	dev_menu.create_arctic_map_record_fn = _create_arctic_map_record
 	dev_menu.new_id_fn = _new_id
 	dev_menu.moon_seed_fn = _moon_seed
 	dev_menu.create_gate_room_map_record_fn = _create_gate_room_map_record
@@ -1058,6 +1060,10 @@ func _create_water_map_record(map_seed: int) -> MapRecord:
 	return WorldGraph.create_map_record(map_seed, WorldGraph.MAP_WATER)
 
 
+func _create_arctic_map_record(map_seed: int) -> MapRecord:
+	return WorldGraph.create_map_record(map_seed, WorldGraph.MAP_ARCTIC)
+
+
 func _create_gate_room_map_record(map_seed: int) -> MapRecord:
 	return WorldGraph.create_map_record(map_seed, WorldGraph.MAP_GATE_ROOM)
 
@@ -1563,7 +1569,7 @@ func _update_underwater_state() -> void:
 func _update_day_night_cycle() -> void:
 	if sun_light == null or world_environment == null:
 		return
-	if _is_current_map_moon() or _is_current_map_water():
+	if _is_current_map_moon() or _is_current_map_water() or _is_current_map_cave():
 		return
 
 	var t: float = _cycle_time / CYCLE_LENGTH
@@ -1587,8 +1593,7 @@ func _update_day_night_cycle() -> void:
 		is_dusk = true
 	else:
 		sun_elevation = -(hour - 18.5) / 5.5
-		if hour >= 21.5:
-			is_night = true
+		is_night = true
 
 	sun_elevation = clamp(sun_elevation, -1.0, 1.0)
 	sun_light.rotation_degrees.x = lerp(-90.0, 90.0, (sun_elevation + 1.0) * 0.5)
@@ -1596,13 +1601,13 @@ func _update_day_night_cycle() -> void:
 	var sun_base: Color = _sun_color_for_world()
 
 	if is_night and not is_dawn:
-		sun_light.light_energy = 0.08
-		world_environment.ambient_light_energy = 0.08
-		world_environment.ambient_light_color = Color(0.04, 0.04, 0.08)
+		sun_light.light_energy = 0.02
+		world_environment.ambient_light_energy = 0.025
+		world_environment.ambient_light_color = Color(0.02, 0.02, 0.04)
 		world_environment.fog_density = 0.002
-		world_environment.fog_light_color = Color(0.01, 0.01, 0.02)
+		world_environment.fog_light_color = Color(0.005, 0.005, 0.01)
 		_set_sky_cycle_colors(Color(0.005, 0.005, 0.02), Color(0.02, 0.02, 0.06), Color(0.01, 0.01, 0.02))
-		sun_light.light_color = Color(0.15, 0.18, 0.35)
+		sun_light.light_color = Color(0.08, 0.09, 0.18)
 	elif is_dawn:
 		var p: float = 0.0
 		if hour >= 5.5 and hour < 6.0:
@@ -1612,8 +1617,8 @@ func _update_day_night_cycle() -> void:
 		else:
 			p = 1.0 if hour >= 7.0 else 0.0
 		p = clamp(p, 0.0, 1.0)
-		sun_light.light_energy = lerp(0.08, 2.8, p)
-		world_environment.ambient_light_energy = lerp(0.08, 0.65, p)
+		sun_light.light_energy = lerp(0.02, 2.8, p)
+		world_environment.ambient_light_energy = lerp(0.025, 0.65, p)
 		world_environment.ambient_light_color = Color(0.04, 0.04, 0.08).lerp(Color(0.65, 0.58, 0.52), p)
 		world_environment.fog_density = lerp(0.002, 0.002, p)
 		world_environment.fog_light_color = Color(0.01, 0.01, 0.02).lerp(Color(0.70, 0.55, 0.42), p)
@@ -1625,8 +1630,8 @@ func _update_day_night_cycle() -> void:
 	elif is_dusk:
 		var p: float = 1.0 - clamp((hour - 17.0) / 1.5, 0.0, 1.0)
 		p = 1.0 - p * p
-		sun_light.light_energy = lerp(3.0, 0.12, p)
-		world_environment.ambient_light_energy = lerp(0.72, 0.08, p)
+		sun_light.light_energy = lerp(1.4, 0.03, p)
+		world_environment.ambient_light_energy = lerp(0.30, 0.03, p)
 		world_environment.ambient_light_color = Color(0.65, 0.55, 0.48).lerp(Color(0.04, 0.04, 0.08), p)
 		world_environment.fog_density = lerp(0.002, 0.002, p)
 		world_environment.fog_light_color = Color(0.72, 0.50, 0.38).lerp(Color(0.01, 0.01, 0.02), p)
@@ -1648,6 +1653,20 @@ func _update_day_night_cycle() -> void:
 			Color(0.72, 0.82, 0.90),
 			Color(0.65, 0.75, 0.85))
 		sun_light.light_color = sun_base
+
+	if generated_root != null:
+		var sun_disc: Node3D = generated_root.get_node_or_null("SunDisc") as Node3D
+		if sun_disc != null:
+			sun_disc.visible = not is_night
+		var sun_glow: Node3D = generated_root.get_node_or_null("SunGlow") as Node3D
+		if sun_glow != null:
+			sun_glow.visible = not is_night
+		var cloud_root: Node3D = generated_root.get_node_or_null("SkyClouds") as Node3D
+		if cloud_root != null:
+			cloud_root.visible = not is_night
+
+	if sun_light != null:
+		sun_light.visible = not is_night
 
 
 func _update_hud(delta: float = 0.0) -> void:
@@ -1705,6 +1724,7 @@ func _update_hud(delta: float = 0.0) -> void:
 
 	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
 	var map_type: String = str(map_record.get("type", ""))
+	var recent_discoveries: Array[String] = _recent_discovery_titles(map_record.get("discoveries", {}), 3)
 	hud_controller.update({
 		"delta": delta,
 		"map_short": map_short,
@@ -1714,6 +1734,7 @@ func _update_hud(delta: float = 0.0) -> void:
 		"warning_text": warning_text,
 		"flashlight_text": flashlight_text,
 		"discovery_line": discovery_line,
+		"recent_discoveries": recent_discoveries,
 		"maps_line": maps_line,
 		"atlas_summary": _atlas_summary_text(),
 		"map_completion": _map_completion_text(current_map_id),
@@ -1735,6 +1756,28 @@ func _update_hud(delta: float = 0.0) -> void:
 	})
 
 
+func _recent_discovery_titles(discoveries: Dictionary, max_count: int) -> Array[String]:
+	var rows: Array = []
+	for dk in discoveries.keys():
+		var raw = discoveries[dk]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = raw
+		rows.append({
+			"title": str(d.get("title", "")),
+			"found_at": int(d.get("found_at", 0)),
+		})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("found_at", 0)) > int(b.get("found_at", 0))
+	)
+	var out: Array[String] = []
+	for i in range(min(max_count, rows.size())):
+		var title: String = str(rows[i].get("title", ""))
+		if title != "":
+			out.append(title)
+	return out
+
+
 func _is_current_map_gate_room() -> bool:
 	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
 	return str(raw.get("type", "")) == WorldGraph.MAP_GATE_ROOM
@@ -1753,6 +1796,11 @@ func _is_current_map_water() -> bool:
 func _is_current_map_cave() -> bool:
 	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
 	return str(raw.get("type", "")) == WorldGraph.MAP_CAVE
+
+
+func _is_current_map_arctic() -> bool:
+	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
+	return str(raw.get("type", "")) == WorldGraph.MAP_ARCTIC
 
 
 func _is_current_map_map_nexus() -> bool:
@@ -1795,6 +1843,13 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_save_world_data()
 
 	var map_type: String = WorldGraph.map_type_from_dict(map_record)
+	if map_type == WorldGraph.MAP_WATER:
+		map_record["type"] = WorldGraph.MAP_NORMAL
+		maps[map_id] = map_record
+		world["maps"] = maps
+		_set_world(world_id, world)
+		_save_world_data()
+		map_type = WorldGraph.MAP_NORMAL
 	_moon_grid_scale = 2 if map_type == WorldGraph.MAP_MOON else 1
 	world_seed = int(map_record.get("seed", 12345))
 	_setup_noise()
@@ -1832,6 +1887,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 	elif _is_current_map_map_nexus():
 		GateFactory.scatter_map_nexus_gates(generated_root, 4, _on_map_nexus_gate_body_entered)
 	else:
+		if _is_current_map_arctic():
+			AudioManager.setup_arctic_audio(generated_root)
 		if _is_current_map_water():
 			AudioManager.setup_water_audio(generated_root)
 		if _is_current_map_moon():
@@ -1839,6 +1896,12 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_moon_lichen()
 			_scatter_moon_glass_craters()
 			_scatter_moon_platforms()
+		elif _is_current_map_arctic():
+			_scatter_trees()
+			_scatter_rocks()
+			_scatter_crystals()
+			_scatter_ruins()
+			_spawn_wonders()
 		elif _is_current_map_water():
 			_scatter_bird_flocks()
 			_scatter_rocks()
@@ -1874,6 +1937,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 		discovery_tracker.award_achievement("gate_room_finder")
 	if _is_current_map_water() and discovery_tracker != null:
 		discovery_tracker.award_achievement("island_hopper")
+	if _is_current_map_arctic() and discovery_tracker != null:
+		discovery_tracker.award_achievement("arctic_explorer")
 	if _is_current_map_cave() and discovery_tracker != null:
 		discovery_tracker.award_achievement("cavern_explorer")
 
@@ -1919,6 +1984,10 @@ func _setup_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.7, 0.78, 0.86)
 	env.ambient_light_energy = 0.8
+	env.adjustment_enabled = true
+	env.adjustment_brightness = 0.72
+	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 0.88
 	world_environment = env
 
 	world_environment_node = WorldEnvironment.new()
@@ -1962,6 +2031,17 @@ func _setup_environment() -> void:
 			sun_light.light_color = Color(0.78, 0.86, 1.0)
 			sun_light.light_energy = 0.95
 			sun_light.rotation_degrees = Vector3(-28.0, -62.0, 0.0)
+	elif _is_current_map_arctic():
+		world_environment.background_mode = Environment.BG_COLOR
+		world_environment.background_color = Color(0.68, 0.78, 0.92)
+		world_environment.ambient_light_color = Color(0.55, 0.62, 0.82)
+		world_environment.ambient_light_energy = 0.65
+		world_environment.fog_density = 0.004
+		world_environment.fog_light_color = Color(0.60, 0.72, 0.90)
+		if sun_light != null:
+			sun_light.light_color = Color(0.78, 0.82, 1.0)
+			sun_light.light_energy = 1.8
+			sun_light.rotation_degrees = Vector3(-55.0, -30.0, 0.0)
 	elif _is_current_map_water():
 		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.45, 0.65, 0.88)
@@ -2115,6 +2195,10 @@ func _add_environment_collision() -> void:
 		if mi.mesh == null:
 			continue
 		var aabb: AABB = mi.mesh.get_aabb()
+		if mi.name == "GeneratedTerrain" or mi.name == "RiverAndLakeWater" or mi.name == "SkyClouds" or mi.name == "CloudLayerNear" or mi.name == "CloudLayerFar":
+			continue
+		if aabb.size.x > 80.0 and aabb.size.z > 80.0:
+			continue
 		if aabb.size.length() < 1.0:
 			continue
 		var body := StaticBody3D.new()
@@ -2470,25 +2554,35 @@ func _find_spawn_position() -> Vector3:
 	if _is_current_map_cave():
 		return Vector3(5.0, 2.5, 5.0)
 
+	if _is_current_map_arctic():
+		return Vector3(0.0, 2.5, 0.0)
+
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "spawn"))
 	var half: float = float(GRID_SIZE) * CELL_SIZE * 0.42
-	var best_pos: Vector3 = Vector3(0.0, 5.0, 0.0)
-	var best_height: float = -999.0
-	for i in range(12):
+	var best_pos: Vector3 = Vector3(0.0, _height_at_world(0.0, 0.0) + 1.2, 0.0)
+	var best_score: float = -999999.0
+	for i in range(64):
 		var x: float = rng.randf_range(-half, half)
 		var z: float = rng.randf_range(-half, half)
 		var y: float = _height_at_world(x, z)
-		if y > best_height:
-			best_height = y
+		var water_clearance: float = y - WATER_LEVEL
+		var river_clearance: float = _river_distance(x, z)
+		var score: float = y
+		if water_clearance <= 0.8:
+			score -= 1000.0
+		if river_clearance < 8.0:
+			score -= (8.0 - river_clearance) * 40.0
+		if score > best_score:
+			best_score = score
 			best_pos = Vector3(x, y + 1.2, z)
 
-	var max_y: float = rng.randf_range(6.0, 14.0)
-	if _is_current_map_moon():
-		max_y = rng.randf_range(3.0, 8.0)
-	if best_pos.y > WATER_LEVEL + 0.5 and best_pos.y < max_y:
-		return best_pos
+	if best_pos.y <= WATER_LEVEL + 0.8 or _river_distance(best_pos.x, best_pos.z) < 8.0:
+		var center_y: float = _height_at_world(0.0, 0.0)
+		if center_y > WATER_LEVEL + 0.8 and _river_distance(0.0, 0.0) >= 8.0:
+			return Vector3(0.0, center_y + 1.2, 0.0)
+		return Vector3(0.0, WATER_LEVEL + 2.0, 0.0)
 
-	return Vector3(0.0, _height_at_world(0.0, 0.0) + 1.2, 0.0)
+	return best_pos
 
 
 func _check_moon_shrine_completion() -> void:
@@ -2556,15 +2650,17 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 			var target_type: String = WorldGraph.MAP_NORMAL
 			var is_water_route: bool = false
 			var is_cave_route: bool = false
-			if map_type == WorldGraph.MAP_WATER:
-				is_water_route = gate_rng.chance(0.22)
-				if is_water_route:
-					target_type = WorldGraph.MAP_WATER
+			var is_arctic_route: bool = false
+			is_water_route = false
 			if not is_water_route:
+				is_arctic_route = gate_rng.chance(0.10)
+				if is_arctic_route:
+					target_type = WorldGraph.MAP_ARCTIC
+			if not is_water_route and not is_arctic_route:
 				is_cave_route = gate_rng.chance(0.18)
 				if is_cave_route:
 					target_type = WorldGraph.MAP_CAVE
-			if not is_cave_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
+			if not is_cave_route and not is_arctic_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
 				last_discovery_text = "Gate inert — saturation reached in this world."
 				return
 
@@ -2580,6 +2676,19 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 		world["maps"] = maps
 		_set_world(current_world_id, world)
 		_save_world_data()
+
+	var target_record: Dictionary = _get_map_record(current_world_id, target_map_id)
+	if str(target_record.get("type", "")) == WorldGraph.MAP_WATER:
+		var reroute_seed: int = int(target_record.get("seed", _preview_gate_seed(gate_index)))
+		var reroute_map_id: String = _new_id("map")
+		maps[reroute_map_id] = WorldGraph.create_map_record(reroute_seed, WorldGraph.MAP_NORMAL).to_dict()
+		gates[str(gate_index)] = reroute_map_id
+		map_record["gates"] = gates
+		maps[current_map_id] = map_record
+		world["maps"] = maps
+		_set_world(current_world_id, world)
+		_save_world_data()
+		target_map_id = reroute_map_id
 
 	last_discovery_text = "Passing through gate " + str(gate_index + 1) + "..."
 	if discovery_tracker != null:
