@@ -303,66 +303,211 @@ func _create_gate_room_terrain() -> void:
 
 
 func _create_cave_terrain() -> void:
-	var stone_mat := StandardMaterial3D.new()
-	stone_mat.albedo_color = Color(0.12, 0.10, 0.08)
-	stone_mat.roughness = 0.95
-	var glow_mat := StandardMaterial3D.new()
-	glow_mat.albedo_color = Color(0.20, 0.70, 1.0)
-	glow_mat.emission_enabled = true
-	glow_mat.emission = Color(0.10, 0.50, 0.90)
-	glow_mat.emission_energy_multiplier = 1.5
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "dungeon"))
+	var unit: float = 5.0
+	var wall_h: float = 5.0
+	var cells_x: int = 44
+	var cells_z: int = 44
+	var gw: int = cells_x * 2 + 1
+	var gh: int = cells_z * 2 + 1
 
-	var floor := MeshInstance3D.new()
-	floor.name = "CaveFloor"
-	var floor_mesh := CylinderMesh.new()
-	floor_mesh.top_radius = 45.0
-	floor_mesh.bottom_radius = 45.0
-	floor_mesh.height = 0.8
-	floor_mesh.radial_segments = 32
-	floor.mesh = floor_mesh
-	floor.material_override = stone_mat
-	floor.position.y = -0.4
-	generated_root.add_child(floor)
+	var grid: Array = []
+	for z in range(gh):
+		var row: Array = []
+		row.resize(gw)
+		row.fill(true)
+		grid.append(row)
 
-	var floor_body := StaticBody3D.new()
-	var floor_col := CollisionShape3D.new()
-	var floor_cyl := CylinderShape3D.new()
-	floor_cyl.radius = 45.0
-	floor_cyl.height = 0.8
-	floor_col.shape = floor_cyl
-	floor_col.position.y = -0.4
-	floor_body.add_child(floor_col)
-	generated_root.add_child(floor_body)
+	for cz in range(cells_z):
+		for cx in range(cells_x):
+			grid[cz * 2 + 1][cx * 2 + 1] = false
 
-	var ceiling_mat := StandardMaterial3D.new()
-	ceiling_mat.albedo_color = Color(0.10, 0.08, 0.06)
-	ceiling_mat.roughness = 1.0
-	var ceiling := MeshInstance3D.new()
-	ceiling.name = "CaveCeiling"
-	var ceiling_mesh := CylinderMesh.new()
-	ceiling_mesh.top_radius = 44.0
-	ceiling_mesh.bottom_radius = 44.0
-	ceiling_mesh.height = 0.5
-	ceiling_mesh.radial_segments = 32
-	ceiling.mesh = ceiling_mesh
-	ceiling.material_override = ceiling_mat
-	ceiling.position.y = 8.0
-	generated_root.add_child(ceiling)
+	var visited: Dictionary = {}
+	var stack: Array = []
+	var start := Vector2i(rng.randi_range(0, cells_x - 1), rng.randi_range(0, cells_z - 1))
+	stack.append(start)
+	visited[start] = true
+
+	while not stack.is_empty():
+		var cur: Vector2i = stack[-1]
+		var ns: Array[Vector2i] = []
+		for d in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]:
+			var n: Vector2i = cur + d
+			if n.x >= 0 and n.x < cells_x and n.y >= 0 and n.y < cells_z and not visited.has(n):
+				ns.append(n)
+		if ns.is_empty():
+			stack.pop_back()
+		else:
+			var next_cell: Vector2i = ns[rng.randi_range(0, ns.size() - 1)]
+			var wgx: int = cur.x * 2 + 1 + (next_cell.x - cur.x)
+			var wgz: int = cur.y * 2 + 1 + (next_cell.y - cur.y)
+			grid[wgz][wgx] = false
+			visited[next_cell] = true
+			stack.append(next_cell)
+
+	var gate_chambers: Array[Dictionary] = [
+		{"gx0": 64, "gx1": 82, "gz0": 42, "gz1": 46},
+		{"gx0": 5, "gx1": 23, "gz0": 42, "gz1": 46},
+		{"gx0": 42, "gx1": 46, "gz0": 64, "gz1": 82},
+		{"gx0": 42, "gx1": 46, "gz0": 5, "gz1": 23},
+	]
+	for ch in gate_chambers:
+		for gz in range(ch.gz0, ch.gz1 + 1):
+			for gx in range(ch.gx0, ch.gx1 + 1):
+				if gx >= 0 and gx < gw and gz >= 0 and gz < gh:
+					if not (gx == 0 or gx == gw - 1 or gz == 0 or gz == gh - 1):
+						grid[gz][gx] = false
+	for ch in gate_chambers:
+		for gz in range(ch.gz0, ch.gz1 + 1):
+			for gx in range(ch.gx0, ch.gx1 + 1):
+				if gx >= 0 and gx < gw and gz >= 0 and gz < gh:
+					if not (gx == 0 or gx == gw - 1 or gz == 0 or gz == gh - 1):
+						grid[gz][gx] = false
 
 	var wall_mat := StandardMaterial3D.new()
 	wall_mat.albedo_color = Color(0.14, 0.11, 0.09)
-	wall_mat.roughness = 1.0
-	for i in range(32):
-		var angle: float = TAU * float(i) / 32.0
-		var wall := MeshInstance3D.new()
-		wall.name = "CaveWall_" + str(i)
-		var wall_mesh := BoxMesh.new()
-		wall_mesh.size = Vector3(3.0, 9.0, 0.8)
-		wall.mesh = wall_mesh
-		wall.material_override = wall_mat
-		wall.position = Vector3(cos(angle) * 44.5, 4.0, sin(angle) * 44.5)
-		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
-		generated_root.add_child(wall)
+	wall_mat.roughness = 0.95
+	wall_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	var floor_mat := StandardMaterial3D.new()
+	floor_mat.albedo_color = Color(0.16, 0.13, 0.12)
+	floor_mat.roughness = 0.9
+
+	var ceiling_mat := StandardMaterial3D.new()
+	ceiling_mat.albedo_color = Color(0.05, 0.04, 0.03)
+	ceiling_mat.roughness = 1.0
+	ceiling_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	var ws := SurfaceTool.new()
+	ws.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var hw: float = float(gw) * unit * 0.5
+	var hh: float = float(gh) * unit * 0.5
+
+	for gz in range(gh):
+		for gx in range(gw):
+			if not grid[gz][gx]:
+				continue
+			var wx: float = float(gx) * unit - hw
+			var wz: float = float(gz) * unit - hh
+			var x0 := wx
+			var x1 := wx + unit
+			var z0 := wz
+			var z1 := wz + unit
+			var y0 := 0.0
+			var y1 := wall_h
+
+			var vis: Array[bool] = [false, false, false, false]
+			vis[0] = gz == 0 or (gz > 0 and not grid[gz - 1][gx])
+			vis[1] = gz == gh - 1 or (gz < gh - 1 and not grid[gz + 1][gx])
+			vis[2] = gx == 0 or (gx > 0 and not grid[gz][gx - 1])
+			vis[3] = gx == gw - 1 or (gx < gw - 1 and not grid[gz][gx + 1])
+
+			if vis[0]:
+				ws.add_vertex(Vector3(x0, y0, z0)); ws.add_vertex(Vector3(x1, y1, z0)); ws.add_vertex(Vector3(x1, y0, z0))
+				ws.add_vertex(Vector3(x0, y0, z0)); ws.add_vertex(Vector3(x0, y1, z0)); ws.add_vertex(Vector3(x1, y1, z0))
+			if vis[1]:
+				ws.add_vertex(Vector3(x0, y0, z1)); ws.add_vertex(Vector3(x1, y0, z1)); ws.add_vertex(Vector3(x1, y1, z1))
+				ws.add_vertex(Vector3(x0, y0, z1)); ws.add_vertex(Vector3(x1, y1, z1)); ws.add_vertex(Vector3(x0, y1, z1))
+			if vis[2]:
+				ws.add_vertex(Vector3(x0, y0, z0)); ws.add_vertex(Vector3(x0, y0, z1)); ws.add_vertex(Vector3(x0, y1, z1))
+				ws.add_vertex(Vector3(x0, y0, z0)); ws.add_vertex(Vector3(x0, y1, z1)); ws.add_vertex(Vector3(x0, y1, z0))
+			if vis[3]:
+				ws.add_vertex(Vector3(x1, y0, z0)); ws.add_vertex(Vector3(x1, y1, z0)); ws.add_vertex(Vector3(x1, y0, z1))
+				ws.add_vertex(Vector3(x1, y1, z0)); ws.add_vertex(Vector3(x1, y1, z1)); ws.add_vertex(Vector3(x1, y0, z1))
+
+	ws.generate_normals()
+	var wall_mesh := ws.commit()
+
+	var walls := MeshInstance3D.new()
+	walls.name = "DungeonWalls"
+	walls.mesh = wall_mesh
+	walls.material_override = wall_mat
+	generated_root.add_child(walls)
+
+	var wall_body := StaticBody3D.new()
+	wall_body.name = "DungeonWallCollision"
+	var wall_col := CollisionShape3D.new()
+	var concave := ConcavePolygonShape3D.new()
+	var faces: PackedVector3Array = wall_mesh.get_faces()
+	if faces.size() > 0:
+		concave.set_faces(faces)
+	wall_col.shape = concave
+	wall_body.add_child(wall_col)
+	generated_root.add_child(wall_body)
+
+	var floor_mesh := MeshInstance3D.new()
+	floor_mesh.name = "DungeonFloor"
+	var floor_box := BoxMesh.new()
+	floor_box.size = Vector3(float(gw) * unit, 0.3, float(gh) * unit)
+	floor_mesh.mesh = floor_box
+	floor_mesh.material_override = floor_mat
+	floor_mesh.position.y = -0.15
+	generated_root.add_child(floor_mesh)
+
+	var floor_body := StaticBody3D.new()
+	var floor_col := CollisionShape3D.new()
+	var floor_shape := BoxShape3D.new()
+	floor_shape.size = Vector3(float(gw) * unit, 0.3, float(gh) * unit)
+	floor_col.shape = floor_shape
+	floor_col.position.y = -0.15
+	floor_body.add_child(floor_col)
+	generated_root.add_child(floor_body)
+
+	var ceil_mesh := MeshInstance3D.new()
+	ceil_mesh.name = "DungeonCeiling"
+	var ceil_box := BoxMesh.new()
+	ceil_box.size = Vector3(float(gw) * unit, 0.2, float(gh) * unit)
+	ceil_mesh.mesh = ceil_box
+	ceil_mesh.material_override = ceiling_mat
+	ceil_mesh.position.y = wall_h + 0.1
+	generated_root.add_child(ceil_mesh)
+
+	var torch_mat := StandardMaterial3D.new()
+	torch_mat.albedo_color = Color(1.0, 0.55, 0.15)
+	torch_mat.emission_enabled = true
+	torch_mat.emission = Color(1.0, 0.45, 0.10)
+	torch_mat.emission_energy_multiplier = 4.0
+
+	var torch_count: int = int(rng.randf_range(60.0, 100.0))
+	for i in range(torch_count):
+		var tx: int = rng.randi_range(0, gw - 1)
+		var tz: int = rng.randi_range(0, gh - 1)
+		if grid[tz][tx]:
+			continue
+		var wx: float = float(tx) * unit - hw
+		var wz: float = float(tz) * unit - hh
+		var flame := MeshInstance3D.new()
+		flame.name = "Torch_" + str(i)
+		var sphere := SphereMesh.new()
+		sphere.radius = rng.randf_range(0.3, 0.6)
+		sphere.height = sphere.radius * 2.0
+		sphere.radial_segments = 8
+		sphere.rings = 6
+		flame.mesh = sphere
+		flame.material_override = torch_mat
+		flame.position = Vector3(wx, wall_h - 0.3, wz)
+		generated_root.add_child(flame)
+
+	var accent_mat := StandardMaterial3D.new()
+	accent_mat.albedo_color = Color(0.18, 0.15, 0.14)
+	accent_mat.roughness = 0.9
+	var accent_count: int = int(rng.randf_range(20.0, 40.0))
+	for i in range(accent_count):
+		var ax: int = rng.randi_range(0, gw - 1)
+		var az: int = rng.randi_range(0, gh - 1)
+		if not grid[az][ax]:
+			continue
+		var wx: float = float(ax) * unit - hw
+		var wz: float = float(az) * unit - hh
+		var accent := MeshInstance3D.new()
+		accent.name = "Accent_" + str(i)
+		var box := BoxMesh.new()
+		var bw: float = rng.randf_range(0.3, 0.8)
+		box.size = Vector3(bw, rng.randf_range(1.0, 3.0), bw)
+		accent.mesh = box
+		accent.material_override = accent_mat
+		accent.position = Vector3(wx, rng.randf_range(0.5, 3.0), wz)
+		generated_root.add_child(accent)
 
 
 func _create_world_bounds() -> void:
@@ -461,7 +606,7 @@ void fragment() {
 	base_color += vec3(ripple * 0.018);
 	float sheen = clamp(fresnel * sheen_strength, 0.0, 0.35);
 	ALBEDO = mix(base_color, sky_tint, sheen);
-	ALPHA = clamp(mix(shallow_color.a, deep_color.a, 0.45) + fresnel * 0.08 + alpha_boost, 0.24, 0.52);
+	ALPHA = clamp(mix(shallow_color.a, deep_color.a, 0.45) + fresnel * 0.08 + alpha_boost, 0.24, 0.62);
 	ROUGHNESS = 0.18;
 	METALLIC = 0.0;
 	SPECULAR = 0.35;
@@ -497,25 +642,13 @@ func _create_water() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = _water_shader()
 	if map_type == WorldGraph.MAP_WATER:
-		mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.36))
-		mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.48))
-		mat.set_shader_parameter("sky_tint", Color(0.32, 0.54, 0.82))
-		mat.set_shader_parameter("wave_strength", 0.075 if graphics_level >= 2 else 0.045)
-		mat.set_shader_parameter("wave_speed", 0.90 if graphics_level >= 2 else 0.65)
-		mat.set_shader_parameter("wave_scale", 3.1)
-		mat.set_shader_parameter("normal_strength", 1.05 if graphics_level >= 2 else 0.75)
-		mat.set_shader_parameter("sheen_strength", 0.28)
-		mat.set_shader_parameter("alpha_boost", 0.02)
+		mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.44))
+		mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.54))
+		mat.set_shader_parameter("alpha_boost", 0.08)
 	else:
-		mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.30))
-		mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.40))
-		mat.set_shader_parameter("sky_tint", Color(0.36, 0.60, 0.88))
-		mat.set_shader_parameter("wave_strength", 0.045 if graphics_level >= 2 else 0.025)
-		mat.set_shader_parameter("wave_speed", 0.60 if graphics_level >= 2 else 0.40)
-		mat.set_shader_parameter("wave_scale", 4.4)
-		mat.set_shader_parameter("normal_strength", 0.85 if graphics_level >= 2 else 0.60)
-		mat.set_shader_parameter("sheen_strength", 0.32)
-		mat.set_shader_parameter("alpha_boost", 0.0)
+		mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.38))
+		mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.48))
+		mat.set_shader_parameter("alpha_boost", 0.04)
 
 	water.material_override = mat
 	generated_root.add_child(water)

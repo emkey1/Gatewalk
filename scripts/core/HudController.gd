@@ -30,6 +30,12 @@ var _is_water_fn: Callable
 var _is_cave_fn: Callable
 var _is_gate_room_fn: Callable
 
+var _trail: Array = []
+var _trail_timer: float = 0.0
+var _wonder_positions: Array = []
+var _discovered_ids: Dictionary = {}
+var _last_map_id: String = ""
+
 
 func setup(parent: Node) -> void:
 	hud_layer = CanvasLayer.new()
@@ -150,6 +156,7 @@ func update(data: Dictionary) -> void:
 
 	var map_short: String = str(data.get("map_short", "none"))
 	var world_name: String = str(data.get("world_name", "?"))
+	var map_type: String = str(data.get("map_type", ""))
 	var position_text: String = str(data.get("position_text", "No active player"))
 	var warning_text: String = str(data.get("warning_text", ""))
 	var flashlight_text: String = str(data.get("flashlight_text", ""))
@@ -158,19 +165,29 @@ func update(data: Dictionary) -> void:
 	var atlas_summary: String = str(data.get("atlas_summary", ""))
 	var map_completion: String = str(data.get("map_completion", ""))
 	var lichen_count: int = int(data.get("lichen_count", 0))
+	var pin_count: int = int(data.get("pin_count", 0))
 	var is_gate_room: bool = bool(data.get("is_gate_room", false))
 	var gate_room_return_world: String = str(data.get("gate_room_return_world", ""))
 	var gate_room_source_world: String = str(data.get("gate_room_source_world", ""))
 	var gate_room_source_map: String = str(data.get("gate_room_source_map", ""))
+	var is_map_nexus: bool = bool(data.get("is_map_nexus", false))
 
 	if is_gate_room:
-		hud_label.text = "World: " + world_name + " — Gate Room\n" + atlas_summary + "\n" + maps_line + "\n" + position_text + "\n" + discovery_line
+		hud_label.text = "World: " + world_name + " — Inter-world Gate Room\n" + atlas_summary + "\n" + maps_line + "\n" + position_text + "\n" + discovery_line
 		if gate_room_return_world != "":
 			hud_label.text += "\nWalk to Return portal to exit."
+	elif is_map_nexus or map_type == "map_nexus":
+		hud_label.text = "World: " + world_name + " — World Nexus\n" + atlas_summary + "\n" + maps_line + "\n" + position_text + "\n" + discovery_line
+		hud_label.text += "\n[G] Return to Gate Room"
 	else:
 		hud_label.text = "World: " + world_name + "\n" + atlas_summary + "\n" + maps_line + "\nMap " + map_short + ": " + map_completion + "\n" + position_text + "\n" + discovery_line
 		if gate_room_source_world != "" and gate_room_source_map != "":
 			hud_label.text += "\n[G] Return to Gate Room"
+
+	if pin_count > 0:
+		hud_label.text += "\nPins: " + str(pin_count) + " [P] place pin"
+	else:
+		hud_label.text += "\n[P] place pin"
 
 	if lichen_count > 0:
 		hud_label.text += "\nLichen: " + str(lichen_count) + " [C] grab [T] throw"
@@ -192,13 +209,35 @@ func update(data: Dictionary) -> void:
 	var player: Node3D = data.get("player_node", null) as Node3D
 	var world_half_size: float = float(data.get("world_half_size", 0.0))
 	var discoveries_dict: Dictionary = data.get("discoveries", {})
-	_update_minimap(player, world_half_size, discoveries_dict)
+	var pins_dict: Dictionary = data.get("pins", {})
+	_wonder_positions = data.get("wonder_positions", [])
+	_discovered_ids = {}
+	for dk in discoveries_dict.keys():
+		_discovered_ids[dk] = true
+
+	var current_map_id: String = str(data.get("current_map_id", ""))
+	if current_map_id != _last_map_id:
+		_last_map_id = current_map_id
+		_trail.clear()
+
+	if player != null:
+		_trail_timer += data.get("delta", 0.0)
+		if _trail_timer > 0.25:
+			_trail_timer = 0.0
+			var px: float = player.global_position.x
+			var pz: float = player.global_position.z
+			if _trail.is_empty() or _trail[-1]["x"] != px or _trail[-1]["z"] != pz:
+				_trail.append({"x": px, "z": pz})
+				if _trail.size() > 400:
+					_trail.pop_front()
+
+	_update_minimap(player, world_half_size, discoveries_dict, pins_dict, data.get("delta", 0.0))
 
 	if fps_label != null and show_fps:
 		fps_label.text = str(Engine.get_frames_per_second()) + " FPS"
 
 
-func _update_minimap(player: Node3D, half: float, discoveries: Dictionary) -> void:
+func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins: Dictionary, delta: float = 0.0) -> void:
 	if minimap_marker_layer == null:
 		return
 
@@ -209,17 +248,36 @@ func _update_minimap(player: Node3D, half: float, discoveries: Dictionary) -> vo
 	if _is_moon_fn.is_valid() and _is_moon_fn.call():
 		size = 100.0
 
-	if player != null:
-		var player_pos: Vector2 = _world_to_minimap(player.global_position.x, player.global_position.z, size, half)
-		var fwd: Vector3 = -player.global_transform.basis.z
-		var angle: float = atan2(fwd.x, -fwd.z)
+	for ti in range(max(0, _trail.size() - 1)):
+		var tp: Dictionary = _trail[ti]
+		var tpos: Vector2 = _world_to_minimap(float(tp["x"]), float(tp["z"]), size, half)
+		var alpha: float = 0.08 + 0.12 * float(ti) / float(max(_trail.size(), 1))
+		var tdot := ColorRect.new()
+		tdot.color = Color(0.35, 0.55, 0.75, alpha)
+		tdot.position = tpos - Vector2(0.6, 0.6)
+		tdot.size = Vector2(1.2, 1.2)
+		tdot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		minimap_marker_layer.add_child(tdot)
 
-		var arrow := Polygon2D.new()
-		arrow.polygon = PackedVector2Array([Vector2(0.0, -5.0), Vector2(-4.0, 4.0), Vector2(4.0, 4.0)])
-		arrow.color = Color(1.0, 0.55, 0.0)
-		arrow.position = player_pos
-		arrow.rotation = angle
-		minimap_marker_layer.add_child(arrow)
+	for w in _wonder_positions:
+		var wx: float = float(w["x"])
+		var wz: float = float(w["z"])
+		var wpos: Vector2 = _world_to_minimap(wx, wz, size, half)
+		var wid: String = str(w.get("id", ""))
+		var is_discovered: bool = _discovered_ids.has(wid)
+		var kind: String = str(w.get("kind", "wonder"))
+		var wonder_color: Color
+		if is_discovered:
+			match kind:
+				"gate": wonder_color = Color(1.0, 0.7, 0.2)
+				"ruin": wonder_color = Color(0.75, 0.6, 1.0)
+				"orb": wonder_color = Color(0.3, 1.0, 0.6)
+				"crystal": wonder_color = Color(0.25, 0.90, 0.85)
+				_: wonder_color = Color(0.35, 0.85, 1.0)
+			_add_minimap_dot(wpos, wonder_color, 2.0)
+		else:
+			wonder_color = Color(0.2, 0.25, 0.3, 0.5)
+			_add_minimap_dot(wpos, wonder_color, 1.2)
 
 	for discovery_key in discoveries.keys():
 		var discovery: Dictionary = discoveries[discovery_key]
@@ -236,7 +294,30 @@ func _update_minimap(player: Node3D, half: float, discoveries: Dictionary) -> vo
 			color = Color(0.75, 0.6, 1.0)
 		elif kind == "orb":
 			color = Color(0.3, 1.0, 0.6)
+		elif kind == "crystal":
+			color = Color(0.25, 0.90, 0.85)
 		_add_minimap_dot(pos, color, 1.5)
+
+	for pin_key in pins.keys():
+		var pin: Dictionary = pins[pin_key]
+		if not pin.has("x") or not pin.has("z"):
+			continue
+		var px: float = float(pin["x"])
+		var pz: float = float(pin["z"])
+		var ppos: Vector2 = _world_to_minimap(px, pz, size, half)
+		_add_minimap_dot(ppos, Color(1.0, 0.45, 0.9), 1.2)
+
+	if player != null:
+		var player_pos: Vector2 = _world_to_minimap(player.global_position.x, player.global_position.z, size, half)
+		var fwd: Vector3 = -player.global_transform.basis.z
+		var angle: float = atan2(fwd.x, -fwd.z)
+
+		var arrow := Polygon2D.new()
+		arrow.polygon = PackedVector2Array([Vector2(0.0, -5.0), Vector2(-4.0, 4.0), Vector2(4.0, 4.0)])
+		arrow.color = Color(1.0, 0.55, 0.0)
+		arrow.position = player_pos
+		arrow.rotation = angle
+		minimap_marker_layer.add_child(arrow)
 
 
 func _world_to_minimap(x: float, z: float, size: float, half: float) -> Vector2:

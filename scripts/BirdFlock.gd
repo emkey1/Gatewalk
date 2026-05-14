@@ -12,6 +12,7 @@ var _phases: Array[float] = []
 var _y_offsets: Array[float] = []
 var _speeds: Array[float] = []
 var _radii: Array[float] = []
+var _wing_phases: Array[float] = []
 var _time: float = 0.0
 
 
@@ -25,12 +26,39 @@ func _ready() -> void:
 		_phases.append(rng.randf_range(0.0, TAU))
 		_y_offsets.append(rng.randf_range(-2.0, 2.0))
 		_speeds.append(rng.randf_range(0.4, 0.8))
-		_radii.append(rng.randf_range(6.0, 14.0))
-		var s := rng.randf_range(0.7, 1.3)
-		var mi := MeshInstance3D.new()
-		mi.mesh = mesh
-		bird.add_child(mi)
-		mi.scale = Vector3(s, s, s)
+		_radii.append(rng.randf_range(7.0, 16.0))
+		_wing_phases.append(rng.randf_range(0.0, TAU))
+
+		var body := MeshInstance3D.new()
+		var body_mesh := SphereMesh.new()
+		body_mesh.radius = 0.10 if mesh_quality < 2 else 0.14
+		body_mesh.height = body_mesh.radius * 1.5
+		body.mesh = body_mesh
+		var body_mat := StandardMaterial3D.new()
+		body_mat.albedo_color = Color(0.18, 0.12, 0.10)
+		body_mat.roughness = 0.9
+		body.material_override = body_mat
+		body.scale = Vector3(rng.randf_range(1.0, 1.4), rng.randf_range(0.8, 1.1), rng.randf_range(1.4, 1.9))
+		bird.add_child(body)
+
+		var wing_mat := StandardMaterial3D.new()
+		wing_mat.albedo_color = Color(0.15, 0.10, 0.08)
+		wing_mat.roughness = 0.95
+
+		var left_wing := MeshInstance3D.new()
+		var right_wing := MeshInstance3D.new()
+		var wing_mesh := BoxMesh.new()
+		wing_mesh.size = Vector3(0.28, 0.02, 0.62)
+		left_wing.mesh = wing_mesh
+		right_wing.mesh = wing_mesh
+		left_wing.material_override = wing_mat
+		right_wing.material_override = wing_mat
+		left_wing.position = Vector3(-0.16, 0.0, 0.0)
+		right_wing.position = Vector3(0.16, 0.0, 0.0)
+		left_wing.rotation_degrees.z = -32.0
+		right_wing.rotation_degrees.z = 32.0
+		bird.add_child(left_wing)
+		bird.add_child(right_wing)
 
 
 func _process(delta: float) -> void:
@@ -42,6 +70,7 @@ func _process(delta: float) -> void:
 		var vel_dir := Vector3(-sin(angle), 0.0, cos(angle)).normalized()
 		_bird_nodes[i].position = pos
 		_bird_nodes[i].look_at(pos + vel_dir, Vector3.UP)
+		_bird_nodes[i].rotation_degrees.z = sin(_time * 8.0 + _wing_phases[i]) * 6.0
 
 
 static func _tri(st: SurfaceTool, normal: Vector3, color: Color, a: Vector3, b: Vector3, c: Vector3) -> void:

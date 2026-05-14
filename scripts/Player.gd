@@ -55,7 +55,7 @@ func _ready() -> void:
 	flashlight.name = "Flashlight"
 	flashlight.spot_angle = 50.0
 	flashlight.spot_angle_attenuation = 1.0
-	flashlight.spot_range = 22.0
+	flashlight.spot_range = 40.0
 	flashlight.light_energy = 0.0
 	flashlight.light_color = Color(0.95, 0.93, 0.85)
 	flashlight.shadow_enabled = false
@@ -80,7 +80,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if flashlight_charge > 0.0:
 			flashlight_on = not flashlight_on
-			flashlight.light_energy = 3.5 if flashlight_on else 0.0
+			flashlight.light_energy = 10.5 if flashlight_on else 0.0
 
 
 func _physics_process(delta: float) -> void:

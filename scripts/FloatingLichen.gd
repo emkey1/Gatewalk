@@ -9,12 +9,14 @@ var _rng = null
 
 
 func _ready() -> void:
+	can_sleep = false
+	sleeping = false
 	_rng = StableRng.new(rng_seed)
 	_retarget_timer = _rng.randf_range(0.0, 5.0)
 	_pick_new_drift_target()
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	_retarget_timer -= delta
 	if _retarget_timer <= 0.0:
 		_retarget_timer = _rng.randf_range(3.0, 8.0)

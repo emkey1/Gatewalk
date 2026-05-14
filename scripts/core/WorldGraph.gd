@@ -9,27 +9,27 @@ const MAP_CAVE := "cave"
 const MAP_NEXUS := "map_nexus"
 
 
-static func create_map_record(map_seed: int, map_type: String = MAP_NORMAL) -> Dictionary:
-	var record := {"seed": map_seed, "gates": {}, "discoveries": {}, "type": map_type}
+static func create_map_record(map_seed: int, map_type: String = MAP_NORMAL) -> MapRecord:
+	var record := MapRecord.new(map_seed, map_type)
 	if map_type == MAP_GATE_ROOM:
-		record["gate_room_slots"] = {}
+		record.gate_room_slots = {}
 	elif map_type == MAP_NEXUS:
-		record["nexus_slots"] = {}
+		record.nexus_slots = {}
 	return record
 
 
-static func create_world_record(world_name: String, root_map_id: String, map_seed: int) -> Dictionary:
-	return {
-		"name": world_name,
-		"root_map": root_map_id,
-		"current_map": root_map_id,
-		"maps": {
-			root_map_id: create_map_record(map_seed)
-		}
-	}
+static func create_world_record( \
+	world_name: String, root_map_id: String, map_seed: int \
+) -> WorldRecord:
+	var root_map: MapRecord = create_map_record(map_seed)
+	return WorldRecord.new(world_name, root_map_id, root_map)
 
 
-static func map_type(map_record: Dictionary) -> String:
+static func map_type(map_record: MapRecord) -> String:
+	return map_record.type
+
+
+static func map_type_from_dict(map_record: Dictionary) -> String:
 	return str(map_record.get("type", MAP_NORMAL))
 
 

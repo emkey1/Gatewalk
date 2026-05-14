@@ -72,6 +72,15 @@ static func setup_water_audio(parent: Node3D) -> void:
 	p.play()
 
 
+static func setup_cave_player_audio(parent: Node3D) -> void:
+	var p := AudioStreamPlayer.new()
+	p.name = "CaveAmbient"
+	p.volume_db = -4.0
+	p.stream = generate_wav_stream([65.0, 130.0, 260.0, 390.0], 6.0, 0.40)
+	parent.add_child(p)
+	p.play()
+
+
 static func add_gate_audio(gate: Node3D) -> void:
 	var p := AudioStreamPlayer3D.new()
 	p.name = "GateHum"

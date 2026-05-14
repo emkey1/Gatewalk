@@ -1,7 +1,7 @@
 extends RefCounted
 class_name SaveManager
 
-const SAVE_VERSION: int = 2
+const SAVE_VERSION: int = 3
 
 
 static func default_save_data() -> Dictionary:
@@ -100,10 +100,52 @@ static func new_id(prefix: String) -> String:
 	return prefix + "_" + time_part + "_" + tick_part
 
 
+static func _migrate_v2_to_v3(save_data: Dictionary) -> void:
+	var universe := current_universe(save_data)
+	if universe.is_empty():
+		return
+	var worlds: Dictionary = universe.get("worlds", {})
+	for world_key in worlds.keys():
+		var world: Dictionary = worlds[world_key] as Dictionary
+		if world.is_empty():
+			continue
+		var maps: Dictionary = world.get("maps", {})
+		for map_key in maps.keys():
+			var mr: Dictionary = maps[map_key] as Dictionary
+			if mr.is_empty():
+				continue
+			if not mr.has("seed"):
+				mr["seed"] = 0
+			if not mr.has("type"):
+				mr["type"] = "normal"
+			if not mr.has("gates"):
+				mr["gates"] = {}
+			if not mr.has("discoveries"):
+				mr["discoveries"] = {}
+			if not mr.has("available_discoveries"):
+				mr["available_discoveries"] = 0
+			if not mr.has("wonder_count"):
+				mr["wonder_count"] = 0
+			maps[map_key] = mr
+		world["maps"] = maps
+		if not world.has("root_map"):
+			var map_keys: Array = maps.keys()
+			world["root_map"] = str(map_keys[0]) if not map_keys.is_empty() else ""
+		if not world.has("current_map"):
+			world["current_map"] = world.get("root_map", "")
+		worlds[world_key] = world
+	universe["worlds"] = worlds
+	set_current_universe(save_data, universe)
+
+
 static func _normalize_current_universe(save_data: Dictionary) -> void:
 	var universe := current_universe(save_data)
 	if universe.is_empty():
 		return
+	var version: int = int(save_data.get("version", 0))
+	if version < 3:
+		_migrate_v2_to_v3(save_data)
+		save_data["version"] = 3
 	if not universe.has("settings"):
 		universe["settings"] = {}
 	var settings: Dictionary = universe.get("settings", {})

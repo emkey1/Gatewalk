@@ -13,7 +13,7 @@ var current_map_id: String = ""
 var last_discovery_text: String = ""
 
 var on_orb_discovered: Callable
-var on_message: Callable  # func(msg: String) — called when discovery/achievement text changes
+var on_message: Callable
 
 const ACHIEVEMENT_DEFS := {
 	"first_wonder": {"name": "First Discovery", "desc": "Find your first wonder on any map"},
@@ -42,13 +42,9 @@ func record_discovery(discovery_id: String, title: String, kind: String, discove
 	if discoveries.has(discovery_id):
 		return
 
-	discoveries[discovery_id] = {
-		"title": title,
-		"kind": kind,
-		"found_at": Time.get_unix_time_from_system(),
-		"x": discovery_position.x,
-		"z": discovery_position.z
-	}
+	discoveries[discovery_id] = DiscoveryRecord.new(
+		title, kind, Time.get_unix_time_from_system(), discovery_position.x, discovery_position.z,
+	).to_dict()
 	map_record["discoveries"] = discoveries
 	maps[current_map_id] = map_record
 	world["maps"] = maps
@@ -93,12 +89,13 @@ func check_map_wonders_complete() -> void:
 	var wonder_count: int = int(map_record.get("wonder_count", 0))
 	if wonder_count <= 0:
 		return
+	var wonders_found := 0
 	var discoveries: Dictionary = map_record.get("discoveries", {})
-	var wonder_found := 0
 	for key in discoveries.keys():
-		if discoveries[key].get("kind", "") == "wonder":
-			wonder_found += 1
-	if wonder_found >= wonder_count:
+		var d: Dictionary = discoveries[key] as Dictionary
+		if d != null and str(d.get("kind", "")) == "wonder":
+			wonders_found += 1
+	if wonders_found >= wonder_count:
 		award_achievement("all_wonders_map")
 
 
@@ -110,11 +107,12 @@ func check_world_wonders_complete() -> void:
 	var total_wonders := 0
 	var total_found := 0
 	for map_key in maps.keys():
-		var mr: Dictionary = maps[map_key]
+		var mr: Dictionary = maps[map_key] as Dictionary
 		total_wonders += int(mr.get("wonder_count", 0))
 		var disc: Dictionary = mr.get("discoveries", {})
 		for dk in disc.keys():
-			if disc[dk].get("kind", "") == "wonder":
+			var d: Dictionary = disc[dk] as Dictionary
+			if d != null and str(d.get("kind", "")) == "wonder":
 				total_found += 1
 	if total_wonders > 0 and total_found >= total_wonders:
 		award_achievement("all_wonders_world")

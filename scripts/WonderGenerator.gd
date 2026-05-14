@@ -273,7 +273,28 @@ static func _build_world_nexus(root: Node3D, rng: StableRng, palette: Dictionary
 	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 2.8)
 	var accent_mat: StandardMaterial3D = _mat(palette["accent"], palette["glow"], 0.6)
 
-	_add_mesh(root, "nexus_base", _cylinder(5.0, 0.8, 32), stone_mat, Vector3(0.0, 0.4, 0.0))
+	_add_mesh(root, "nexus_base", _cylinder(7.5, 0.8, 32), stone_mat, Vector3(0.0, 0.4, 0.0))
+
+	var bridge_mat: StandardMaterial3D = _mat(palette["stone"], palette["glow"], 0.25)
+	var bridge_count: int = 4
+	for i in range(bridge_count):
+		var angle: float = TAU * float(i) / float(bridge_count)
+		var bridge_len: float = 16.0
+		var bridge: MeshInstance3D = _add_mesh(
+			root,
+			"nexus_bridge_" + str(i),
+			_box(Vector3(2.2, 0.35, bridge_len)),
+			bridge_mat,
+			Vector3(cos(angle) * (7.5 + bridge_len * 0.5), 0.18, sin(angle) * (7.5 + bridge_len * 0.5)),
+			Vector3(0.0, -rad_to_deg(angle) + 90.0, 0.0)
+		)
+		bridge.scale.x = 1.0
+
+	var outer_pad_count: int = 4
+	for i in range(outer_pad_count):
+		var angle: float = TAU * float(i) / float(outer_pad_count)
+		_add_mesh(root, "nexus_pad_" + str(i), _cylinder(2.0, 0.3, 16), stone_mat,
+			Vector3(cos(angle) * 22.0, 0.15, sin(angle) * 22.0))
 
 	var inner_ring := TorusMesh.new()
 	inner_ring.outer_radius = 4.2
@@ -333,7 +354,14 @@ static func _add_auto_colliders(root: Node3D) -> void:
 		body.collision_layer = 1
 		body.collision_mask = 1
 		var collision := CollisionShape3D.new()
-		collision.shape = mesh_node.mesh.create_convex_shape(true, true)
+		var shape: Shape3D = mesh_node.mesh.create_convex_shape(true, true)
+		if shape == null:
+			var aabb: AABB = mesh_node.mesh.get_aabb()
+			var box := BoxShape3D.new()
+			box.size = aabb.size if aabb.size.length_squared() > 0.0 else Vector3(0.5, 0.5, 0.5)
+			shape = box
+			collision.position = aabb.position + aabb.size * 0.5
+		collision.shape = shape
 		body.add_child(collision)
 		root.add_child(body)
 

@@ -1,0 +1,321 @@
+extends Node
+class_name AtlasView
+
+var atlas_layer: CanvasLayer
+var show_atlas: bool = false
+
+var get_worlds_fn: Callable
+var get_world_fn: Callable
+var seed_color_fn: Callable
+var short_id_fn: Callable
+var completion_text_fn: Callable
+var opposite_gate_index_fn: Callable
+
+var current_world_id: String = ""
+var current_map_id: String = ""
+var gate_count: int = 4
+
+
+func toggle() -> void:
+	if atlas_layer != null and atlas_layer.visible:
+		atlas_layer.visible = false
+		show_atlas = false
+	else:
+		show_atlas = true
+		refresh()
+		if atlas_layer != null:
+			atlas_layer.visible = true
+
+
+func refresh() -> void:
+	if atlas_layer != null:
+		atlas_layer.queue_free()
+
+	atlas_layer = CanvasLayer.new()
+	atlas_layer.name = "AtlasLayer"
+	atlas_layer.layer = 25
+	add_child(atlas_layer)
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.02, 0.03, 0.05, 0.88)
+	overlay.anchor_left = 0.0
+	overlay.anchor_top = 0.0
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_PASS
+	atlas_layer.add_child(overlay)
+
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -370.0
+	panel.offset_top = -160.0
+	panel.offset_right = 370.0
+	panel.offset_bottom = 160.0
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.06, 0.08, 0.12, 0.95)
+	panel_style.corner_radius_top_left = 8
+	panel_style.corner_radius_top_right = 8
+	panel_style.corner_radius_bottom_left = 8
+	panel_style.corner_radius_bottom_right = 8
+	panel.add_theme_stylebox_override("panel", panel_style)
+	atlas_layer.add_child(panel)
+
+	var container := SubViewportContainer.new()
+	container.stretch = true
+	container.anchors_preset = Control.PRESET_FULL_RECT
+	panel.add_child(container)
+
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(740, 280)
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport.transparent_bg = false
+	container.add_child(viewport)
+
+	var world_3d := World3D.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.12, 0.16, 0.24)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.55, 0.62, 0.80)
+	env.ambient_light_energy = 2.0
+	world_3d.environment = env
+	viewport.world_3d = world_3d
+
+	var root := Node3D.new()
+	root.name = "Atlas3DRoot"
+	viewport.add_child(root)
+
+	var camera := Camera3D.new()
+	camera.position = Vector3(0.0, 18.0, 32.0)
+	camera.rotation_degrees = Vector3(-52.0, 0.0, 0.0)
+	camera.current = true
+	root.add_child(camera)
+
+	var light := DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-40.0, -20.0, 0.0)
+	light.light_energy = 5.0
+	root.add_child(light)
+
+	_build_graph_3d(root)
+
+	var legend := Label.new()
+	legend.text = "Map node (sphere) — current map is larger. Gate links — colored by destination seed. Gate points (small spheres) — uncolored = ungated. [TAB] to close."
+	legend.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	legend.add_theme_font_size_override("font_size", 10)
+	legend.add_theme_color_override("font_color", Color(0.55, 0.60, 0.70))
+	legend.anchor_left = 0.0
+	legend.anchor_top = 1.0
+	legend.anchor_right = 1.0
+	legend.anchor_bottom = 1.0
+	legend.offset_top = -22.0
+	legend.offset_bottom = 0.0
+	legend.offset_left = 8.0
+	legend.offset_right = -8.0
+	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(legend)
+
+	atlas_layer.visible = false
+
+
+func get_text() -> String:
+	var worlds: Dictionary = get_worlds_fn.call()
+	if worlds.is_empty():
+		return "No worlds discovered yet."
+
+	var lines: Array[String] = []
+	for world_key in worlds.keys():
+		var world_id: String = str(world_key)
+		var world: Dictionary = get_world_fn.call(world_id)
+		var maps: Dictionary = world.get("maps", {})
+		lines.append(str(world.get("name", world_id)) + " (" + str(maps.size()) + " maps)")
+
+		for map_key in maps.keys():
+			var map_id: String = str(map_key)
+			var raw = maps[map_id]
+			if typeof(raw) != TYPE_DICTIONARY:
+				continue
+			var map_record: Dictionary = raw
+			var discoveries: Dictionary = map_record.get("discoveries", {})
+			var pins: Dictionary = map_record.get("pins", {})
+			var gates: Dictionary = map_record.get("gates", {})
+			var marker: String = ""
+			if world_id == current_world_id and map_id == current_map_id:
+				marker = " <- current"
+
+			lines.append("  " + short_id_fn.call(map_id) + marker + " | discoveries " + str(discoveries.size()) + " | pins " + str(pins.size()) + " | gates " + str(gates.size()) + "/" + str(gate_count))
+			for gate_key in gates.keys():
+				var target_map_id: String = str(gates[gate_key])
+				lines.append("    gate " + str(int(str(gate_key)) + 1) + " -> " + short_id_fn.call(target_map_id))
+
+		lines.append("")
+
+	return "\n".join(lines)
+
+
+func _build_graph_3d(root: Node3D) -> void:
+	var world: Dictionary = get_worlds_fn.call().get(current_world_id, {})
+	if world.is_empty():
+		return
+
+	var maps: Dictionary = world.get("maps", {})
+	if maps.is_empty():
+		return
+
+	var map_ids: Array[String] = []
+	for map_key in maps.keys():
+		var raw = maps[map_key]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		map_ids.append(str(map_key))
+	map_ids.sort()
+
+	if map_ids.is_empty():
+		return
+
+	var positions: Dictionary = {}
+	var gate_positions: Dictionary = {}
+	var radius: float = 7.0 + float(map_ids.size()) * 0.45
+	for i in range(map_ids.size()):
+		var angle: float = TAU * float(i) / float(map_ids.size())
+		positions[map_ids[i]] = Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+		for gate_index in range(gate_count):
+			gate_positions[_gate_graph_key(map_ids[i], gate_index)] = positions[map_ids[i]] + _gate_offset(gate_index)
+
+	var drawn_links: Dictionary = {}
+	for map_id in map_ids:
+		var raw = maps[map_id]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var map_record: Dictionary = raw
+		var gates: Dictionary = map_record.get("gates", {})
+		for gate_key in gates.keys():
+			var gate_index: int = int(str(gate_key))
+			var target_id: String = str(gates[gate_key])
+			if not positions.has(target_id):
+				continue
+			var link_key: String = map_id + ":" + str(gate_index) + "->" + target_id
+			var reverse_key: String = target_id + ":" + str(opposite_gate_index_fn.call(gate_index)) + "->" + map_id
+			if drawn_links.has(link_key) or drawn_links.has(reverse_key):
+				continue
+			drawn_links[link_key] = true
+			var target_raw = maps[target_id]
+			if typeof(target_raw) != TYPE_DICTIONARY:
+				continue
+			var target_record: Dictionary = target_raw
+			var start_pos: Vector3 = gate_positions[_gate_graph_key(map_id, gate_index)]
+			var end_pos: Vector3 = gate_positions[_gate_graph_key(target_id, opposite_gate_index_fn.call(gate_index))]
+			_add_link(root, start_pos, end_pos, seed_color_fn.call(int(target_record.get("seed", 0))))
+
+	for map_id in map_ids:
+		var raw = maps[map_id]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var map_record: Dictionary = raw
+		var discoveries: Dictionary = map_record.get("discoveries", {})
+		var pins: Dictionary = map_record.get("pins", {})
+		var available: int = int(map_record.get("available_discoveries", 0))
+		var pos: Vector3 = positions[map_id]
+		var is_current: bool = map_id == current_map_id
+
+		var node_mesh := SphereMesh.new()
+		var node_radius: float = 1.0 if is_current else 0.70
+		node_mesh.radius = node_radius
+		node_mesh.height = node_radius * 2.0
+		node_mesh.radial_segments = 32
+		node_mesh.rings = 16
+		var node_instance := MeshInstance3D.new()
+		node_instance.name = "AtlasMapNode"
+		node_instance.mesh = node_mesh
+		node_instance.position = pos
+		var node_mat := StandardMaterial3D.new()
+		node_mat.albedo_color = Color(0.55, 0.65, 0.85) if is_current else Color(0.35, 0.45, 0.60)
+		node_mat.emission_enabled = true
+		node_mat.emission = Color(0.45, 0.60, 0.90) if is_current else Color(0.20, 0.30, 0.50)
+		node_mat.emission_energy_multiplier = 1.5
+		node_instance.material_override = node_mat
+		root.add_child(node_instance)
+
+		for gate_index in range(gate_count):
+			var gate_pos: Vector3 = gate_positions[_gate_graph_key(map_id, gate_index)]
+			var gate_marker := MeshInstance3D.new()
+			gate_marker.name = "AtlasGatePoint"
+			var gate_mesh := SphereMesh.new()
+			gate_mesh.radius = 0.40 if is_current else 0.30
+			gate_mesh.height = gate_mesh.radius * 2.0
+			gate_mesh.radial_segments = 16
+			gate_marker.mesh = gate_mesh
+			gate_marker.position = gate_pos
+			var gate_mat := StandardMaterial3D.new()
+			gate_mat.albedo_color = _gate_color(map_record, maps, gate_index)
+			if is_current and gate_mat.albedo_color == Color(0.25, 0.28, 0.32):
+				gate_mat.albedo_color = Color(1.0, 0.85, 0.40)
+			gate_mat.emission_enabled = true
+			gate_mat.emission = gate_mat.albedo_color * 2.0
+			gate_mat.emission_energy_multiplier = 1.0
+			gate_marker.material_override = gate_mat
+			root.add_child(gate_marker)
+
+		var label := Label3D.new()
+		label.text = "MAP " + short_id_fn.call(map_id)
+		label.position = pos + Vector3(0.0, -1.4, 0.0)
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.font_size = 32
+		label.modulate = Color(1.0, 0.92, 0.50) if is_current else Color(0.80, 0.85, 0.95)
+		label.outline_modulate = Color(0.0, 0.0, 0.0, 0.5)
+		label.outline_size = 6
+		root.add_child(label)
+
+		var stats_label := Label3D.new()
+		var completion_text: String = completion_text_fn.call(discoveries.size(), available)
+		stats_label.text = completion_text + " | Pins: " + str(pins.size())
+		stats_label.position = pos + Vector3(0.0, -1.8, 0.0)
+		stats_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		stats_label.font_size = 20
+		stats_label.modulate = Color(0.7, 0.75, 0.85)
+		stats_label.outline_modulate = Color(0.0, 0.0, 0.0, 0.5)
+		stats_label.outline_size = 4
+		root.add_child(stats_label)
+
+
+func _gate_graph_key(map_id: String, gate_index: int) -> String:
+	return map_id + ":" + str(gate_index)
+
+
+func _gate_offset(gate_index: int) -> Vector3:
+	match gate_index:
+		0: return Vector3(1.0, 0.0, 0.0)
+		1: return Vector3(-1.0, 0.0, 0.0)
+		2: return Vector3(0.0, 0.0, 1.0)
+		_: return Vector3(0.0, 0.0, -1.0)
+
+
+func _gate_color(map_record: Dictionary, maps: Dictionary, gate_index: int) -> Color:
+	var gates: Dictionary = map_record.get("gates", {})
+	var target_id: String = str(gates.get(str(gate_index), ""))
+	if target_id != "" and maps.has(target_id):
+		var raw = maps[target_id]
+		if typeof(raw) == TYPE_DICTIONARY:
+			return seed_color_fn.call(int(raw.get("seed", 0)))
+	return Color(0.25, 0.28, 0.32)
+
+
+func _add_link(root: Node3D, start_pos: Vector3, end_pos: Vector3, color: Color) -> void:
+	var line_mesh := ImmediateMesh.new()
+	line_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	line_mesh.surface_add_vertex(start_pos)
+	line_mesh.surface_add_vertex(end_pos)
+	line_mesh.surface_end()
+
+	var line_instance := MeshInstance3D.new()
+	line_instance.name = "AtlasGateLink"
+	line_instance.mesh = line_mesh
+	var line_mat := StandardMaterial3D.new()
+	line_mat.albedo_color = color
+	line_mat.emission_enabled = true
+	line_mat.emission = color * 2.0
+	line_mat.emission_energy_multiplier = 1.0
+	line_instance.material_override = line_mat
+	root.add_child(line_instance)
