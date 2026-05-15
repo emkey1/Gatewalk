@@ -14,6 +14,7 @@ var opposite_gate_index_fn: Callable
 var current_world_id: String = ""
 var current_map_id: String = ""
 var gate_count: int = 4
+var focused_map_id: String = ""
 
 
 func toggle() -> void:
@@ -30,6 +31,8 @@ func toggle() -> void:
 func refresh() -> void:
 	if atlas_layer != null:
 		atlas_layer.queue_free()
+	if focused_map_id == "":
+		focused_map_id = current_map_id
 
 	atlas_layer = CanvasLayer.new()
 	atlas_layer.name = "AtlasLayer"
@@ -50,10 +53,10 @@ func refresh() -> void:
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -430.0
-	panel.offset_top = -210.0
-	panel.offset_right = 430.0
-	panel.offset_bottom = 210.0
+	panel.offset_left = -520.0
+	panel.offset_top = -280.0
+	panel.offset_right = 520.0
+	panel.offset_bottom = 280.0
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.06, 0.08, 0.12, 0.95)
 	panel_style.corner_radius_top_left = 8
@@ -63,13 +66,32 @@ func refresh() -> void:
 	panel.add_theme_stylebox_override("panel", panel_style)
 	atlas_layer.add_child(panel)
 
+	var root_margin := MarginContainer.new()
+	root_margin.anchors_preset = Control.PRESET_FULL_RECT
+	root_margin.add_theme_constant_override("margin_left", 12)
+	root_margin.add_theme_constant_override("margin_top", 12)
+	root_margin.add_theme_constant_override("margin_right", 12)
+	root_margin.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(root_margin)
+
+	var split := HSplitContainer.new()
+	split.anchors_preset = Control.PRESET_FULL_RECT
+	split.split_offset = 700
+	root_margin.add_child(split)
+
+	var left := VBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	split.add_child(left)
+
 	var container := SubViewportContainer.new()
 	container.stretch = true
-	container.anchors_preset = Control.PRESET_FULL_RECT
-	panel.add_child(container)
+	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left.add_child(container)
 
 	var viewport := SubViewport.new()
-	viewport.size = Vector2i(860, 360)
+	viewport.size = Vector2i(700, 470)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	viewport.transparent_bg = false
 	container.add_child(viewport)
@@ -123,20 +145,13 @@ func refresh() -> void:
 	_build_graph_3d(root)
 
 	var legend := Label.new()
-	legend.text = "Node color = map type. Node size = discovery completion. Link glow = destination seed. Gold dots = linked gates. Gray dots = unopened gates. [TAB] close."
+	legend.text = "Node color = map type. Node size = completion. Gold gate dots = linked. Gray = unopened. [TAB] close."
 	legend.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	legend.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	legend.add_theme_font_size_override("font_size", 10)
 	legend.add_theme_color_override("font_color", Color(0.66, 0.73, 0.86))
-	legend.anchor_left = 0.0
-	legend.anchor_top = 1.0
-	legend.anchor_right = 1.0
-	legend.anchor_bottom = 1.0
-	legend.offset_top = -22.0
-	legend.offset_bottom = 0.0
-	legend.offset_left = 8.0
-	legend.offset_right = -8.0
 	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(legend)
+	left.add_child(legend)
 
 	var world_info := Label.new()
 	var world: Dictionary = get_world_fn.call(current_world_id)
@@ -152,19 +167,33 @@ func refresh() -> void:
 			if str(gates[gate_key]) != "":
 				linked_gates += 1
 	world_info.text = "Atlas: " + str(world.get("name", current_world_id)) + " | maps " + str(map_count) + " | linked gates " + str(linked_gates)
-	world_info.anchor_left = 0.0
-	world_info.anchor_top = 0.0
-	world_info.anchor_right = 1.0
-	world_info.anchor_bottom = 0.0
-	world_info.offset_left = 12.0
-	world_info.offset_top = 8.0
-	world_info.offset_right = -12.0
-	world_info.offset_bottom = 30.0
 	world_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	world_info.add_theme_font_size_override("font_size", 11)
 	world_info.add_theme_color_override("font_color", Color(0.90, 0.94, 1.0))
 	world_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(world_info)
+	world_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	left.add_child(world_info)
+
+	var right := VBoxContainer.new()
+	right.custom_minimum_size = Vector2(280.0, 0.0)
+	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	split.add_child(right)
+
+	var maps_title := Label.new()
+	maps_title.text = "Map List"
+	maps_title.add_theme_font_size_override("font_size", 14)
+	maps_title.add_theme_color_override("font_color", Color(0.90, 0.94, 1.0))
+	right.add_child(maps_title)
+
+	var list_scroll := ScrollContainer.new()
+	list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(list_scroll)
+
+	var list_box := VBoxContainer.new()
+	list_box.add_theme_constant_override("separation", 6)
+	list_scroll.add_child(list_box)
+	_build_map_list(list_box, world)
 
 	atlas_layer.visible = false
 
@@ -267,6 +296,7 @@ func _build_graph_3d(root: Node3D) -> void:
 		var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
 		var pos: Vector3 = positions[map_id]
 		var is_current: bool = map_id == current_map_id
+		var is_focused: bool = map_id == focused_map_id
 
 		var node_mesh := SphereMesh.new()
 		var completion_ratio: float = 0.0
@@ -275,6 +305,8 @@ func _build_graph_3d(root: Node3D) -> void:
 		var node_radius: float = (0.70 + completion_ratio * 0.35)
 		if is_current:
 			node_radius += 0.35
+		if is_focused and not is_current:
+			node_radius += 0.20
 		node_mesh.radius = node_radius
 		node_mesh.height = node_radius * 2.0
 		node_mesh.radial_segments = 32
@@ -287,7 +319,7 @@ func _build_graph_3d(root: Node3D) -> void:
 		node_mat.albedo_color = _map_node_color(map_type, is_current)
 		node_mat.emission_enabled = true
 		node_mat.emission = node_mat.albedo_color * 0.7
-		node_mat.emission_energy_multiplier = 1.35 if is_current else 0.85
+		node_mat.emission_energy_multiplier = 1.55 if is_current else (1.25 if is_focused else 0.85)
 		node_instance.material_override = node_mat
 		root.add_child(node_instance)
 
@@ -311,26 +343,21 @@ func _build_graph_3d(root: Node3D) -> void:
 			gate_marker.material_override = gate_mat
 			root.add_child(gate_marker)
 
-		var label := Label3D.new()
-		label.text = "MAP " + short_id_fn.call(map_id) + " [" + map_type + "]"
-		label.position = pos + Vector3(0.0, -1.4, 0.0)
-		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		label.font_size = 32
-		label.modulate = Color(1.0, 0.92, 0.50) if is_current else Color(0.80, 0.85, 0.95)
-		label.outline_modulate = Color(0.0, 0.0, 0.0, 0.5)
-		label.outline_size = 6
-		root.add_child(label)
-
-		var stats_label := Label3D.new()
-		var completion_text: String = completion_text_fn.call(discoveries.size(), available)
-		stats_label.text = completion_text + " | Pins: " + str(pins.size()) + " | Gates: " + str(map_record.get("gates", {}).size()) + "/" + str(gate_count)
-		stats_label.position = pos + Vector3(0.0, -1.8, 0.0)
-		stats_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		stats_label.font_size = 20
-		stats_label.modulate = Color(0.7, 0.75, 0.85)
-		stats_label.outline_modulate = Color(0.0, 0.0, 0.0, 0.5)
-		stats_label.outline_size = 4
-		root.add_child(stats_label)
+		if is_current or is_focused:
+			var beacon_mesh := CylinderMesh.new()
+			beacon_mesh.top_radius = 0.08
+			beacon_mesh.bottom_radius = 0.08
+			beacon_mesh.height = 3.2 if is_current else 2.6
+			var beacon := MeshInstance3D.new()
+			beacon.mesh = beacon_mesh
+			beacon.position = pos + Vector3(0.0, 1.9 if is_current else 1.5, 0.0)
+			var beacon_mat := StandardMaterial3D.new()
+			beacon_mat.albedo_color = Color(1.0, 0.88, 0.42) if is_current else Color(0.70, 0.84, 1.0)
+			beacon_mat.emission_enabled = true
+			beacon_mat.emission = beacon_mat.albedo_color
+			beacon_mat.emission_energy_multiplier = 1.2 if is_current else 0.85
+			beacon.material_override = beacon_mat
+			root.add_child(beacon)
 
 
 func _gate_graph_key(map_id: String, gate_index: int) -> String:
@@ -351,11 +378,147 @@ func _atlas_layout_point(index: int, count: int) -> Vector3:
 	var cols: int = int(ceil(sqrt(float(count))))
 	var row: int = index / cols
 	var col: int = index % cols
-	var spacing: float = 7.2
+	var spacing: float = 9.0
 	var x: float = (float(col) - float(cols - 1) * 0.5) * spacing
 	var z: float = (float(row) - float(cols - 1) * 0.5) * spacing
-	var wave: float = sin(float(index) * 0.8) * 0.8
-	return Vector3(x, wave, z)
+	return Vector3(x, 0.0, z)
+
+
+func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
+	var maps: Dictionary = world.get("maps", {})
+	var map_ids: Array[String] = []
+	var current_links: Dictionary = {}
+	var current_map_record: Dictionary = maps.get(current_map_id, {}) if maps.has(current_map_id) else {}
+	if not current_map_record.is_empty():
+		var current_gates: Dictionary = current_map_record.get("gates", {})
+		for gate_key in current_gates.keys():
+			var target_id: String = str(current_gates[gate_key])
+			if target_id != "":
+				current_links[target_id] = true
+	for map_key in maps.keys():
+		if typeof(maps[map_key]) == TYPE_DICTIONARY:
+			map_ids.append(str(map_key))
+	map_ids.sort_custom(func(a: String, b: String) -> bool:
+		return _map_sort_key(a, maps, current_links) < _map_sort_key(b, maps, current_links)
+	)
+
+	var summary := Label.new()
+	summary.text = "Current: " + short_id_fn.call(current_map_id) + " | Total maps: " + str(map_ids.size())
+	summary.add_theme_font_size_override("font_size", 10)
+	summary.add_theme_color_override("font_color", Color(0.75, 0.82, 0.92))
+	parent.add_child(summary)
+
+	var current_added: bool = false
+	var linked_added: bool = false
+	var explored_added: bool = false
+
+	for map_id in map_ids:
+		var map_record: Dictionary = maps[map_id]
+		var is_current: bool = map_id == current_map_id
+		var is_focused: bool = map_id == focused_map_id
+		var is_linked: bool = current_links.has(map_id)
+		var discoveries: Dictionary = map_record.get("discoveries", {})
+		var available: int = int(map_record.get("available_discoveries", 0))
+		var pins: Dictionary = map_record.get("pins", {})
+		var gates: Dictionary = map_record.get("gates", {})
+		var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
+
+		if is_current and not current_added:
+			_add_map_section_header(parent, "Current Map")
+			current_added = true
+		elif is_linked and not linked_added:
+			_add_map_section_header(parent, "Directly Linked")
+			linked_added = true
+		elif not is_current and not is_linked and not explored_added:
+			_add_map_section_header(parent, "Other Explored Maps")
+			explored_added = true
+
+		var row := PanelContainer.new()
+		var row_style := StyleBoxFlat.new()
+		row_style.bg_color = Color(0.11, 0.14, 0.19, 0.92)
+		if is_current:
+			row_style.bg_color = Color(0.22, 0.19, 0.10, 0.98)
+			row_style.border_width_left = 2
+			row_style.border_width_top = 2
+			row_style.border_width_right = 2
+			row_style.border_width_bottom = 2
+			row_style.border_color = Color(1.0, 0.86, 0.40, 0.95)
+		elif is_focused:
+			row_style.bg_color = Color(0.12, 0.18, 0.25, 0.98)
+			row_style.border_width_left = 1
+			row_style.border_width_top = 1
+			row_style.border_width_right = 1
+			row_style.border_width_bottom = 1
+			row_style.border_color = Color(0.66, 0.82, 1.0, 0.95)
+		elif is_linked:
+			row_style.bg_color = Color(0.13, 0.17, 0.23, 0.95)
+		row_style.corner_radius_top_left = 4
+		row_style.corner_radius_top_right = 4
+		row_style.corner_radius_bottom_left = 4
+		row_style.corner_radius_bottom_right = 4
+		row.add_theme_stylebox_override("panel", row_style)
+		parent.add_child(row)
+
+		var margin := MarginContainer.new()
+		margin.add_theme_constant_override("margin_left", 8)
+		margin.add_theme_constant_override("margin_top", 6)
+		margin.add_theme_constant_override("margin_right", 8)
+		margin.add_theme_constant_override("margin_bottom", 6)
+		row.add_child(margin)
+
+		var info := Label.new()
+		var marker: String = " [current]" if is_current else (" [focused]" if is_focused else (" [linked]" if is_linked else ""))
+		info.text = short_id_fn.call(map_id) + marker + "\n" + map_type + " | " + completion_text_fn.call(discoveries.size(), available) + " | pins " + str(pins.size()) + " | gates " + str(gates.size()) + "/" + str(gate_count)
+		info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		info.add_theme_font_size_override("font_size", 10)
+		margin.add_child(info)
+
+		var actions := HBoxContainer.new()
+		actions.add_theme_constant_override("separation", 6)
+		margin.add_child(actions)
+		var focus_btn := Button.new()
+		focus_btn.text = "Focus"
+		focus_btn.disabled = is_focused
+		focus_btn.pressed.connect(_focus_map.bind(map_id))
+		actions.add_child(focus_btn)
+
+		var linked_targets: Array[String] = []
+		for gate_key in gates.keys():
+			var target: String = str(gates[gate_key])
+			if target != "":
+				linked_targets.append(short_id_fn.call(target))
+		if not linked_targets.is_empty():
+			var links := Label.new()
+			links.text = "Links: " + ", ".join(linked_targets)
+			links.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			links.add_theme_font_size_override("font_size", 9)
+			links.add_theme_color_override("font_color", Color(0.72, 0.80, 0.92))
+			margin.add_child(links)
+
+
+func _map_sort_key(map_id: String, maps: Dictionary, current_links: Dictionary) -> String:
+	var map_record: Dictionary = maps.get(map_id, {})
+	var is_current: int = 0 if map_id == current_map_id else 1
+	var is_linked: int = 0 if current_links.has(map_id) else 1
+	var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
+	return str(is_current) + "_" + str(is_linked) + "_" + map_type + "_" + map_id
+
+
+func _add_map_section_header(parent: VBoxContainer, text: String) -> void:
+	var header := Label.new()
+	header.text = text
+	header.add_theme_font_size_override("font_size", 10)
+	header.add_theme_color_override("font_color", Color(0.86, 0.90, 0.97))
+	parent.add_child(header)
+
+
+func _focus_map(map_id: String) -> void:
+	if map_id == "":
+		return
+	focused_map_id = map_id
+	refresh()
+	if atlas_layer != null:
+		atlas_layer.visible = true
 
 
 func _map_node_color(map_type: String, is_current: bool) -> Color:

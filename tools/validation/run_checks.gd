@@ -4,6 +4,8 @@ const MapGenerator = preload("res://scripts/core/MapGenerator.gd")
 const SaveManager = preload("res://scripts/core/SaveManager.gd")
 const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
 const GateTravelService = preload("res://scripts/core/GateTravelService.gd")
+const MapContext = preload("res://scripts/core/MapContext.gd")
+const TreeFactory = preload("res://scripts/factories/TreeFactory.gd")
 
 const GRAPHICS_LEVEL := 0
 const DENSITY_LEVEL := 2
@@ -20,6 +22,8 @@ func _init() -> void:
 	_run_gate_travel_checks(failures)
 	_run_gate_room_and_nexus_checks(failures)
 	_run_persisted_universe_isolation_checks(failures)
+	_run_seed_allocator_isolation_checks(failures)
+	_run_tree_factory_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -217,6 +221,36 @@ func _run_save_migration_checks(failures: Array[String]) -> void:
 		failures.append("Current-universe update removed non-active universe achievements.")
 	if after_b.get("maps_visited", []).has("m_a2"):
 		failures.append("Current-universe update leaked visited-map state across universes.")
+
+
+func _run_seed_allocator_isolation_checks(failures: Array[String]) -> void:
+	var base: Dictionary = SaveManager.default_save_data()
+	var u0: String = SaveManager.current_universe_id(base)
+	var u1: String = "u_extra"
+	base = SaveManager.set_universe(base, u1, SaveManager.create_universe_record("Universe 2"))
+
+	var a0: Dictionary = SaveManager.allocate_seed_for_current_universe(base, "world_a")
+	var save_after_a0: Dictionary = a0.get("save_data", {})
+	var seed_a0: int = int(a0.get("seed", -1))
+	var universe0_after_a0: Dictionary = save_after_a0.get("universes", {}).get(u0, {})
+	var universe1_after_a0: Dictionary = save_after_a0.get("universes", {}).get(u1, {})
+	if int(universe0_after_a0.get("seed_counter", -1)) != 1:
+		failures.append("Seed allocation did not increment active universe counter.")
+	if int(universe1_after_a0.get("seed_counter", -1)) != 0:
+		failures.append("Seed allocation leaked counter update to non-active universe.")
+
+	var switched: Dictionary = SaveManager.set_current_universe_id(save_after_a0, u1)
+	var b0: Dictionary = SaveManager.allocate_seed_for_current_universe(switched, "world_b")
+	var save_after_b0: Dictionary = b0.get("save_data", {})
+	var seed_b0: int = int(b0.get("seed", -1))
+	var universe0_after_b0: Dictionary = save_after_b0.get("universes", {}).get(u0, {})
+	var universe1_after_b0: Dictionary = save_after_b0.get("universes", {}).get(u1, {})
+	if int(universe0_after_b0.get("seed_counter", -1)) != 1:
+		failures.append("Switching universes unexpectedly modified prior universe seed counter.")
+	if int(universe1_after_b0.get("seed_counter", -1)) != 1:
+		failures.append("Seed allocation did not increment switched-to universe counter.")
+	if seed_a0 == seed_b0:
+		failures.append("Distinct universes produced identical first allocated seed.")
 
 
 func _build_map_signature(seed_value: int, map_type: String) -> Dictionary:
@@ -577,6 +611,63 @@ func _run_persisted_universe_isolation_checks(failures: Array[String]) -> void:
 		failures.append("Persisted isolation check: nexus update changed non-current universe achievements.")
 	if int(ub_after_nexus.get("lichen_count", -1)) != 4:
 		failures.append("Persisted isolation check: nexus update changed non-current universe lichen count.")
+
+
+func _run_tree_factory_checks(failures: Array[String]) -> void:
+	var stats_a: Dictionary = _build_tree_stats(SEED_A)
+	var stats_b: Dictionary = _build_tree_stats(SEED_A)
+	if int(stats_a.get("nodes", 0)) <= 0 or int(stats_b.get("nodes", 0)) <= 0:
+		failures.append("TreeFactory produced empty output.")
+		return
+	_assert_stat_delta_within(failures, "TreeFactory node count", stats_a, stats_b, "nodes", 256)
+	_assert_stat_delta_within(failures, "TreeFactory tree root count", stats_a, stats_b, "tree_nodes", 4)
+	_assert_stat_delta_within(failures, "TreeFactory mesh count", stats_a, stats_b, "mesh_nodes", 256)
+	_assert_stat_delta_within(failures, "TreeFactory cylinder mesh count", stats_a, stats_b, "cylinder_meshes", 128)
+	_assert_stat_delta_within(failures, "TreeFactory sphere mesh count", stats_a, stats_b, "sphere_meshes", 128)
+
+
+func _build_tree_stats(seed_value: int) -> Dictionary:
+	var context := MapContext.new({
+		"world_seed": seed_value,
+		"map_type": WorldGraph.MAP_NORMAL,
+	})
+	var root := Node3D.new()
+	root.name = "TreeValidationRoot"
+	TreeFactory.scatter_trees(root, seed_value, DENSITY_LEVEL, GRAPHICS_LEVEL, context)
+	var stats := {
+		"nodes": 0,
+		"tree_nodes": 0,
+		"mesh_nodes": 0,
+		"cylinder_meshes": 0,
+		"sphere_meshes": 0,
+	}
+	_collect_tree_stats(root, stats)
+	root.free()
+	return stats
+
+
+func _collect_tree_stats(node: Node, stats: Dictionary) -> void:
+	stats["nodes"] = int(stats.get("nodes", 0)) + 1
+	if node is Node3D and str(node.name).begins_with("Tree_"):
+		stats["tree_nodes"] = int(stats.get("tree_nodes", 0)) + 1
+	if node is MeshInstance3D:
+		stats["mesh_nodes"] = int(stats.get("mesh_nodes", 0)) + 1
+		var mesh_instance: MeshInstance3D = node as MeshInstance3D
+		if mesh_instance.mesh != null:
+			var mesh_class: String = mesh_instance.mesh.get_class()
+			if mesh_class == "CylinderMesh":
+				stats["cylinder_meshes"] = int(stats.get("cylinder_meshes", 0)) + 1
+			elif mesh_class == "SphereMesh":
+				stats["sphere_meshes"] = int(stats.get("sphere_meshes", 0)) + 1
+	for child in node.get_children():
+		_collect_tree_stats(child, stats)
+
+
+func _assert_stat_delta_within(failures: Array[String], label: String, a: Dictionary, b: Dictionary, key: String, tolerance: int) -> void:
+	var av: int = int(a.get(key, 0))
+	var bv: int = int(b.get(key, 0))
+	if abs(av - bv) > tolerance:
+		failures.append("%s drift exceeded tolerance (%d vs %d, tol=%d)." % [label, av, bv, tolerance])
 
 
 func _collect_signature(node: Node, depth: int, out: PackedStringArray) -> void:

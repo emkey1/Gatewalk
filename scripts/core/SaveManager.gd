@@ -16,6 +16,7 @@ static func default_save_data() -> Dictionary:
 
 
 static func create_universe_record(universe_name: String) -> Dictionary:
+	var seed_root: int = int(Time.get_unix_time_from_system()) ^ int(Time.get_ticks_usec())
 	return {
 		"name": universe_name,
 		"worlds": {},
@@ -23,6 +24,8 @@ static func create_universe_record(universe_name: String) -> Dictionary:
 		"achievements": {},
 		"maps_visited": [],
 		"lichen_count": 0,
+		"seed_root": int(seed_root & 0x7fffffff),
+		"seed_counter": 0,
 		"settings": {
 			"cycle_speed_multiplier": 1.0,
 			"start_fullscreen": true,
@@ -91,6 +94,30 @@ static func set_current_universe(save_data: Dictionary, universe: Dictionary) ->
 	return result
 
 
+static func set_current_universe_id(save_data: Dictionary, universe_id: String) -> Dictionary:
+	var result: Dictionary = save_data
+	result["current_universe_id"] = universe_id
+	return result
+
+
+static func set_universe(save_data: Dictionary, universe_id: String, universe: Dictionary) -> Dictionary:
+	var result: Dictionary = save_data
+	var universes: Dictionary = result.get("universes", {})
+	universes[universe_id] = universe
+	result["universes"] = universes
+	return result
+
+
+static func allocate_seed_for_current_universe(save_data: Dictionary, label: String, salt: int = 0) -> Dictionary:
+	var universe: Dictionary = _normalize_universe_record(current_universe(save_data).duplicate(true), SAVE_VERSION)
+	var seed_root: int = int(universe.get("seed_root", 0))
+	var counter: int = int(universe.get("seed_counter", 0))
+	var mixed: int = int(StableRng.mix_string(seed_root, label, counter + salt) & 0x7fffffff)
+	universe["seed_counter"] = counter + 1
+	var updated_save: Dictionary = set_current_universe(save_data, universe)
+	return {"save_data": updated_save, "seed": mixed}
+
+
 static func current_settings(save_data: Dictionary) -> Dictionary:
 	var universe := current_universe(save_data)
 	return universe.get("settings", {})
@@ -153,6 +180,9 @@ static func _normalize_universe_record(universe: Dictionary, save_version: int) 
 	universe["achievements"] = universe.get("achievements", {})
 	universe["maps_visited"] = universe.get("maps_visited", [])
 	universe["lichen_count"] = int(universe.get("lichen_count", 0))
+	var normalized_seed_root: int = int(universe.get("seed_root", new_id("seed").hash()))
+	universe["seed_root"] = normalized_seed_root & 0x7fffffff
+	universe["seed_counter"] = int(universe.get("seed_counter", 0))
 	return universe
 
 

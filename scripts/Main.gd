@@ -72,6 +72,17 @@ var slot_count: int = 0
 var show_fps: bool = false
 
 var _moon_grid_scale: int = 1
+var _gate_transition_in_progress: bool = false
+var _gate_overlap_active: Dictionary = {}
+var _gate_proximity_active: Dictionary = {}
+var _last_gate_index_in_range: int = -1
+var _gate_use_was_pressed: bool = false
+var _gate_trigger_enable_time_msec: int = 0
+var _gate_auto_retry_time_msec: int = 0
+var _gate_room_slot_active: Dictionary = {}
+var _gate_room_return_active: bool = false
+var _gate_room_slot_in_range: int = -1
+var _gate_room_return_in_range: bool = false
 var _cycle_time: float = 0.0
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
@@ -79,6 +90,7 @@ var discovery_tracker: DiscoveryTracker
 var generation_rng = StableRng.new(1)
 const CYCLE_HOURS_PER_SECOND: float = 0.01
 const CYCLE_LENGTH: float = 24.0 / CYCLE_HOURS_PER_SECOND
+const DEFAULT_START_HOUR: float = 7.5
 
 
 func _ready() -> void:
@@ -100,6 +112,7 @@ func _ready() -> void:
 	discovery_tracker = DiscoveryTracker.new()
 	discovery_tracker.get_world = _get_world
 	discovery_tracker.set_world = _set_world
+	discovery_tracker.update_world_map_record = _update_world_map_record
 	discovery_tracker.get_current_universe = _current_universe
 	discovery_tracker.set_current_universe = _set_current_universe
 	discovery_tracker.save_world_data = _save_world_data
@@ -155,9 +168,13 @@ func _ready() -> void:
 	hud_controller.world_environment = world_environment
 	_apply_graphics_level()
 	_ensure_default_world()
-	var last_world_id: String = _last_world_id()
-	if last_world_id != "":
-		_load_world_from_menu(last_world_id)
+	var resume_target: Dictionary = _explicit_resume_target()
+	if not resume_target.is_empty():
+		_activate_world(str(resume_target.get("world_id", "")), str(resume_target.get("map_id", "")))
+	else:
+		var last_world_id: String = _last_world_id()
+		if last_world_id != "":
+			_load_world_from_menu(last_world_id)
 
 	print("Random World Explorer v6: slot ", current_slot, " saved to ", _slot_path(current_slot))
 	print("Random World Explorer v6: press F11 to toggle fullscreen")
@@ -165,14 +182,205 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_poll_gate_use_input()
+	_poll_hub_use_input()
 	if not _is_current_map_gate_room() and not _is_current_map_cave() and not _is_current_map_map_nexus():
 		_cycle_time += _delta * cycle_speed_multiplier
 		if _cycle_time >= CYCLE_LENGTH:
 			_cycle_time = fmod(_cycle_time, CYCLE_LENGTH)
-		_update_day_night_cycle()
+			_update_day_night_cycle()
 	_update_underwater_state()
 	_recover_fallen_player()
 	_update_hud(_delta)
+
+
+func _physics_process(_delta: float) -> void:
+	_poll_gate_overlap_fallback()
+	_poll_gate_proximity_fallback()
+	_poll_gate_room_slot_fallback()
+	_poll_gate_room_return_fallback()
+
+
+func _poll_gate_overlap_fallback() -> void:
+	if _gate_transition_in_progress:
+		return
+	if Time.get_ticks_msec() < _gate_trigger_enable_time_msec:
+		return
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return
+	if generated_root == null:
+		return
+	var gate_root: Node = generated_root.get_node_or_null("Gates")
+	if gate_root == null:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	for child in gate_root.get_children():
+		var area: Area3D = child as Area3D
+		if area == null:
+			continue
+		if not str(area.name).begins_with("GateArea_"):
+			continue
+		var gate_index: int = int(str(area.name).trim_prefix("GateArea_"))
+		var overlaps: bool = area.overlaps_body(player)
+		var was_active: bool = bool(_gate_overlap_active.get(gate_index, false))
+		if overlaps and not was_active:
+			_gate_overlap_active[gate_index] = true
+			_on_gate_body_entered(player, gate_index)
+		elif not overlaps and was_active:
+			_gate_overlap_active.erase(gate_index)
+
+
+func _poll_gate_proximity_fallback() -> void:
+	if _gate_transition_in_progress:
+		return
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		_last_gate_index_in_range = -1
+		return
+	if generated_root == null:
+		_last_gate_index_in_range = -1
+		return
+	var gate_root: Node = generated_root.get_node_or_null("Gates")
+	if gate_root == null:
+		_last_gate_index_in_range = -1
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		_last_gate_index_in_range = -1
+		return
+	var proximity_radius: float = 6.0
+	_last_gate_index_in_range = -1
+	var best_dist: float = INF
+	var now_msec: int = Time.get_ticks_msec()
+	var can_auto_trigger: bool = now_msec >= _gate_trigger_enable_time_msec and now_msec >= _gate_auto_retry_time_msec
+	for child in gate_root.get_children():
+		var gate_node: Node3D = child as Node3D
+		if gate_node == null:
+			continue
+		var gate_name: String = str(gate_node.name)
+		if not gate_name.begins_with("Gate_"):
+			continue
+		var gate_index: int = int(gate_name.trim_prefix("Gate_"))
+		var delta: Vector3 = gate_node.global_position - player.global_position
+		var dist: float = Vector2(delta.x, delta.z).length()
+		if dist <= proximity_radius and dist < best_dist:
+			best_dist = dist
+			_last_gate_index_in_range = gate_index
+	if can_auto_trigger and _last_gate_index_in_range >= 0 and best_dist <= 2.8:
+		_gate_auto_retry_time_msec = now_msec + 850
+		_on_gate_body_entered(player, _last_gate_index_in_range)
+
+
+func _poll_gate_use_input() -> void:
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return
+	var use_pressed: bool = Input.is_key_pressed(KEY_E)
+	var just_pressed: bool = use_pressed and not _gate_use_was_pressed
+	_gate_use_was_pressed = use_pressed
+	if not just_pressed:
+		return
+	if _gate_transition_in_progress:
+		return
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return
+	if _last_gate_index_in_range < 0:
+		last_discovery_text = "No gate in range."
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	last_discovery_text = "Attempting gate " + str(_last_gate_index_in_range + 1) + "..."
+	_on_gate_body_entered(player, _last_gate_index_in_range)
+
+
+func _poll_hub_use_input() -> void:
+	if not (_is_current_map_gate_room() or _is_current_map_map_nexus()):
+		return
+	var use_pressed: bool = Input.is_key_pressed(KEY_E)
+	var just_pressed: bool = use_pressed and not _gate_use_was_pressed
+	_gate_use_was_pressed = use_pressed
+	if not just_pressed:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	if _is_current_map_gate_room():
+		if _gate_room_return_in_range:
+			_on_gate_room_return_body_entered(player)
+			return
+		if _gate_room_slot_in_range >= 0:
+			_on_gate_room_gate_body_entered(player, _gate_room_slot_in_range)
+			return
+		last_discovery_text = "No Gate Room portal in range."
+		return
+
+	if _last_gate_index_in_range >= 0:
+		_on_map_nexus_gate_body_entered(player, _last_gate_index_in_range)
+	else:
+		last_discovery_text = "No nexus gate in range."
+
+
+func _poll_gate_room_slot_fallback() -> void:
+	if not _is_current_map_gate_room():
+		_gate_room_slot_in_range = -1
+		return
+	if generated_root == null:
+		_gate_room_slot_in_range = -1
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		_gate_room_slot_in_range = -1
+		return
+	var proximity_radius: float = 4.0
+	var best_dist: float = INF
+	_gate_room_slot_in_range = -1
+	for child in generated_root.get_children():
+		var gate_node: Node3D = child as Node3D
+		if gate_node == null:
+			continue
+		var gate_name: String = str(gate_node.name)
+		if not gate_name.begins_with("GateRoomGate_"):
+			continue
+		var slot_index: int = int(gate_name.trim_prefix("GateRoomGate_"))
+		var dist: float = Vector2(
+			gate_node.global_position.x - player.global_position.x,
+			gate_node.global_position.z - player.global_position.z
+		).length()
+		if dist < best_dist:
+			best_dist = dist
+			_gate_room_slot_in_range = slot_index
+		var near: bool = dist <= proximity_radius
+		var was_near: bool = bool(_gate_room_slot_active.get(slot_index, false))
+		if near and not was_near:
+			_gate_room_slot_active[slot_index] = true
+			_on_gate_room_gate_body_entered(player, slot_index)
+		elif not near and was_near:
+			_gate_room_slot_active.erase(slot_index)
+
+
+func _poll_gate_room_return_fallback() -> void:
+	_gate_room_return_in_range = false
+	if not _is_current_map_gate_room():
+		return
+	if generated_root == null:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var return_portal: Node3D = generated_root.get_node_or_null("GateRoomReturnPortal") as Node3D
+	if return_portal == null:
+		return
+	var dist: float = Vector2(
+		return_portal.global_position.x - player.global_position.x,
+		return_portal.global_position.z - player.global_position.z
+	).length()
+	_gate_room_return_in_range = dist <= 4.0
+	if _gate_room_return_in_range and not _gate_room_return_active:
+		_gate_room_return_active = true
+		_on_gate_room_return_body_entered(player)
+	elif not _gate_room_return_in_range and _gate_room_return_active:
+		_gate_room_return_active = false
 
 
 func _configure_fullscreen() -> void:
@@ -261,6 +469,9 @@ func _input(event: InputEvent) -> void:
 			if dev_menu != null:
 				dev_menu.show_login()
 
+		if event.keycode == KEY_F5:
+			_explicit_save_world_data()
+
 
 func _slot_path(slot: int) -> String:
 	return "user://save_" + str(slot) + ".json"
@@ -318,6 +529,7 @@ func _load_save_data() -> void:
 	graphics_level = int(settings.get("graphics_level", 0))
 	density_level = int(settings.get("density_level", 2))
 	lichen_count = int(universe.get("lichen_count", 0))
+	_cycle_time = _cycle_time_from_universe(universe)
 
 
 func _save_world_data() -> void:
@@ -339,6 +551,85 @@ func _save_world_data() -> void:
 	file.store_string(JSON.stringify(save_data, "\t"))
 
 
+func _explicit_save_world_data() -> void:
+	var universe: Dictionary = _current_universe()
+	universe["last_saved_cycle_time"] = _normalized_cycle_time(_cycle_time)
+	universe["last_explicit_save_unix"] = Time.get_unix_time_from_system()
+	var saved_player_state: Dictionary = _capture_player_save_state()
+	universe["last_player_state"] = saved_player_state
+	_set_current_universe(universe)
+	_save_world_data()
+	last_discovery_text = "Game saved."
+
+
+func _capture_player_save_state() -> Dictionary:
+	var base := {
+		"world_id": current_world_id,
+		"map_id": current_map_id,
+		"has_position": false,
+	}
+	if current_world_id == "" or current_map_id == "":
+		return base
+
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return base
+
+	var camera: Camera3D = player.get_node_or_null("PlayerCamera") as Camera3D
+	return {
+		"world_id": current_world_id,
+		"map_id": current_map_id,
+		"has_position": true,
+		"x": player.global_position.x,
+		"y": player.global_position.y,
+		"z": player.global_position.z,
+		"yaw": player.rotation.y,
+		"pitch": camera.rotation.x if camera != null else float(player.get("pitch")),
+		"sprint_stamina": float(player.get("sprint_stamina")),
+		"breath": float(player.get("breath")),
+		"flashlight_on": bool(player.get("flashlight_on")),
+		"flashlight_charge": float(player.get("flashlight_charge")),
+	}
+
+
+func _restore_player_save_state(player: CharacterBody3D) -> bool:
+	if player == null:
+		return false
+	var universe: Dictionary = _current_universe()
+	var state: Dictionary = universe.get("last_player_state", {})
+	if state.is_empty():
+		return false
+	if str(state.get("world_id", "")) != current_world_id:
+		return false
+	if str(state.get("map_id", "")) != current_map_id:
+		return false
+	if not bool(state.get("has_position", false)):
+		return false
+	player.global_position = Vector3(
+		float(state.get("x", player.global_position.x)),
+		float(state.get("y", player.global_position.y)),
+		float(state.get("z", player.global_position.z)),
+	)
+	player.rotation.y = float(state.get("yaw", player.rotation.y))
+	if state.has("sprint_stamina"):
+		player.set("sprint_stamina", float(state.get("sprint_stamina", player.get("sprint_stamina"))))
+	if state.has("breath"):
+		player.set("breath", float(state.get("breath", player.get("breath"))))
+	if state.has("flashlight_on"):
+		player.set("flashlight_on", bool(state.get("flashlight_on", player.get("flashlight_on"))))
+	if state.has("flashlight_charge"):
+		player.set("flashlight_charge", float(state.get("flashlight_charge", player.get("flashlight_charge"))))
+	var camera: Camera3D = player.get_node_or_null("PlayerCamera") as Camera3D
+	var pitch: float = float(state.get("pitch", player.get("pitch")))
+	player.set("pitch", pitch)
+	if camera != null:
+		camera.rotation.x = pitch
+	var flashlight: SpotLight3D = player.get_node_or_null("PlayerCamera/Flashlight") as SpotLight3D
+	if flashlight != null:
+		flashlight.light_energy = 10.5 if bool(player.get("flashlight_on")) else 0.0
+	return true
+
+
 func _current_universe() -> Dictionary:
 	return SaveManager.current_universe(save_data)
 
@@ -346,6 +637,15 @@ func _current_universe() -> Dictionary:
 func _set_current_universe(universe: Dictionary) -> void:
 	save_data = SaveManager.set_current_universe(save_data, universe)
 	current_universe_id = SaveManager.current_universe_id(save_data)
+
+
+func _set_current_universe_id(universe_id: String) -> void:
+	save_data = SaveManager.set_current_universe_id(save_data, universe_id)
+	current_universe_id = SaveManager.current_universe_id(save_data)
+
+
+func _set_universe(universe_id: String, universe: Dictionary) -> void:
+	save_data = SaveManager.set_universe(save_data, universe_id, universe)
 
 
 func _get_worlds() -> Dictionary:
@@ -381,10 +681,52 @@ func _apply_current_universe_runtime_state() -> void:
 	graphics_level = int(settings.get("graphics_level", 0))
 	density_level = int(settings.get("density_level", 2))
 	lichen_count = int(universe.get("lichen_count", 0))
+	_cycle_time = _cycle_time_from_universe(universe)
+
+
+func _default_daylight_cycle_time() -> float:
+	return (DEFAULT_START_HOUR / 24.0) * CYCLE_LENGTH
+
+
+func _explicit_resume_target() -> Dictionary:
+	var universe: Dictionary = _current_universe()
+	var state: Dictionary = universe.get("last_player_state", {})
+	if state.is_empty():
+		return {}
+	if not bool(state.get("has_position", false)):
+		return {}
+	var world_id: String = str(state.get("world_id", ""))
+	var map_id: String = str(state.get("map_id", ""))
+	if world_id == "" or map_id == "":
+		return {}
+	var worlds: Dictionary = universe.get("worlds", {})
+	if not worlds.has(world_id):
+		return {}
+	var world: Dictionary = worlds.get(world_id, {})
+	var maps: Dictionary = world.get("maps", {})
+	if not maps.has(map_id):
+		return {}
+	return {"world_id": world_id, "map_id": map_id}
+
+
+func _normalized_cycle_time(value: float) -> float:
+	var normalized: float = fmod(value, CYCLE_LENGTH)
+	if normalized < 0.0:
+		normalized += CYCLE_LENGTH
+	return normalized
+
+
+func _cycle_time_from_universe(universe: Dictionary) -> float:
+	if universe.has("last_saved_cycle_time"):
+		return _normalized_cycle_time(float(universe.get("last_saved_cycle_time", _default_daylight_cycle_time())))
+	return _default_daylight_cycle_time()
 
 
 func _seed_for_new_record(label: String, salt: int = 0) -> int:
-	return int(StableRng.mix_string(Time.get_ticks_usec(), label, salt) & 0x7fffffff)
+	var allocated: Dictionary = SaveManager.allocate_seed_for_current_universe(save_data, label, salt)
+	save_data = allocated.get("save_data", save_data)
+	current_universe_id = SaveManager.current_universe_id(save_data)
+	return int(allocated.get("seed", 0))
 
 
 func _begin_generation_channel(label: String, salt: int = 0) -> void:
@@ -412,12 +754,56 @@ func _ensure_default_world() -> void:
 	if not worlds.is_empty():
 		return
 
+	var created: Dictionary = _create_world_in_current_universe("Default World", "default_world")
+	var world_id: String = str(created.get("world_id", ""))
+	if world_id != "":
+		_set_last_world_id(world_id)
+	_save_world_data()
+
+
+func _create_world_in_current_universe(world_name: String, seed_label: String = "") -> Dictionary:
 	var world_id: String = _new_id("world")
 	var root_map_id: String = _new_id("map")
-	worlds[world_id] = _create_world_record("Default World", root_map_id, _seed_for_new_record("default_world")).to_dict()
+	var label: String = seed_label if seed_label != "" else world_id
+	var world_record: Dictionary = _create_world_record(world_name, root_map_id, _seed_for_new_record(label)).to_dict()
+	var worlds: Dictionary = _get_worlds()
+	worlds[world_id] = world_record
 	_set_worlds(worlds)
+	return {"world_id": world_id, "root_map_id": root_map_id}
+
+
+func _activate_world(world_id: String, map_id: String = "") -> void:
+	if world_id == "":
+		return
+	var world: Dictionary = _get_world(world_id)
+	if world.is_empty():
+		return
+	var target_map_id: String = map_id
+	if target_map_id == "":
+		target_map_id = str(world.get("current_map", world.get("root_map", "")))
+	if target_map_id == "":
+		return
 	_set_last_world_id(world_id)
-	_save_world_data()
+	_load_map(world_id, target_map_id)
+
+
+func _create_universe_with_default_world(universe_name: String, default_world_name: String) -> Dictionary:
+	var universe_id: String = _new_id("universe")
+	var universe: Dictionary = SaveManager.create_universe_record(universe_name)
+	var default_world_id: String = _new_id("world")
+	var root_map_id: String = _new_id("map")
+	var world_seed: int = _seed_for_new_record(default_world_id)
+	var world_record: Dictionary = _create_world_record(default_world_name, root_map_id, world_seed).to_dict()
+	var worlds: Dictionary = {}
+	worlds[default_world_id] = world_record
+	universe["worlds"] = worlds
+	universe["last_world_id"] = default_world_id
+	return {
+		"universe_id": universe_id,
+		"universe": universe,
+		"world_id": default_world_id,
+		"root_map_id": root_map_id,
+	}
 
 
 func _apply_graphics_level() -> void:
@@ -705,6 +1091,11 @@ func _show_main_menu() -> void:
 		resume_button.pressed.connect(_close_menu)
 		world_list.add_child(resume_button)
 
+		var save_btn := Button.new()
+		save_btn.text = "Save Game"
+		save_btn.pressed.connect(_explicit_save_world_data)
+		world_list.add_child(save_btn)
+
 	var new_world_btn := Button.new()
 	new_world_btn.text = "New World"
 	new_world_btn.pressed.connect(_create_new_world_direct)
@@ -876,27 +1267,17 @@ func _create_new_world_direct() -> void:
 
 
 func _create_new_world_named(raw_name: String) -> void:
-	var world_id: String = _new_id("world")
-	var root_map_id: String = _new_id("map")
 	var world_name: String = raw_name if raw_name != "" else "World " + str(_get_worlds().size() + 1)
-	var worlds: Dictionary = _get_worlds()
-	worlds[world_id] = _create_world_record(world_name, root_map_id, _seed_for_new_record(world_id)).to_dict()
-	_set_worlds(worlds)
+	var created: Dictionary = _create_world_in_current_universe(world_name)
+	var world_id: String = str(created.get("world_id", ""))
+	var root_map_id: String = str(created.get("root_map_id", ""))
 	_set_last_world_id(world_id)
 	_save_world_data()
 	_load_map(world_id, root_map_id)
 
 
 func _load_world_from_menu(world_id: String) -> void:
-	var world: Dictionary = _get_world(world_id)
-	if world.is_empty():
-		return
-
-	var map_id: String = str(world.get("current_map", world.get("root_map", "")))
-	if map_id == "":
-		return
-
-	_load_map(world_id, map_id)
+	_activate_world(world_id)
 
 
 func _switch_universe(universe_id: String) -> void:
@@ -905,8 +1286,7 @@ func _switch_universe(universe_id: String) -> void:
 		return
 	_close_menu()
 	_save_world_data()
-	save_data["current_universe_id"] = universe_id
-	current_universe_id = universe_id
+	_set_current_universe_id(universe_id)
 	current_world_id = ""
 	current_map_id = ""
 	last_discovery_text = ""
@@ -914,26 +1294,20 @@ func _switch_universe(universe_id: String) -> void:
 	_ensure_default_world()
 	var last_world_id: String = _last_world_id()
 	if last_world_id != "":
-		_load_world_from_menu(last_world_id)
+		_activate_world(last_world_id)
 	_show_main_menu()
 
 
 func _start_new_game() -> void:
 	_close_menu()
-	var universe_id := _new_id("universe")
-	var universe := SaveManager.create_universe_record("Universe " + str(_get_universe_count() + 1))
-	save_data["current_universe_id"] = universe_id
-	var universes: Dictionary = save_data.get("universes", {})
-	universes[universe_id] = universe
-	save_data["universes"] = universes
-	current_universe_id = universe_id
+	var created: Dictionary = _create_universe_with_default_world("Universe " + str(_get_universe_count() + 1), "Default World")
+	var universe_id: String = str(created.get("universe_id", ""))
+	var universe: Dictionary = created.get("universe", {})
+	var world_id: String = str(created.get("world_id", ""))
+	var root_map_id: String = str(created.get("root_map_id", ""))
+	_set_universe(universe_id, universe)
+	_set_current_universe_id(universe_id)
 	_apply_current_universe_runtime_state()
-	var world_id: String = _new_id("world")
-	var root_map_id: String = _new_id("map")
-	var worlds: Dictionary = {}
-	worlds[world_id] = _create_world_record("Default World", root_map_id, _seed_for_new_record(world_id)).to_dict()
-	_set_worlds(worlds)
-	_set_last_world_id(world_id)
 	_save_world_data()
 	_load_map(world_id, root_map_id)
 
@@ -947,11 +1321,9 @@ func _create_new_slot() -> void:
 	save_data = SaveManager.default_save_data()
 	current_universe_id = SaveManager.current_universe_id(save_data)
 	_apply_current_universe_runtime_state()
-	var world_id: String = _new_id("world")
-	var root_map_id: String = _new_id("map")
-	var worlds: Dictionary = {}
-	worlds[world_id] = _create_world_record("Slot " + str(current_slot + 1), root_map_id, _seed_for_new_record(world_id)).to_dict()
-	_set_worlds(worlds)
+	var created: Dictionary = _create_world_in_current_universe("Slot " + str(current_slot + 1))
+	var world_id: String = str(created.get("world_id", ""))
+	var root_map_id: String = str(created.get("root_map_id", ""))
 	_set_last_world_id(world_id)
 	_save_world_data()
 	_load_map(world_id, root_map_id)
@@ -1010,10 +1382,10 @@ func _switch_to_slot(slot: int, dialog: AcceptDialog) -> void:
 	_load_save_data()
 	var last_world_id: String = str(_last_world_id())
 	if last_world_id != "":
-		_load_world_from_menu(last_world_id)
+		_activate_world(last_world_id)
 	else:
 		_ensure_default_world()
-		_load_world_from_menu(str(_last_world_id()))
+		_activate_world(str(_last_world_id()))
 
 
 func _rename_world(world_id: String, button: Button) -> void:
@@ -1158,6 +1530,15 @@ func _set_world(world_id: String, world: Dictionary) -> void:
 	_set_worlds(worlds)
 
 
+func _update_world_map_record(world_id: String, map_id: String, map_record: Dictionary, save_now: bool = false) -> void:
+	var base_world: Dictionary = _get_world(world_id)
+	var updated_world: Dictionary = GateTravelService.with_updated_map_record(base_world, map_id, map_record)
+	var merged_worlds: Dictionary = GateTravelService.with_updated_world(_get_worlds(), world_id, updated_world)
+	_set_worlds(merged_worlds)
+	if save_now:
+		_save_world_data()
+
+
 func _backstory_text() -> String:
 	return "The Atlas of Gates once held every world together, but it shattered during the Convergence Collapse. Fragments of reality drifted apart, each sealed behind a dormant gate.\n\nYou are the last field cartographer of the Celestial Survey, dispatched from the floating observatory to cross the gates, map the splintered territories, and reassemble the Atlas one discovery at a time.\n\nOn the far side of certain gates lies the Moon — a silent world of glass craters and drifting lichen, where ancient shrines float in the void. Pilgrims who reach them all earn the title Moon Pilgrim.\n\nThe Survey's old handbooks speak of a limit: no more than thirty-two maps can be opened from a single world before the local gate-network saturates. Choose your path wisely."
 
@@ -1193,14 +1574,9 @@ func _store_current_map_available_discoveries() -> void:
 	if current_world_id == "" or current_map_id == "":
 		return
 
-	var world: Dictionary = _get_world(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
+	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
 	map_record["available_discoveries"] = current_map_available_discoveries
-	maps[current_map_id] = map_record
-	world["maps"] = maps
-	_set_world(current_world_id, world)
-	_save_world_data()
+	_update_world_map_record(current_world_id, current_map_id, map_record, true)
 
 
 func _map_completion_text(map_id: String) -> String:
@@ -1374,10 +1750,7 @@ func _place_cartography_pin() -> void:
 		player.global_position.z,
 	).to_dict()
 	map_record["pins"] = pins
-	maps[current_map_id] = map_record
-	world["maps"] = maps
-	_set_world(current_world_id, world)
-	_save_world_data()
+	_update_world_map_record(current_world_id, current_map_id, map_record, true)
 	last_discovery_text = "Placed " + pin_title + "."
 
 
@@ -1409,6 +1782,11 @@ func _return_to_gate_room() -> void:
 	var src_world: String = str(world.get("gate_room_source_world", ""))
 	var src_map: String = str(world.get("gate_room_source_map", ""))
 	if src_world != "" and src_map != "":
+		var gate_room_record: Dictionary = _get_map_record(src_world, src_map)
+		if not gate_room_record.is_empty():
+			gate_room_record["gate_room_return_world"] = current_world_id
+			gate_room_record["gate_room_return_map"] = current_map_id
+			_update_world_map_record(src_world, src_map, gate_room_record, true)
 		last_discovery_text = "Returning to Gate Room."
 		_load_map(src_world, src_map)
 
@@ -1493,7 +1871,12 @@ func _get_player() -> CharacterBody3D:
 
 func _recover_fallen_player() -> void:
 	var player: CharacterBody3D = _get_player()
-	if player == null or player.global_position.y > -50.0:
+	if player == null:
+		return
+	if _ensure_player_above_surface(player):
+		last_discovery_text = "Repositioned above terrain."
+		return
+	if player.global_position.y > -50.0:
 		return
 	player.global_position = _find_spawn_position()
 	player.velocity = Vector3.ZERO
@@ -1662,11 +2045,11 @@ func _update_hud(delta: float = 0.0) -> void:
 	var discovery_line: String = last_discovery_text
 	if discovery_line == "":
 		discovery_line = "Seek gates, ruins, and wonders."
-
+	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
+	var objective_line: String = _next_objective_hint(map_record)
+	var progression_line: String = _progression_hint(map_record)
 	var world_map_count: int = discovery_tracker.current_world_map_count() if discovery_tracker != null else 0
 	var maps_line: String = "Maps in world: " + str(world_map_count)
-
-	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
 	var map_type: String = str(map_record.get("type", ""))
 	var recent_discoveries: Array[String] = _recent_discovery_titles(map_record.get("discoveries", {}), 3)
 	hud_controller.update({
@@ -1678,6 +2061,8 @@ func _update_hud(delta: float = 0.0) -> void:
 		"warning_text": warning_text,
 		"flashlight_text": flashlight_text,
 		"discovery_line": discovery_line,
+		"objective_line": objective_line,
+		"progression_line": progression_line,
 		"recent_discoveries": recent_discoveries,
 		"maps_line": maps_line,
 		"atlas_summary": _atlas_summary_text(),
@@ -1697,7 +2082,85 @@ func _update_hud(delta: float = 0.0) -> void:
 		"breath": breath,
 		"player_node": player,
 		"world_half_size": _world_half_size(),
+		"minimap_zoom": 1.15 if _is_current_map_moon() else 1.0,
 	})
+
+
+func _next_objective_hint(map_record: Dictionary) -> String:
+	if _is_current_map_gate_room():
+		return "Objective: Enter a world gate to chart another map."
+	if _is_current_map_map_nexus():
+		return "Objective: Select a nexus gate to branch your atlas route."
+	if _is_current_map_moon():
+		var discoveries: Dictionary = map_record.get("discoveries", {})
+		var shrine_count: int = 0
+		for key in discoveries.keys():
+			if str(key).begins_with("moon_orb_"):
+				shrine_count += 1
+		if shrine_count < 9:
+			return "Objective: Recover moon shrine orbs (" + str(shrine_count) + "/9)."
+		return "Objective: Return through a gate and continue atlas expansion."
+
+	var available: int = int(map_record.get("available_discoveries", 0))
+	var found: int = map_record.get("discoveries", {}).size()
+	if available > 0 and found < available:
+		return "Objective: Find remaining discoveries on this map (" + str(found) + "/" + str(available) + ")."
+	if found <= 0:
+		return "Objective: Find your first discovery on this map."
+	var route_hint: String = _linked_route_hint(map_record)
+	if route_hint != "":
+		return route_hint
+
+	var world_map_count: int = discovery_tracker.current_world_map_count() if discovery_tracker != null else 0
+	if world_map_count < 5:
+		return "Objective: Traverse gates and expand this world atlas (" + str(world_map_count) + " maps)."
+	return "Objective: Use gates to reach rare biomes and hidden routes."
+
+
+func _progression_hint(map_record: Dictionary) -> String:
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	var found: int = discoveries.size()
+	var world_map_count: int = discovery_tracker.current_world_map_count() if discovery_tracker != null else 0
+	var universe: Dictionary = _current_universe()
+	var achievements: Dictionary = universe.get("achievements", {})
+	var achieved: int = achievements.size()
+	if found < 3:
+		return "Progress: Early survey - secure 3 discoveries on this map."
+	if world_map_count < 3:
+		return "Progress: Cartographer I - chart 3 maps in this world."
+	if achieved < 5:
+		return "Progress: Expeditioner - unlock 5 achievements."
+	return "Progress: Deep expedition - pursue moon shrines and world saturation routes."
+
+
+func _linked_route_hint(map_record: Dictionary) -> String:
+	if current_world_id == "":
+		return ""
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var gates: Dictionary = map_record.get("gates", {})
+	var best_target_id: String = ""
+	var best_remaining: int = -1
+	for gate_key in gates.keys():
+		var target_id: String = str(gates[gate_key])
+		if target_id == "" or not maps.has(target_id):
+			continue
+		var target_record: Dictionary = maps.get(target_id, {})
+		if target_record.is_empty():
+			continue
+		var available: int = int(target_record.get("available_discoveries", 0))
+		if available <= 0:
+			continue
+		var found: int = target_record.get("discoveries", {}).size()
+		var remaining: int = max(available - found, 0)
+		if remaining <= 0:
+			continue
+		if best_target_id == "" or remaining > best_remaining:
+			best_target_id = target_id
+			best_remaining = remaining
+	if best_target_id != "":
+		return "Objective: Route through linked map " + _short_id(best_target_id) + " (" + str(best_remaining) + " discoveries remaining)."
+	return ""
 
 
 func _recent_discovery_titles(discoveries: Dictionary, max_count: int) -> Array[String]:
@@ -1773,6 +2236,17 @@ func _on_discovery_body_entered(body: Node3D, discovery_id: String, title: Strin
 
 
 func _load_map(world_id: String, map_id: String) -> void:
+	_gate_transition_in_progress = false
+	_gate_overlap_active.clear()
+	_gate_proximity_active.clear()
+	_gate_room_slot_active.clear()
+	_gate_room_return_active = false
+	_last_gate_index_in_range = -1
+	_gate_room_slot_in_range = -1
+	_gate_room_return_in_range = false
+	_gate_use_was_pressed = Input.is_key_pressed(KEY_E)
+	_gate_trigger_enable_time_msec = Time.get_ticks_msec() + 300
+	_gate_auto_retry_time_msec = _gate_trigger_enable_time_msec
 	_close_menu()
 	current_world_id = world_id
 	current_map_id = map_id
@@ -1825,13 +2299,14 @@ func _load_map(world_id: String, map_id: String) -> void:
 
 	if _is_current_map_gate_room():
 		GateFactory.scatter_gate_room_gates(generated_root, 4, _on_gate_room_gate_body_entered)
+		GateFactory.scatter_gate_room_return_portal(generated_root, _on_gate_room_return_body_entered)
 	elif _is_current_map_cave():
 		GateFactory.scatter_cave_items(generated_root, world_seed)
 		_begin_generation_channel("gates")
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
 			target_seeds.append(_gate_target_seed(gi))
-			GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
+		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
 		_gate_positions_to_wonders()
 	elif _is_current_map_map_nexus():
 		GateFactory.scatter_map_nexus_gates(generated_root, 4, _on_map_nexus_gate_body_entered)
@@ -1846,7 +2321,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_moon_glass_craters()
 			_scatter_moon_platforms()
 		elif _is_current_map_arctic():
-			_scatter_trees()
+			_scatter_arctic_trees()
 			_scatter_rocks()
 			_scatter_crystals()
 			_scatter_ruins()
@@ -1869,7 +2344,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
 			target_seeds.append(_gate_target_seed(gi))
-			GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
+		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
 		_gate_positions_to_wonders()
 	_store_current_map_available_discoveries()
 
@@ -1896,6 +2371,23 @@ func _clear_generated_map() -> void:
 	if generated_root != null:
 		generated_root.queue_free()
 		generated_root = null
+	_gate_overlap_active.clear()
+	_gate_proximity_active.clear()
+	_gate_room_slot_active.clear()
+	_gate_room_return_active = false
+	_gate_room_slot_in_range = -1
+	_gate_room_return_in_range = false
+	_gate_transition_in_progress = false
+	_clear_factory_caches()
+
+
+func _clear_factory_caches() -> void:
+	TreeFactory.clear_cache()
+	RockFactory.clear_cache()
+	CrystalFactory.clear_cache()
+	FlowerFactory.clear_cache()
+	UnderwaterPlantFactory.clear_cache()
+	GateFactory.clear_cache()
 
 
 func _add_generated_child(node: Node) -> void:
@@ -2059,6 +2551,11 @@ func _scatter_trees() -> void:
 	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, map_context)
 
 
+func _scatter_arctic_trees() -> void:
+	_begin_generation_channel("trees")
+	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, map_context, 0.12)
+
+
 func _scatter_rocks() -> void:
 	_begin_generation_channel("rocks")
 	RockFactory.scatter_rocks(generated_root, world_seed, density_level, map_context)
@@ -2206,10 +2703,7 @@ func _on_moon_gate_body_entered(body: Node3D) -> void:
 	var world: Dictionary = _get_world(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
 	if not maps.has("moon"):
-		maps["moon"] = _create_moon_map_record(_moon_seed(world)).to_dict()
-		world["maps"] = maps
-		_set_world(current_world_id, world)
-		_save_world_data()
+		_update_world_map_record(current_world_id, "moon", _create_moon_map_record(_moon_seed(world)).to_dict(), true)
 
 	_load_map(current_world_id, "moon")
 
@@ -2317,8 +2811,8 @@ func _on_gate_room_gate_body_entered(body: Node3D, slot_index: int) -> void:
 	var updated_worlds: Dictionary = gate_room_result.get("worlds", worlds)
 	var updated_map_record: Dictionary = gate_room_result.get("current_map_record", map_record)
 	var updated_world: Dictionary = GateTravelService.with_updated_map_record(_get_world(current_world_id), current_map_id, updated_map_record)
-	_set_world(current_world_id, updated_world)
-	_set_worlds(updated_worlds)
+	var merged_worlds: Dictionary = GateTravelService.with_updated_world(updated_worlds, current_world_id, updated_world)
+	_set_worlds(merged_worlds)
 	if bool(gate_room_result.get("changed", false)):
 		_save_world_data()
 	var target_world_id: String = str(gate_room_result.get("target_world_id", ""))
@@ -2338,9 +2832,18 @@ func _on_gate_room_return_body_entered(body: Node3D) -> void:
 	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
 	var return_result: Dictionary = GateTravelService.resolve_gate_room_return(map_record)
 	if not bool(return_result.get("ok", false)) or not bool(return_result.get("has_return", false)):
+		last_discovery_text = "No active return portal."
 		return
+	var target_world_id: String = str(return_result.get("target_world_id", ""))
+	var target_map_id: String = str(return_result.get("target_map_id", ""))
+	if target_world_id == "" or target_map_id == "":
+		last_discovery_text = "Return portal is unlinked."
+		return
+	map_record["gate_room_return_world"] = ""
+	map_record["gate_room_return_map"] = ""
+	_update_world_map_record(current_world_id, current_map_id, map_record, true)
 	last_discovery_text = str(return_result.get("message", "Returning from Gate Room."))
-	_load_map(str(return_result.get("target_world_id", "")), str(return_result.get("target_map_id", "")))
+	_load_map(target_world_id, target_map_id)
 
 
 func _on_map_nexus_gate_body_entered(body: Node3D, slot_index: int) -> void:
@@ -2363,10 +2866,9 @@ func _on_map_nexus_gate_body_entered(body: Node3D, slot_index: int) -> void:
 	if not bool(nexus_result.get("ok", false)) or bool(nexus_result.get("skip", false)):
 		return
 	var updated_map_record: Dictionary = nexus_result.get("current_map_record", map_record)
-	var updated_world: Dictionary = GateTravelService.with_updated_map_record(_get_world(current_world_id), current_map_id, updated_map_record)
-	_set_world(current_world_id, updated_world)
+	_update_world_map_record(current_world_id, current_map_id, updated_map_record, bool(nexus_result.get("changed", false)))
 	if bool(nexus_result.get("changed", false)):
-		_save_world_data()
+		pass
 	var target_world_id: String = str(nexus_result.get("target_world_id", ""))
 	var target_map_id: String = str(nexus_result.get("target_map_id", ""))
 	if target_world_id == "" or target_map_id == "":
@@ -2429,6 +2931,10 @@ func _spawn_player() -> void:
 		player.set("gravity_multiplier", 0.25)
 		player.set("jump_multiplier", 4.0)
 		player.set("water_level", -100000.0)
+	elif _is_current_map_arctic():
+		player.set("gravity_multiplier", 1.0)
+		player.set("jump_multiplier", 1.0)
+		player.set("water_level", -100000.0)
 	else:
 		player.set("gravity_multiplier", 1.0)
 		player.set("jump_multiplier", 1.0)
@@ -2438,6 +2944,8 @@ func _spawn_player() -> void:
 	if _is_current_map_cave():
 		AudioManager.setup_cave_player_audio(player)
 	player.lichen_count = lichen_count
+	_restore_player_save_state(player)
+	_ensure_player_above_surface(player)
 
 
 func _find_spawn_position() -> Vector3:
@@ -2481,6 +2989,20 @@ func _find_spawn_position() -> Vector3:
 	return best_pos
 
 
+func _ensure_player_above_surface(player: CharacterBody3D) -> bool:
+	if player == null:
+		return false
+	if _is_current_map_cave() or _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return false
+	var terrain_y: float = _height_at_world(player.global_position.x, player.global_position.z)
+	var min_safe_y: float = terrain_y + 1.2
+	if player.global_position.y < min_safe_y:
+		player.global_position = Vector3(player.global_position.x, min_safe_y, player.global_position.z)
+		player.velocity = Vector3.ZERO
+		return true
+	return false
+
+
 func _check_moon_shrine_completion() -> void:
 	if not _is_current_map_moon():
 		return
@@ -2501,10 +3023,7 @@ func _check_moon_shrine_completion() -> void:
 			"z": 0.0,
 		}
 		map_record["discoveries"] = discoveries
-		maps[current_map_id] = map_record
-		world["maps"] = maps
-		_set_world(current_world_id, world)
-		_save_world_data()
+		_update_world_map_record(current_world_id, current_map_id, map_record, true)
 		if discovery_tracker != null:
 			discovery_tracker.award_achievement("moon_pilgrim")
 
@@ -2512,12 +3031,17 @@ func _check_moon_shrine_completion() -> void:
 func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 	if body.name != "Player" or current_world_id == "" or current_map_id == "":
 		return
+	if _gate_transition_in_progress:
+		return
 	if discovery_tracker == null:
 		return
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
 		return
+	_gate_transition_in_progress = true
 
-	var world: Dictionary = _get_world(current_world_id)
+	var worlds: Dictionary = _get_worlds()
+	var world: Dictionary = worlds.get(current_world_id, {})
+	last_discovery_text = "Gate " + str(gate_index + 1) + ": initializing..."
 	var gate_result: Dictionary = GateTravelService.resolve_gate_transition(
 		world_seed,
 		current_map_id,
@@ -2527,20 +3051,32 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 		WATER_ROUTE_CHANCE
 	)
 	if not bool(gate_result.get("ok", false)):
-		push_error("Gate travel resolution failed for map " + current_map_id + ": " + str(gate_result.get("error", "unknown")))
+		var gate_error: String = str(gate_result.get("error", "unknown"))
+		last_discovery_text = "Gate " + str(gate_index + 1) + " failed: " + gate_error
+		push_error("Gate travel resolution failed for map " + current_map_id + ": " + gate_error)
+		_gate_transition_in_progress = false
 		return
 	if bool(gate_result.get("inert", false)):
-		last_discovery_text = "Gate inert — saturation reached in this world."
+		last_discovery_text = "Gate " + str(gate_index + 1) + " inert — saturation reached in this world."
+		_gate_transition_in_progress = false
 		return
 	if bool(gate_result.get("changed", false)):
-		_set_world(current_world_id, gate_result.get("world", world))
+		var merged_worlds: Dictionary = GateTravelService.with_updated_world(worlds, current_world_id, gate_result.get("world", world))
+		_set_worlds(merged_worlds)
 		_save_world_data()
 	if bool(gate_result.get("is_water_route", false)):
 		discovery_tracker.award_achievement("island_hopper")
 
 	var target_map_id: String = str(gate_result.get("target_map_id", ""))
 	if target_map_id == "":
+		last_discovery_text = "Gate " + str(gate_index + 1) + " failed: empty target."
 		push_error("Gate travel resolution produced empty target map id.")
+		_gate_transition_in_progress = false
+		return
+	if target_map_id == current_map_id:
+		last_discovery_text = "Gate " + str(gate_index + 1) + " failed: loop target."
+		push_error("Gate travel resolved to current map id unexpectedly.")
+		_gate_transition_in_progress = false
 		return
 
 	last_discovery_text = "Passing through gate " + str(gate_index + 1) + "..."
@@ -2548,5 +3084,12 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 		var gx: float = body.global_position.x
 		var gz: float = body.global_position.z
 		discovery_tracker.record_discovery("gate_" + str(gate_index), str(gate_index + 1), "gate", Vector3(gx, 0.0, gz))
-	_load_map(current_world_id, target_map_id)
-	discovery_tracker.award_achievement("gate_crasher")
+	var target_world_id: String = current_world_id
+	call_deferred("_deferred_load_gate_target", target_world_id, target_map_id)
+
+
+func _deferred_load_gate_target(target_world_id: String, target_map_id: String) -> void:
+	_gate_transition_in_progress = false
+	_load_map(target_world_id, target_map_id)
+	if discovery_tracker != null:
+		discovery_tracker.award_achievement("gate_crasher")

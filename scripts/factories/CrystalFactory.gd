@@ -8,6 +8,11 @@ static var _mesh_cache: Dictionary = {}
 static var _material_cache: Dictionary = {}
 
 
+static func clear_cache() -> void:
+	_mesh_cache.clear()
+	_material_cache.clear()
+
+
 static func scatter_crystals(parent: Node3D, world_seed: int, density_level: int, context: MapContext) -> void:
 	_scatter_crystals_internal(
 		parent,

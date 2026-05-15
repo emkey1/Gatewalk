@@ -10,6 +10,17 @@ const GATE_DIRECTIONS: Array[Vector3] = [
 	Vector3(0.0, 0.0, 1.0),
 	Vector3(0.0, 0.0, -1.0),
 ]
+static var _cached_gate_material: StandardMaterial3D
+static var _cached_gate_post_mesh: CylinderMesh
+static var _cached_gate_arch_mesh: BoxMesh
+static var _cached_gate_area_shape: BoxShape3D
+
+
+static func clear_cache() -> void:
+	_cached_gate_material = null
+	_cached_gate_post_mesh = null
+	_cached_gate_arch_mesh = null
+	_cached_gate_area_shape = null
 
 
 static func create_gates(
@@ -22,14 +33,9 @@ static func create_gates(
 	parent.add_child(gate_root)
 
 	var gate_mat := _gate_material()
-	var post_mesh := CylinderMesh.new()
-	post_mesh.top_radius = 0.22
-	post_mesh.bottom_radius = 0.28
-	post_mesh.height = 4.0
-	var arch_mesh := BoxMesh.new()
-	arch_mesh.size = Vector3(2.8, 0.35, 0.5)
-	var gate_area_box := BoxShape3D.new()
-	gate_area_box.size = Vector3(3.5, 5.0, 3.5)
+	var post_mesh := _gate_post_mesh()
+	var arch_mesh := _gate_arch_mesh()
+	var gate_area_box := _gate_area_shape()
 
 	for gate_index in range(GATE_DIRECTIONS.size()):
 		var dir: Vector3 = GATE_DIRECTIONS[gate_index]
@@ -87,7 +93,7 @@ static func create_gates(
 		area_shape.position = Vector3(0.0, 1.8, 0.0)
 		area.add_child(area_shape)
 		area.position = gate_pos
-		area.body_entered.connect(on_body_entered.bind(gate_index))
+		area.body_entered.connect(on_body_entered.bind(gate_index), CONNECT_DEFERRED)
 		gate_root.add_child(area)
 
 
@@ -139,8 +145,47 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 		area_shape.shape = slot_area_box
 		area.add_child(area_shape)
 		area.position = slot_pos
-		area.body_entered.connect(on_body_entered.bind(si))
+		area.body_entered.connect(on_body_entered.bind(si), CONNECT_DEFERRED)
 		parent.add_child(area)
+
+
+static func scatter_gate_room_return_portal(parent: Node3D, on_body_entered: Callable) -> void:
+	var portal_mat := StandardMaterial3D.new()
+	portal_mat.albedo_color = Color(0.30, 0.56, 0.88, 0.40)
+	portal_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	portal_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	portal_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	portal_mat.emission_enabled = true
+	portal_mat.emission = Color(0.16, 0.38, 0.72)
+	portal_mat.emission_energy_multiplier = 0.9
+
+	var portal := MeshInstance3D.new()
+	portal.name = "GateRoomReturnPortal"
+	var portal_mesh := CylinderMesh.new()
+	portal_mesh.top_radius = 1.6
+	portal_mesh.bottom_radius = 1.6
+	portal_mesh.height = 3.0
+	portal_mesh.radial_segments = 20
+	portal.mesh = portal_mesh
+	portal.material_override = portal_mat
+	portal.position = Vector3(0.0, 1.5, -24.0)
+	parent.add_child(portal)
+
+	var area := Area3D.new()
+	area.name = "GateRoomReturnArea"
+	area.collision_layer = 0
+	area.collision_mask = 2
+	area.monitoring = true
+	area.monitorable = true
+	var area_shape := CollisionShape3D.new()
+	var shape := CylinderShape3D.new()
+	shape.radius = 2.4
+	shape.height = 3.6
+	area_shape.shape = shape
+	area.add_child(area_shape)
+	area.position = portal.position
+	area.body_entered.connect(on_body_entered, CONNECT_DEFERRED)
+	parent.add_child(area)
 
 
 static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_entered: Callable) -> void:
@@ -192,7 +237,7 @@ static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_ent
 		area_shape.shape = slot_area_box
 		area.add_child(area_shape)
 		area.position = slot_pos
-		area.body_entered.connect(on_body_entered.bind(si))
+		area.body_entered.connect(on_body_entered.bind(si), CONNECT_DEFERRED)
 		parent.add_child(area)
 
 
@@ -220,10 +265,42 @@ static func scatter_cave_items(parent: Node3D, world_seed: int) -> void:
 
 
 static func _gate_material() -> StandardMaterial3D:
+	if _cached_gate_material != null:
+		return _cached_gate_material
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.28, 0.24, 0.30)
 	mat.roughness = 0.95
-	return mat
+	_cached_gate_material = mat
+	return _cached_gate_material
+
+
+static func _gate_post_mesh() -> CylinderMesh:
+	if _cached_gate_post_mesh != null:
+		return _cached_gate_post_mesh
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.22
+	mesh.bottom_radius = 0.28
+	mesh.height = 4.0
+	_cached_gate_post_mesh = mesh
+	return _cached_gate_post_mesh
+
+
+static func _gate_arch_mesh() -> BoxMesh:
+	if _cached_gate_arch_mesh != null:
+		return _cached_gate_arch_mesh
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(2.8, 0.35, 0.5)
+	_cached_gate_arch_mesh = mesh
+	return _cached_gate_arch_mesh
+
+
+static func _gate_area_shape() -> BoxShape3D:
+	if _cached_gate_area_shape != null:
+		return _cached_gate_area_shape
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(3.5, 5.0, 3.5)
+	_cached_gate_area_shape = shape
+	return _cached_gate_area_shape
 
 
 static func _gate_glow_material(target_seed: int) -> StandardMaterial3D:

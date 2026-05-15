@@ -36,6 +36,7 @@ var _trail_timer: float = 0.0
 var _wonder_positions: Array = []
 var _discovered_ids: Dictionary = {}
 var _last_map_id: String = ""
+var _minimap_zoom: float = 1.0
 
 
 func setup(parent: Node) -> void:
@@ -162,6 +163,8 @@ func update(data: Dictionary) -> void:
 	var warning_text: String = str(data.get("warning_text", ""))
 	var flashlight_text: String = str(data.get("flashlight_text", ""))
 	var discovery_line: String = str(data.get("discovery_line", "Seek gates, ruins, and wonders."))
+	var objective_line: String = str(data.get("objective_line", ""))
+	var progression_line: String = str(data.get("progression_line", ""))
 	var recent_discoveries: Array = data.get("recent_discoveries", [])
 	var maps_line: String = str(data.get("maps_line", ""))
 	var atlas_summary: String = str(data.get("atlas_summary", ""))
@@ -183,6 +186,8 @@ func update(data: Dictionary) -> void:
 		hud_label.text += "\n[G] Return to Gate Room"
 	else:
 		hud_label.text = "World: " + world_name + "\n" + atlas_summary + "\n" + maps_line + "\nMap " + map_short + ": " + map_completion + "\n" + position_text + "\n" + discovery_line
+		if map_type != "":
+			hud_label.text += "\nBiome: " + map_type
 		if gate_room_source_world != "" and gate_room_source_map != "":
 			hud_label.text += "\n[G] Return to Gate Room"
 
@@ -202,6 +207,10 @@ func update(data: Dictionary) -> void:
 
 	if recent_discoveries.size() > 0:
 		hud_label.text += "\nRecent: " + ", ".join(recent_discoveries)
+	if objective_line != "":
+		hud_label.text += "\n" + objective_line
+	if progression_line != "":
+		hud_label.text += "\n" + progression_line
 
 	var stamina: float = float(data.get("stamina", -1.0))
 	if stamina_bar != null and stamina >= 0.0:
@@ -221,6 +230,11 @@ func update(data: Dictionary) -> void:
 		_discovered_ids[dk] = true
 
 	var current_map_id: String = str(data.get("current_map_id", ""))
+	_minimap_zoom = clamp(float(data.get("minimap_zoom", 1.0)), 0.6, 2.5)
+	if minimap_panel != null and minimap_marker_layer != null:
+		var panel_size: float = 96.0 if (_is_moon_fn.is_valid() and _is_moon_fn.call()) else 80.0
+		minimap_panel.custom_minimum_size = Vector2(panel_size, panel_size)
+		minimap_marker_layer.custom_minimum_size = Vector2(panel_size, panel_size)
 	if current_map_id != _last_map_id:
 		_last_map_id = current_map_id
 		_trail.clear()
@@ -236,26 +250,30 @@ func update(data: Dictionary) -> void:
 				if _trail.size() > 400:
 					_trail.pop_front()
 
-	_update_minimap(player, world_half_size, discoveries_dict, pins_dict, data.get("delta", 0.0))
+	_update_minimap(player, world_half_size, discoveries_dict, pins_dict, data.get("delta", 0.0), _minimap_zoom)
 
 	if fps_label != null and show_fps:
 		fps_label.text = str(Engine.get_frames_per_second()) + " FPS"
 
 
-func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins: Dictionary, delta: float = 0.0) -> void:
+func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins: Dictionary, delta: float = 0.0, zoom: float = 1.0) -> void:
 	if minimap_marker_layer == null:
 		return
 
 	for child in minimap_marker_layer.get_children():
 		child.queue_free()
 
-	var size: float = 80.0
-	if _is_moon_fn.is_valid() and _is_moon_fn.call():
-		size = 100.0
+	var layer_size: Vector2 = minimap_marker_layer.size
+	if layer_size.x <= 0.0 or layer_size.y <= 0.0:
+		layer_size = minimap_marker_layer.custom_minimum_size
+	var size: float = min(layer_size.x, layer_size.y)
+	if size <= 0.0:
+		size = 80.0
+	var effective_half: float = max(half * zoom, 1.0)
 
 	for ti in range(max(0, _trail.size() - 1)):
 		var tp: Dictionary = _trail[ti]
-		var tpos: Vector2 = _world_to_minimap(float(tp["x"]), float(tp["z"]), size, half)
+		var tpos: Vector2 = _world_to_minimap(float(tp["x"]), float(tp["z"]), size, effective_half)
 		var alpha: float = 0.08 + 0.12 * float(ti) / float(max(_trail.size(), 1))
 		var tdot := ColorRect.new()
 		tdot.color = Color(0.35, 0.55, 0.75, alpha)
@@ -267,7 +285,7 @@ func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins:
 	for w in _wonder_positions:
 		var wx: float = float(w["x"])
 		var wz: float = float(w["z"])
-		var wpos: Vector2 = _world_to_minimap(wx, wz, size, half)
+		var wpos: Vector2 = _world_to_minimap(wx, wz, size, effective_half)
 		var wid: String = str(w.get("id", ""))
 		var is_discovered: bool = _discovered_ids.has(wid)
 		var kind: String = str(w.get("kind", "wonder"))
@@ -290,7 +308,7 @@ func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins:
 			continue
 		var x: float = float(discovery["x"])
 		var z: float = float(discovery["z"])
-		var pos: Vector2 = _world_to_minimap(x, z, size, half)
+		var pos: Vector2 = _world_to_minimap(x, z, size, effective_half)
 		var kind: String = str(discovery.get("kind", "wonder"))
 		var color: Color = Color(0.35, 0.85, 1.0)
 		if kind == "gate":
@@ -309,11 +327,11 @@ func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins:
 			continue
 		var px: float = float(pin["x"])
 		var pz: float = float(pin["z"])
-		var ppos: Vector2 = _world_to_minimap(px, pz, size, half)
+		var ppos: Vector2 = _world_to_minimap(px, pz, size, effective_half)
 		_add_minimap_dot(ppos, Color(1.0, 0.45, 0.9), 1.2)
 
 	if player != null:
-		var player_pos: Vector2 = _world_to_minimap(player.global_position.x, player.global_position.z, size, half)
+		var player_pos: Vector2 = _world_to_minimap(player.global_position.x, player.global_position.z, size, effective_half)
 		var fwd: Vector3 = -player.global_transform.basis.z
 		var angle: float = atan2(fwd.x, -fwd.z)
 

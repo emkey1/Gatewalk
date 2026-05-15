@@ -35,46 +35,68 @@ static func resolve_gate_transition(
 	var available: int = int(map_record.get("available_discoveries", 0))
 	var discoveries: Dictionary = map_record.get("discoveries", {})
 
-	if target_map_id == "":
-		var existing_key: String = ""
-		for gk in gates.keys():
-			if str(gates[gk]) != "":
-				existing_key = str(gates[gk])
-				break
-		if existing_key != "":
-			target_map_id = existing_key
-		else:
-			var seed_val: int = _preview_gate_seed(world_seed, gate_index)
-			var target_type: String = WorldGraph.MAP_NORMAL
-			var is_arctic_route: bool = false
-			var is_cave_route: bool = false
-			if map_type != WorldGraph.MAP_WATER:
-				is_water_route = gate_rng.chance(water_route_chance)
-				if is_water_route:
-					target_type = WorldGraph.MAP_WATER
-			if not is_water_route:
-				is_arctic_route = gate_rng.chance(arctic_route_chance)
-				if is_arctic_route:
-					target_type = WorldGraph.MAP_ARCTIC
-			if not is_water_route and not is_arctic_route:
-				is_cave_route = gate_rng.chance(cave_route_chance)
-				if is_cave_route:
-					target_type = WorldGraph.MAP_CAVE
-			if not is_cave_route and not is_arctic_route and not is_water_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
-				return {
-					"ok": true,
-					"inert": true,
-					"changed": false,
-				}
+	# Heal stale/corrupt gate links from older saves or interrupted generation:
+	# if the gate points at a map id that no longer exists, treat it as uninitialized.
+	if target_map_id != "" and not maps.has(target_map_id):
+		gates[str(gate_index)] = ""
+		map_record["gates"] = gates
+		maps[current_map_id] = map_record
+		world["maps"] = maps
+		target_map_id = ""
+		changed = true
 
-			target_map_id = str(new_map_id_fn.call("map"))
-			maps[target_map_id] = WorldGraph.create_map_record(seed_val, target_type).to_dict()
-			changed = true
+	if target_map_id == "":
+		var seed_val: int = _preview_gate_seed(world_seed, gate_index)
+		var target_type: String = WorldGraph.MAP_NORMAL
+		var is_arctic_route: bool = false
+		var is_cave_route: bool = false
+		var from_cave: bool = map_type == WorldGraph.MAP_CAVE
+		if not from_cave and map_type != WorldGraph.MAP_WATER:
+			is_water_route = gate_rng.chance(water_route_chance)
+			if is_water_route:
+				target_type = WorldGraph.MAP_WATER
+		if not from_cave and not is_water_route:
+			is_arctic_route = gate_rng.chance(arctic_route_chance)
+			if is_arctic_route:
+				target_type = WorldGraph.MAP_ARCTIC
+		if not from_cave and not is_water_route and not is_arctic_route:
+			is_cave_route = gate_rng.chance(cave_route_chance)
+			if is_cave_route:
+				target_type = WorldGraph.MAP_CAVE
+		if not is_cave_route and not is_arctic_route and not is_water_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
+			return {
+				"ok": true,
+				"inert": true,
+				"changed": false,
+			}
+
+		target_map_id = str(new_map_id_fn.call("map"))
+		maps[target_map_id] = WorldGraph.create_map_record(seed_val, target_type).to_dict()
+		changed = true
 
 		gates[str(gate_index)] = target_map_id
 		map_record["gates"] = gates
 		maps[current_map_id] = map_record
 		world["maps"] = maps
+		changed = true
+	elif typeof(maps.get(target_map_id, null)) != TYPE_DICTIONARY:
+		# If the linked map record exists but is malformed, rebuild it in place.
+		var repaired_seed: int = _preview_gate_seed(world_seed, gate_index)
+		maps[target_map_id] = WorldGraph.create_map_record(repaired_seed, WorldGraph.MAP_NORMAL).to_dict()
+		world["maps"] = maps
+		changed = true
+
+	# A gate that resolves to the same map appears "dead" to players.
+	# Repair by regenerating a fresh target map link.
+	if target_map_id == current_map_id:
+		var replacement_seed: int = _preview_gate_seed(world_seed, gate_index)
+		var replacement_map_id: String = str(new_map_id_fn.call("map"))
+		maps[replacement_map_id] = WorldGraph.create_map_record(replacement_seed, WorldGraph.MAP_NORMAL).to_dict()
+		gates[str(gate_index)] = replacement_map_id
+		map_record["gates"] = gates
+		maps[current_map_id] = map_record
+		world["maps"] = maps
+		target_map_id = replacement_map_id
 		changed = true
 
 	return {

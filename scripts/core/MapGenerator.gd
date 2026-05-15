@@ -131,11 +131,17 @@ func _terrain_color(pos: Vector3) -> Color:
 		return Color(0.25, 0.26, 0.31)
 
 	if map_type == WorldGraph.MAP_ARCTIC:
-		if pos.y > 8.0:
-			return Color(0.75, 0.78, 0.85)
+		var ridge: float = clamp((_biome_value(pos.x, pos.z) + 1.0) * 0.5, 0.0, 1.0)
+		var packed_snow: Color = Color(0.86, 0.90, 0.96)
+		var icy_blue: Color = Color(0.70, 0.80, 0.92)
+		var exposed_rock: Color = Color(0.62, 0.70, 0.82)
+		if pos.y > 12.0:
+			return packed_snow.lerp(icy_blue, ridge * 0.20)
+		if pos.y > 7.0:
+			return packed_snow.lerp(icy_blue, ridge * 0.35)
 		if pos.y > 3.0:
-			return Color(0.65, 0.70, 0.78)
-		return Color(0.55, 0.60, 0.68)
+			return icy_blue.lerp(exposed_rock, ridge * 0.40)
+		return exposed_rock.lerp(Color(0.56, 0.64, 0.76), ridge * 0.30)
 
 	if map_type == WorldGraph.MAP_WATER:
 		if pos.y > WATER_LEVEL + 0.25:
@@ -613,7 +619,7 @@ void fragment() {
 
 
 func _create_water() -> void:
-	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_ARCTIC:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE:
 		return
 	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_NEXUS:
 		return
@@ -636,37 +642,51 @@ func _create_water() -> void:
 	water.mesh = water_mesh
 	water.position.y = WATER_LEVEL
 
-	var mat := ShaderMaterial.new()
-	mat.shader = _water_shader()
-	if map_type == WorldGraph.MAP_WATER:
-		mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.44))
-		mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.54))
-		mat.set_shader_parameter("alpha_boost", 0.08)
+	if map_type == WorldGraph.MAP_ARCTIC:
+		var ice_mat := StandardMaterial3D.new()
+		ice_mat.albedo_color = Color(0.82, 0.90, 0.97, 0.90)
+		ice_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		ice_mat.roughness = 0.18
+		ice_mat.metallic = 0.0
+		ice_mat.clearcoat_enabled = true
+		ice_mat.clearcoat = 0.65
+		ice_mat.clearcoat_roughness = 0.12
+		water.material_override = ice_mat
 	else:
-		mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.38))
-		mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.48))
-		mat.set_shader_parameter("alpha_boost", 0.04)
-
-	water.material_override = mat
+		var mat := ShaderMaterial.new()
+		mat.shader = _water_shader()
+		if map_type == WorldGraph.MAP_WATER:
+			mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.44))
+			mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.54))
+			mat.set_shader_parameter("alpha_boost", 0.08)
+		else:
+			mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.38))
+			mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.48))
+			mat.set_shader_parameter("alpha_boost", 0.04)
+		water.material_override = mat
 	generated_root.add_child(water)
 
 	var water_collision := StaticBody3D.new()
 	water_collision.name = "WaterCollision"
-	water_collision.collision_layer = 4
+	water_collision.collision_layer = 1 if map_type == WorldGraph.MAP_ARCTIC else 4
 	water_collision.collision_mask = 0
 
 	var water_shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(water_size, 0.2, water_size)
+	box.size = Vector3(water_size, 0.4 if map_type == WorldGraph.MAP_ARCTIC else 0.2, water_size)
 	water_shape.shape = box
 
 	water_collision.add_child(water_shape)
-	water_collision.position.y = WATER_LEVEL
+	if map_type == WorldGraph.MAP_ARCTIC:
+		# Keep the top face just above the visual ice sheet so foot placement feels solid.
+		water_collision.position.y = WATER_LEVEL - 0.18
+	else:
+		water_collision.position.y = WATER_LEVEL
 	generated_root.add_child(water_collision)
 
 
 func _create_sky_clouds() -> void:
-	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_ARCTIC:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_CAVE:
 		return
 	if graphics_level == 0:
 		return
@@ -743,11 +763,11 @@ void fragment() {
 	mat.shader = cloud_shader
 	mat.set_shader_parameter("time_offset", float(world_seed % 1000))
 	mat.set_shader_parameter("time_scale", 0.025)
-	mat.set_shader_parameter("density", 0.42 if graphics_level >= 2 else 0.28)
+	mat.set_shader_parameter("density", (0.30 if graphics_level >= 2 else 0.20) if map_type == WorldGraph.MAP_ARCTIC else (0.42 if graphics_level >= 2 else 0.28))
 	mat.set_shader_parameter("coverage", 0.56)
 	mat.set_shader_parameter("softness", 0.25)
-	mat.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.92))
-	mat.set_shader_parameter("cloud_shadow_color", Color(0.70, 0.74, 0.78))
+	mat.set_shader_parameter("cloud_color", Color(0.90, 0.94, 0.99) if map_type == WorldGraph.MAP_ARCTIC else Color(1.0, 0.98, 0.92))
+	mat.set_shader_parameter("cloud_shadow_color", Color(0.62, 0.70, 0.80) if map_type == WorldGraph.MAP_ARCTIC else Color(0.70, 0.74, 0.78))
 	near_clouds.material_override = mat
 	cloud_root.add_child(near_clouds)
 
@@ -762,11 +782,11 @@ void fragment() {
 	mat2.shader = cloud_shader
 	mat2.set_shader_parameter("time_offset", float(world_seed % 1000) + 250.0)
 	mat2.set_shader_parameter("time_scale", 0.014)
-	mat2.set_shader_parameter("density", 0.22 if graphics_level >= 2 else 0.12)
+	mat2.set_shader_parameter("density", (0.15 if graphics_level >= 2 else 0.08) if map_type == WorldGraph.MAP_ARCTIC else (0.22 if graphics_level >= 2 else 0.12))
 	mat2.set_shader_parameter("coverage", 0.62)
 	mat2.set_shader_parameter("softness", 0.35)
-	mat2.set_shader_parameter("cloud_color", Color(1.0, 0.98, 0.94))
-	mat2.set_shader_parameter("cloud_shadow_color", Color(0.72, 0.76, 0.82))
+	mat2.set_shader_parameter("cloud_color", Color(0.92, 0.96, 1.0) if map_type == WorldGraph.MAP_ARCTIC else Color(1.0, 0.98, 0.94))
+	mat2.set_shader_parameter("cloud_shadow_color", Color(0.64, 0.72, 0.82) if map_type == WorldGraph.MAP_ARCTIC else Color(0.72, 0.76, 0.82))
 	far_clouds.material_override = mat2
 	cloud_root.add_child(far_clouds)
 

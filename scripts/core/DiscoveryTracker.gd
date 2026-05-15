@@ -3,6 +3,7 @@ class_name DiscoveryTracker
 
 var get_world: Callable
 var set_world: Callable
+var update_world_map_record: Callable
 var get_current_universe: Callable
 var set_current_universe: Callable
 var save_world_data: Callable
@@ -29,6 +30,9 @@ const ACHIEVEMENT_DEFS := {
 	"collector_50": {"name": "Lichensmith", "desc": "Collect 50 lichen"},
 	"moon_pilgrim": {"name": "Moon Pilgrim", "desc": "Complete all 9 moon shrines"},
 	"gate_crasher": {"name": "Gate Crasher", "desc": "Travel through your first gate"},
+	"surveyor_25": {"name": "Surveyor I", "desc": "Record 25 discoveries in one universe"},
+	"surveyor_75": {"name": "Surveyor II", "desc": "Record 75 discoveries in one universe"},
+	"surveyor_150": {"name": "Surveyor III", "desc": "Record 150 discoveries in one universe"},
 }
 
 
@@ -36,9 +40,7 @@ func record_discovery(discovery_id: String, title: String, kind: String, discove
 	if current_world_id == "" or current_map_id == "":
 		return
 
-	var world: Dictionary = get_world.call(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
+	var map_record: Dictionary = get_map_record.call(current_world_id, current_map_id)
 	var discoveries: Dictionary = map_record.get("discoveries", {})
 	if discoveries.has(discovery_id):
 		return
@@ -47,10 +49,15 @@ func record_discovery(discovery_id: String, title: String, kind: String, discove
 		title, kind, Time.get_unix_time_from_system(), discovery_position.x, discovery_position.z,
 	).to_dict()
 	map_record["discoveries"] = discoveries
-	maps[current_map_id] = map_record
-	world["maps"] = maps
-	set_world.call(current_world_id, world)
-	save_world_data.call()
+	if update_world_map_record.is_valid():
+		update_world_map_record.call(current_world_id, current_map_id, map_record, true)
+	else:
+		var world: Dictionary = get_world.call(current_world_id)
+		var maps: Dictionary = world.get("maps", {})
+		maps[current_map_id] = map_record
+		world["maps"] = maps
+		set_world.call(current_world_id, world)
+		save_world_data.call()
 	last_discovery_text = "New discovery: " + title
 	if on_message.is_valid():
 		on_message.call(last_discovery_text)
@@ -59,6 +66,7 @@ func record_discovery(discovery_id: String, title: String, kind: String, discove
 		award_achievement("first_wonder")
 		check_map_wonders_complete()
 		check_world_wonders_complete()
+	check_discovery_total_achievements()
 	if kind == "orb":
 		if on_orb_discovered.is_valid():
 			on_orb_discovered.call()
@@ -84,9 +92,7 @@ func award_achievement(id: String) -> void:
 func check_map_wonders_complete() -> void:
 	if current_world_id == "" or current_map_id == "":
 		return
-	var world: Dictionary = get_world.call(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
+	var map_record: Dictionary = get_map_record.call(current_world_id, current_map_id)
 	var wonder_count: int = int(map_record.get("wonder_count", 0))
 	if wonder_count <= 0:
 		return
@@ -135,9 +141,7 @@ func current_map_discovery_count() -> int:
 	if current_world_id == "" or current_map_id == "":
 		return 0
 
-	var world: Dictionary = get_world.call(current_world_id)
-	var maps: Dictionary = world.get("maps", {})
-	var map_record: Dictionary = maps.get(current_map_id, {})
+	var map_record: Dictionary = get_map_record.call(current_world_id, current_map_id)
 	var discoveries: Dictionary = map_record.get("discoveries", {})
 	return discoveries.size()
 
@@ -153,3 +157,27 @@ func current_world_map_count() -> int:
 func map_type(world_id: String, map_id: String) -> String:
 	var map_record: Dictionary = get_map_record.call(world_id, map_id)
 	return str(map_record.get("type", "normal"))
+
+
+func check_discovery_total_achievements() -> void:
+	var total: int = _total_discoveries_in_universe()
+	if total >= 25:
+		award_achievement("surveyor_25")
+	if total >= 75:
+		award_achievement("surveyor_75")
+	if total >= 150:
+		award_achievement("surveyor_150")
+
+
+func _total_discoveries_in_universe() -> int:
+	var universe: Dictionary = get_current_universe.call()
+	var worlds: Dictionary = universe.get("worlds", {})
+	var total: int = 0
+	for world_key in worlds.keys():
+		var world: Dictionary = worlds[world_key] as Dictionary
+		var maps: Dictionary = world.get("maps", {})
+		for map_key in maps.keys():
+			var map_record: Dictionary = maps[map_key] as Dictionary
+			var discoveries: Dictionary = map_record.get("discoveries", {})
+			total += discoveries.size()
+	return total
