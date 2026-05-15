@@ -183,7 +183,7 @@ static func resolve_gate_room_slot(
 static func resolve_nexus_slot(
 	world_seed: int,
 	current_world_id: String,
-	current_map_id: String,
+	_current_map_id: String,
 	slot_index: int,
 	current_map_record: Dictionary,
 	universe_worlds: Dictionary

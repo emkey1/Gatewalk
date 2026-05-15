@@ -79,6 +79,8 @@ var _last_gate_index_in_range: int = -1
 var _gate_use_was_pressed: bool = false
 var _gate_trigger_enable_time_msec: int = 0
 var _gate_auto_retry_time_msec: int = 0
+var _gate_auto_cooldown_until_msec: int = 0
+var _gate_debug_line: String = ""
 var _gate_room_slot_active: Dictionary = {}
 var _gate_room_return_active: bool = false
 var _gate_room_slot_in_range: int = -1
@@ -195,81 +197,72 @@ func _process(_delta: float) -> void:
 
 
 func _physics_process(_delta: float) -> void:
-	_poll_gate_overlap_fallback()
-	_poll_gate_proximity_fallback()
+	_poll_primary_gate_activation()
 	_poll_gate_room_slot_fallback()
 	_poll_gate_room_return_fallback()
 
 
-func _poll_gate_overlap_fallback() -> void:
+func _poll_primary_gate_activation() -> void:
 	if _gate_transition_in_progress:
-		return
-	if Time.get_ticks_msec() < _gate_trigger_enable_time_msec:
-		return
-	if _is_current_map_gate_room() or _is_current_map_map_nexus():
-		return
-	if generated_root == null:
-		return
-	var gate_root: Node = generated_root.get_node_or_null("Gates")
-	if gate_root == null:
-		return
-	var player: CharacterBody3D = _get_player()
-	if player == null:
-		return
-	for child in gate_root.get_children():
-		var area: Area3D = child as Area3D
-		if area == null:
-			continue
-		if not str(area.name).begins_with("GateArea_"):
-			continue
-		var gate_index: int = int(str(area.name).trim_prefix("GateArea_"))
-		var overlaps: bool = area.overlaps_body(player)
-		var was_active: bool = bool(_gate_overlap_active.get(gate_index, false))
-		if overlaps and not was_active:
-			_gate_overlap_active[gate_index] = true
-			_on_gate_body_entered(player, gate_index)
-		elif not overlaps and was_active:
-			_gate_overlap_active.erase(gate_index)
-
-
-func _poll_gate_proximity_fallback() -> void:
-	if _gate_transition_in_progress:
+		_gate_debug_line = "GateDbg: locked transition"
 		return
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
 		_last_gate_index_in_range = -1
+		_gate_debug_line = "GateDbg: hub map"
 		return
 	if generated_root == null:
 		_last_gate_index_in_range = -1
+		_gate_debug_line = "GateDbg: no generated root"
 		return
 	var gate_root: Node = generated_root.get_node_or_null("Gates")
-	if gate_root == null:
-		_last_gate_index_in_range = -1
-		return
 	var player: CharacterBody3D = _get_player()
 	if player == null:
 		_last_gate_index_in_range = -1
+		_gate_debug_line = "GateDbg: no player"
 		return
 	var proximity_radius: float = 6.0
+	var activation_radius: float = 2.8
 	_last_gate_index_in_range = -1
 	var best_dist: float = INF
 	var now_msec: int = Time.get_ticks_msec()
-	var can_auto_trigger: bool = now_msec >= _gate_trigger_enable_time_msec and now_msec >= _gate_auto_retry_time_msec
-	for child in gate_root.get_children():
-		var gate_node: Node3D = child as Node3D
-		if gate_node == null:
-			continue
-		var gate_name: String = str(gate_node.name)
-		if not gate_name.begins_with("Gate_"):
-			continue
-		var gate_index: int = int(gate_name.trim_prefix("Gate_"))
-		var delta: Vector3 = gate_node.global_position - player.global_position
-		var dist: float = Vector2(delta.x, delta.z).length()
-		if dist <= proximity_radius and dist < best_dist:
-			best_dist = dist
-			_last_gate_index_in_range = gate_index
-	if can_auto_trigger and _last_gate_index_in_range >= 0 and best_dist <= 2.8:
-		_gate_auto_retry_time_msec = now_msec + 850
-		_on_gate_body_entered(player, _last_gate_index_in_range)
+	var can_auto_trigger: bool = now_msec >= _gate_trigger_enable_time_msec and now_msec >= _gate_auto_cooldown_until_msec
+	if gate_root != null:
+		for child in gate_root.get_children():
+			var gate_node: Node3D = child as Node3D
+			if gate_node == null:
+				continue
+			var gate_name: String = str(gate_node.name)
+			if not gate_name.begins_with("Gate_"):
+				continue
+			var gate_index: int = int(gate_name.trim_prefix("Gate_"))
+			var delta: Vector3 = gate_node.global_position - player.global_position
+			var dist: float = Vector2(delta.x, delta.z).length()
+			if dist <= proximity_radius and dist < best_dist:
+				best_dist = dist
+				_last_gate_index_in_range = gate_index
+	else:
+		_last_gate_index_in_range = _edge_gate_index_if_near(player.global_position)
+		if _last_gate_index_in_range >= 0:
+			best_dist = 2.0
+	if can_auto_trigger and _last_gate_index_in_range >= 0 and best_dist <= activation_radius:
+		_gate_auto_cooldown_until_msec = now_msec + 850
+		_gate_debug_line = "GateDbg: fire g" + str(_last_gate_index_in_range + 1) + " d=" + str(snapped(best_dist, 0.01))
+		_force_gate_transition(_last_gate_index_in_range, player)
+		return
+	var cd_left: int = max(_gate_auto_cooldown_until_msec - now_msec, 0)
+	var warmup_left: int = max(_gate_trigger_enable_time_msec - now_msec, 0)
+	if _last_gate_index_in_range < 0:
+		_gate_debug_line = "GateDbg: no gate in range"
+	else:
+		_gate_debug_line = "GateDbg: g" + str(_last_gate_index_in_range + 1) + " d=" + str(snapped(best_dist, 0.01)) + " warm=" + str(warmup_left) + " cd=" + str(cd_left)
+
+
+func _edge_gate_index_if_near(pos: Vector3) -> int:
+	var half: float = _world_half_size()
+	var trigger_band: float = half * 0.62
+	if max(abs(pos.x), abs(pos.z)) < trigger_band:
+		return -1
+	return _inferred_gate_index_from_position(pos)
 
 
 func _poll_gate_use_input() -> void:
@@ -284,14 +277,130 @@ func _poll_gate_use_input() -> void:
 		return
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
 		return
-	if _last_gate_index_in_range < 0:
-		last_discovery_text = "No gate in range."
-		return
 	var player: CharacterBody3D = _get_player()
 	if player == null:
 		return
-	last_discovery_text = "Attempting gate " + str(_last_gate_index_in_range + 1) + "..."
-	_on_gate_body_entered(player, _last_gate_index_in_range)
+	var gate_index: int = _nearest_gate_index(player, 7.5)
+	if gate_index < 0:
+		last_discovery_text = "No gate in range."
+		_gate_debug_line = "GateDbg: E no gate"
+		return
+	last_discovery_text = "Attempting gate " + str(gate_index + 1) + "..."
+	_gate_debug_line = "GateDbg: E fire g" + str(gate_index + 1)
+	_on_gate_body_entered(player, gate_index)
+
+
+func _nearest_gate_index(player: CharacterBody3D, max_radius: float) -> int:
+	if player == null or generated_root == null:
+		return -1
+	var gate_root: Node = generated_root.get_node_or_null("Gates")
+	if gate_root == null:
+		var all_gate_nodes: Array = generated_root.find_children("Gate_*", "Node3D", true, false)
+		var best_gate_global: int = -1
+		var best_dist_global: float = max_radius
+		for raw_node in all_gate_nodes:
+			var gate_node_global: Node3D = raw_node as Node3D
+			if gate_node_global == null:
+				continue
+			var gate_name_global: String = str(gate_node_global.name)
+			if not gate_name_global.begins_with("Gate_"):
+				continue
+			var gate_index_global: int = int(gate_name_global.trim_prefix("Gate_"))
+			var dg: float = Vector2(
+				gate_node_global.global_position.x - player.global_position.x,
+				gate_node_global.global_position.z - player.global_position.z
+			).length()
+			if dg <= best_dist_global:
+				best_dist_global = dg
+				best_gate_global = gate_index_global
+		return best_gate_global
+	var best_gate: int = -1
+	var best_dist: float = max_radius
+	for child in gate_root.get_children():
+		var gate_node: Node3D = child as Node3D
+		if gate_node == null:
+			continue
+		var gate_name: String = str(gate_node.name)
+		if not gate_name.begins_with("Gate_"):
+			continue
+		var gate_index: int = int(gate_name.trim_prefix("Gate_"))
+		var d: float = Vector2(
+			gate_node.global_position.x - player.global_position.x,
+			gate_node.global_position.z - player.global_position.z
+		).length()
+		if d <= best_dist:
+			best_dist = d
+			best_gate = gate_index
+	return best_gate
+
+
+func _try_activate_nearest_gate_from_input() -> void:
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return
+	if _gate_transition_in_progress:
+		last_discovery_text = "Gate busy."
+		_gate_debug_line = "GateDbg: input lock"
+		return
+	var player: CharacterBody3D = _get_player()
+	var gate_index: int = _nearest_gate_index(player, 9.0) if player != null else -1
+	if gate_index < 0:
+		var fallback_pos: Vector3 = player.global_position if player != null else Vector3.ZERO
+		gate_index = _inferred_gate_index_from_position(fallback_pos)
+		_gate_debug_line = "GateDbg: input inferred g" + str(gate_index + 1)
+		last_discovery_text = "Gate node not detected; inferring gate " + str(gate_index + 1) + "."
+	_force_gate_transition(gate_index, player)
+
+
+func _inferred_gate_index_from_position(pos: Vector3) -> int:
+	# Fallback when gate scene nodes are missing or not discoverable:
+	# infer gate by dominant axis from player location.
+	if abs(pos.x) >= abs(pos.z):
+		return 0 if pos.x >= 0.0 else 1
+	return 2 if pos.z >= 0.0 else 3
+
+
+func _force_gate_transition(gate_index: int, player: CharacterBody3D = null) -> void:
+	if current_world_id == "" or current_map_id == "":
+		last_discovery_text = "Gate failed: missing world/map state."
+		_gate_debug_line = "GateDbg: force missing ids"
+		return
+	_gate_transition_in_progress = true
+	var worlds: Dictionary = _get_worlds()
+	var world: Dictionary = worlds.get(current_world_id, {})
+	var gate_result: Dictionary = GateTravelService.resolve_gate_transition(
+		world_seed,
+		current_map_id,
+		gate_index,
+		world,
+		Callable(self, "_new_id"),
+		WATER_ROUTE_CHANCE
+	)
+	if not bool(gate_result.get("ok", false)):
+		var gate_error: String = str(gate_result.get("error", "unknown"))
+		last_discovery_text = "Gate force failed: " + gate_error
+		_gate_debug_line = "GateDbg: force err " + gate_error
+		_gate_transition_in_progress = false
+		return
+	if bool(gate_result.get("inert", false)):
+		last_discovery_text = "Gate inert."
+		_gate_debug_line = "GateDbg: force inert"
+		_gate_transition_in_progress = false
+		return
+	if bool(gate_result.get("changed", false)):
+		var merged_worlds: Dictionary = GateTravelService.with_updated_world(worlds, current_world_id, gate_result.get("world", world))
+		_set_worlds(merged_worlds)
+		_save_world_data()
+	var target_map_id: String = str(gate_result.get("target_map_id", ""))
+	if target_map_id == "":
+		last_discovery_text = "Gate force failed: empty target."
+		_gate_debug_line = "GateDbg: force empty"
+		_gate_transition_in_progress = false
+		return
+	if player != null and discovery_tracker != null:
+		discovery_tracker.record_discovery("gate_" + str(gate_index), str(gate_index + 1), "gate", Vector3(player.global_position.x, 0.0, player.global_position.z))
+	last_discovery_text = "Activate gate " + str(gate_index + 1) + "."
+	_gate_debug_line = "GateDbg: force pass g" + str(gate_index + 1) + " -> " + _short_id(target_map_id)
+	call_deferred("_deferred_load_gate_target", current_world_id, target_map_id)
 
 
 func _poll_hub_use_input() -> void:
@@ -471,6 +580,9 @@ func _input(event: InputEvent) -> void:
 
 		if event.keycode == KEY_F5:
 			_explicit_save_world_data()
+
+		if event.keycode == KEY_E:
+			_try_activate_nearest_gate_from_input()
 
 
 func _slot_path(slot: int) -> String:
@@ -2020,6 +2132,10 @@ func _update_hud(delta: float = 0.0) -> void:
 			warning_text = "Edge barrier nearby"
 		stamina = float(player.get("sprint_stamina")) if player.get("sprint_stamina") != null else -1.0
 		breath = float(player.get("breath")) if player.get("breath") != null else -1.0
+	if not _is_current_map_gate_room() and not _is_current_map_map_nexus() and _gate_debug_line != "":
+		if warning_text != "":
+			warning_text += " | "
+		warning_text += _gate_debug_line
 
 	var flashlight_text: String = ""
 	if player != null and player.get("flashlight_on") != null:
@@ -2247,6 +2363,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_gate_use_was_pressed = Input.is_key_pressed(KEY_E)
 	_gate_trigger_enable_time_msec = Time.get_ticks_msec() + 300
 	_gate_auto_retry_time_msec = _gate_trigger_enable_time_msec
+	_gate_auto_cooldown_until_msec = _gate_trigger_enable_time_msec
 	_close_menu()
 	current_world_id = world_id
 	current_map_id = map_id
@@ -3030,62 +3147,18 @@ func _check_moon_shrine_completion() -> void:
 
 func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 	if body.name != "Player" or current_world_id == "" or current_map_id == "":
+		_gate_debug_line = "GateDbg: ignored body/world/map"
 		return
 	if _gate_transition_in_progress:
+		_gate_debug_line = "GateDbg: ignored lock"
 		return
 	if discovery_tracker == null:
+		_gate_debug_line = "GateDbg: no tracker"
 		return
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		_gate_debug_line = "GateDbg: ignored hub"
 		return
-	_gate_transition_in_progress = true
-
-	var worlds: Dictionary = _get_worlds()
-	var world: Dictionary = worlds.get(current_world_id, {})
-	last_discovery_text = "Gate " + str(gate_index + 1) + ": initializing..."
-	var gate_result: Dictionary = GateTravelService.resolve_gate_transition(
-		world_seed,
-		current_map_id,
-		gate_index,
-		world,
-		Callable(self, "_new_id"),
-		WATER_ROUTE_CHANCE
-	)
-	if not bool(gate_result.get("ok", false)):
-		var gate_error: String = str(gate_result.get("error", "unknown"))
-		last_discovery_text = "Gate " + str(gate_index + 1) + " failed: " + gate_error
-		push_error("Gate travel resolution failed for map " + current_map_id + ": " + gate_error)
-		_gate_transition_in_progress = false
-		return
-	if bool(gate_result.get("inert", false)):
-		last_discovery_text = "Gate " + str(gate_index + 1) + " inert — saturation reached in this world."
-		_gate_transition_in_progress = false
-		return
-	if bool(gate_result.get("changed", false)):
-		var merged_worlds: Dictionary = GateTravelService.with_updated_world(worlds, current_world_id, gate_result.get("world", world))
-		_set_worlds(merged_worlds)
-		_save_world_data()
-	if bool(gate_result.get("is_water_route", false)):
-		discovery_tracker.award_achievement("island_hopper")
-
-	var target_map_id: String = str(gate_result.get("target_map_id", ""))
-	if target_map_id == "":
-		last_discovery_text = "Gate " + str(gate_index + 1) + " failed: empty target."
-		push_error("Gate travel resolution produced empty target map id.")
-		_gate_transition_in_progress = false
-		return
-	if target_map_id == current_map_id:
-		last_discovery_text = "Gate " + str(gate_index + 1) + " failed: loop target."
-		push_error("Gate travel resolved to current map id unexpectedly.")
-		_gate_transition_in_progress = false
-		return
-
-	last_discovery_text = "Passing through gate " + str(gate_index + 1) + "..."
-	if discovery_tracker != null:
-		var gx: float = body.global_position.x
-		var gz: float = body.global_position.z
-		discovery_tracker.record_discovery("gate_" + str(gate_index), str(gate_index + 1), "gate", Vector3(gx, 0.0, gz))
-	var target_world_id: String = current_world_id
-	call_deferred("_deferred_load_gate_target", target_world_id, target_map_id)
+	_force_gate_transition(gate_index, body as CharacterBody3D)
 
 
 func _deferred_load_gate_target(target_world_id: String, target_map_id: String) -> void:
