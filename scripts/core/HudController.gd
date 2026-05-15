@@ -6,7 +6,10 @@ const CELL_SIZE: float = 2.0
 const WATER_LEVEL: float = -1.7
 
 var hud_layer: CanvasLayer
-var hud_label: Label
+var meta_label: Label
+var status_label: Label
+var controls_label: Label
+var goals_label: Label
 var stamina_bar: ProgressBar
 var breath_bar: ProgressBar
 var minimap_panel: PanelContainer
@@ -49,71 +52,90 @@ func setup(parent: Node) -> void:
 	panel.anchor_left = 0.0
 	panel.anchor_top = 0.0
 	panel.anchor_right = 0.0
-	panel.anchor_bottom = 0.0
+	panel.anchor_bottom = 1.0
 	panel.offset_left = 16.0
 	panel.offset_top = 16.0
-	panel.offset_right = 180.0
-	panel.offset_bottom = 212.0
+	panel.offset_right = 300.0
+	panel.offset_bottom = -16.0
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud_layer.add_child(panel)
 
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_left", 14)
 	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_right", 14)
 	margin.add_theme_constant_override("margin_bottom", 10)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(margin)
 
 	var hud_stack := VBoxContainer.new()
-	hud_stack.add_theme_constant_override("separation", 8)
+	hud_stack.add_theme_constant_override("separation", 10)
 	hud_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(hud_stack)
 
-	hud_label = Label.new()
-	hud_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hud_label.add_theme_font_size_override("font_size", 7)
-	hud_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(hud_label)
+	var info_stack := VBoxContainer.new()
+	info_stack.add_theme_constant_override("separation", 8)
+	info_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_stack.add_child(info_stack)
+
+	meta_label = _add_info_block(info_stack)
+	status_label = _add_info_block(info_stack)
+	controls_label = _add_info_block(info_stack)
+	goals_label = _add_info_block(info_stack)
+
+	var vitals_panel := PanelContainer.new()
+	vitals_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_stack.add_child(vitals_panel)
+	var vitals_margin := MarginContainer.new()
+	vitals_margin.add_theme_constant_override("margin_left", 6)
+	vitals_margin.add_theme_constant_override("margin_top", 6)
+	vitals_margin.add_theme_constant_override("margin_right", 6)
+	vitals_margin.add_theme_constant_override("margin_bottom", 6)
+	vitals_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vitals_panel.add_child(vitals_margin)
+	var vitals_stack := VBoxContainer.new()
+	vitals_stack.add_theme_constant_override("separation", 6)
+	vitals_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vitals_margin.add_child(vitals_stack)
 
 	var stamina_label := Label.new()
 	stamina_label.text = "Sprint"
-	stamina_label.add_theme_font_size_override("font_size", 6)
+	stamina_label.add_theme_font_size_override("font_size", 12)
 	stamina_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(stamina_label)
+	vitals_stack.add_child(stamina_label)
 
 	stamina_bar = ProgressBar.new()
 	stamina_bar.min_value = 0.0
 	stamina_bar.max_value = 15.0
 	stamina_bar.value = 15.0
 	stamina_bar.show_percentage = false
-	stamina_bar.custom_minimum_size = Vector2(0.0, 9.0)
+	stamina_bar.custom_minimum_size = Vector2(0.0, 15.0)
 	stamina_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(stamina_bar)
+	vitals_stack.add_child(stamina_bar)
 
 	var breath_label := Label.new()
 	breath_label.text = "Breath"
-	breath_label.add_theme_font_size_override("font_size", 6)
+	breath_label.add_theme_font_size_override("font_size", 12)
 	breath_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(breath_label)
+	vitals_stack.add_child(breath_label)
 
 	breath_bar = ProgressBar.new()
 	breath_bar.min_value = 0.0
 	breath_bar.max_value = 60.0
 	breath_bar.value = 60.0
 	breath_bar.show_percentage = false
-	breath_bar.custom_minimum_size = Vector2(0.0, 9.0)
+	breath_bar.custom_minimum_size = Vector2(0.0, 15.0)
 	breath_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(breath_bar)
+	vitals_stack.add_child(breath_bar)
 
 	minimap_panel = PanelContainer.new()
-	minimap_panel.custom_minimum_size = Vector2(80.0, 80.0)
+	minimap_panel.custom_minimum_size = Vector2(150.0, 150.0)
 	minimap_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	minimap_panel.set_h_size_flags(Control.SIZE_SHRINK_CENTER)
 	hud_stack.add_child(minimap_panel)
 
 	minimap_marker_layer = Control.new()
-	minimap_marker_layer.custom_minimum_size = Vector2(80.0, 80.0)
+	minimap_marker_layer.custom_minimum_size = Vector2(150.0, 150.0)
 	minimap_marker_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	minimap_panel.add_child(minimap_marker_layer)
 
@@ -153,7 +175,7 @@ func _setup_underwater_overlay(parent: Node) -> void:
 
 
 func update(data: Dictionary) -> void:
-	if hud_label == null:
+	if meta_label == null or status_label == null or controls_label == null or goals_label == null:
 		return
 
 	var map_short: String = str(data.get("map_short", "none"))
@@ -177,40 +199,64 @@ func update(data: Dictionary) -> void:
 	var gate_room_source_map: String = str(data.get("gate_room_source_map", ""))
 	var is_map_nexus: bool = bool(data.get("is_map_nexus", false))
 
+	var header_lines: Array[String] = []
+	var status_lines: Array[String] = []
+	var controls_lines: Array[String] = []
+	var goals_lines: Array[String] = []
+
 	if is_gate_room:
-		hud_label.text = "World: " + world_name + " — Inter-world Gate Room\n" + atlas_summary + "\n" + maps_line + "\n" + position_text + "\n" + discovery_line
+		header_lines = [
+			"World: " + world_name + " — Inter-world Gate Room",
+			atlas_summary,
+			maps_line,
+		]
+		status_lines = [position_text, discovery_line]
 		if gate_room_return_world != "":
-			hud_label.text += "\nWalk to Return portal to exit."
+			status_lines.append("Walk to Return portal to exit.")
 	elif is_map_nexus or map_type == "map_nexus":
-		hud_label.text = "World: " + world_name + " — World Nexus\n" + atlas_summary + "\n" + maps_line + "\n" + position_text + "\n" + discovery_line
-		hud_label.text += "\n[G] Return to Gate Room"
+		header_lines = [
+			"World: " + world_name + " — World Nexus",
+			atlas_summary,
+			maps_line,
+		]
+		status_lines = [position_text, discovery_line]
+		controls_lines.append("[G] Return to Gate Room")
 	else:
-		hud_label.text = "World: " + world_name + "\n" + atlas_summary + "\n" + maps_line + "\nMap " + map_short + ": " + map_completion + "\n" + position_text + "\n" + discovery_line
+		header_lines = [
+			"World: " + world_name,
+			atlas_summary,
+			maps_line,
+			"Map " + map_short + ": " + map_completion,
+		]
+		status_lines = [position_text, discovery_line]
 		if map_type != "":
-			hud_label.text += "\nBiome: " + map_type
+			status_lines.append("Biome: " + map_type)
 		if gate_room_source_world != "" and gate_room_source_map != "":
-			hud_label.text += "\n[G] Return to Gate Room"
+			controls_lines.append("[G] Return to Gate Room")
 
 	if pin_count > 0:
-		hud_label.text += "\nPins: " + str(pin_count) + " [P] place pin"
+		controls_lines.append("Pins: " + str(pin_count) + " [P] place pin")
 	else:
-		hud_label.text += "\n[P] place pin"
-
+		controls_lines.append("[P] place pin")
 	if lichen_count > 0:
-		hud_label.text += "\nLichen: " + str(lichen_count) + " [C] grab [T] throw"
-
+		controls_lines.append("Lichen: " + str(lichen_count) + " [C] grab [T] throw")
 	if flashlight_text != "":
-		hud_label.text += "\n" + flashlight_text
+		controls_lines.append(flashlight_text)
 
 	if warning_text != "":
-		hud_label.text += "\n" + warning_text
+		status_lines.append(warning_text)
 
 	if recent_discoveries.size() > 0:
-		hud_label.text += "\nRecent: " + ", ".join(recent_discoveries)
+		goals_lines.append("Recent: " + ", ".join(recent_discoveries))
 	if objective_line != "":
-		hud_label.text += "\n" + objective_line
+		goals_lines.append(objective_line)
 	if progression_line != "":
-		hud_label.text += "\n" + progression_line
+		goals_lines.append(progression_line)
+
+	meta_label.text = "\n".join(header_lines)
+	status_label.text = "\n".join(status_lines)
+	controls_label.text = "\n".join(controls_lines)
+	goals_label.text = "\n".join(goals_lines)
 
 	var stamina: float = float(data.get("stamina", -1.0))
 	if stamina_bar != null and stamina >= 0.0:
@@ -232,13 +278,12 @@ func update(data: Dictionary) -> void:
 	var current_map_id: String = str(data.get("current_map_id", ""))
 	_minimap_zoom = clamp(float(data.get("minimap_zoom", 1.0)), 0.6, 2.5)
 	if minimap_panel != null and minimap_marker_layer != null:
-		var panel_size: float = 96.0 if (_is_moon_fn.is_valid() and _is_moon_fn.call()) else 80.0
+		var panel_size: float = 176.0 if (_is_moon_fn.is_valid() and _is_moon_fn.call()) else 150.0
 		minimap_panel.custom_minimum_size = Vector2(panel_size, panel_size)
 		minimap_marker_layer.custom_minimum_size = Vector2(panel_size, panel_size)
 	if current_map_id != _last_map_id:
 		_last_map_id = current_map_id
 		_trail.clear()
-
 	if player != null:
 		_trail_timer += data.get("delta", 0.0)
 		if _trail_timer > 0.25:
@@ -254,6 +299,25 @@ func update(data: Dictionary) -> void:
 
 	if fps_label != null and show_fps:
 		fps_label.text = str(Engine.get_frames_per_second()) + " FPS"
+
+
+func _add_info_block(parent: VBoxContainer) -> Label:
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(panel)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 6)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_right", 6)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(margin)
+	var label := Label.new()
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", 12)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(label)
+	return label
 
 
 func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins: Dictionary, delta: float = 0.0, zoom: float = 1.0) -> void:

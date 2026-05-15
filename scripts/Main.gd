@@ -67,6 +67,12 @@ var moon_map_return_map_id: String = ""
 var graphics_level: int = 0
 var density_level: int = 2
 var lichen_count: int = 0
+var e_key_gate_enabled: bool = false
+var audio_muted: bool = false
+var audio_master_db: float = -3.0
+var audio_music_db: float = -6.0
+var audio_sfx_db: float = -4.0
+var audio_output_device: String = "Default"
 var current_slot: int = 0
 var slot_count: int = 0
 var show_fps: bool = false
@@ -85,6 +91,8 @@ var _gate_room_slot_active: Dictionary = {}
 var _gate_room_return_active: bool = false
 var _gate_room_slot_in_range: int = -1
 var _gate_room_return_in_range: bool = false
+var _moon_gate_last_trigger_msec: int = 0
+var _moon_cutscene_active: bool = false
 var _cycle_time: float = 0.0
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
@@ -99,6 +107,9 @@ func _ready() -> void:
 	print("GATEWALK PATCHED MAIN: trees restored safely")
 	print("Main._ready: script is loading")
 	print("Random World Explorer v6: starting")
+	print("Audio Driver: ", AudioServer.get_driver_name())
+	print("Output Devices: ", AudioServer.get_output_device_list())
+	print("Current Device: ", AudioServer.output_device)
 
 	hud_controller = HudController.new()
 	hud_controller.name = "HudController"
@@ -130,6 +141,7 @@ func _ready() -> void:
 	atlas_view.short_id_fn = _short_id
 	atlas_view.completion_text_fn = _completion_text
 	atlas_view.opposite_gate_index_fn = _opposite_gate_index
+	atlas_view.set_map_name_fn = _set_map_name
 	add_child(atlas_view)
 
 	dev_menu = DevMenu.new()
@@ -151,10 +163,13 @@ func _ready() -> void:
 	dev_menu.create_gate_room_map_record_fn = _create_gate_room_map_record
 	dev_menu.create_map_nexus_map_record_fn = _create_map_nexus_map_record
 	dev_menu.close_main_menu_fn = _close_menu
+	dev_menu.get_e_key_gate_enabled_fn = _get_e_key_gate_enabled
+	dev_menu.set_e_key_gate_enabled_fn = _set_e_key_gate_enabled
 	add_child(dev_menu)
 
 	_load_slot_index()
 	_load_save_data()
+	_apply_audio_settings()
 
 	if start_fullscreen:
 		call_deferred("_configure_fullscreen")
@@ -198,6 +213,9 @@ func _process(_delta: float) -> void:
 
 func _physics_process(_delta: float) -> void:
 	_poll_primary_gate_activation()
+	_poll_wonder_proximity_fallback()
+	_poll_moon_gate_proximity_fallback()
+	_poll_moon_shrine_fallback()
 	_poll_gate_room_slot_fallback()
 	_poll_gate_room_return_fallback()
 
@@ -266,6 +284,8 @@ func _edge_gate_index_if_near(pos: Vector3) -> int:
 
 
 func _poll_gate_use_input() -> void:
+	if not e_key_gate_enabled:
+		return
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
 		return
 	var use_pressed: bool = Input.is_key_pressed(KEY_E)
@@ -335,6 +355,9 @@ func _nearest_gate_index(player: CharacterBody3D, max_radius: float) -> int:
 
 
 func _try_activate_nearest_gate_from_input() -> void:
+	if not e_key_gate_enabled:
+		last_discovery_text = "E-key gate use is disabled (enable in Secret Admin)."
+		return
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
 		return
 	if _gate_transition_in_progress:
@@ -404,6 +427,8 @@ func _force_gate_transition(gate_index: int, player: CharacterBody3D = null) -> 
 
 
 func _poll_hub_use_input() -> void:
+	if not e_key_gate_enabled:
+		return
 	if not (_is_current_map_gate_room() or _is_current_map_map_nexus()):
 		return
 	var use_pressed: bool = Input.is_key_pressed(KEY_E)
@@ -559,6 +584,7 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_TAB:
 			if atlas_view != null:
 				atlas_view.toggle()
+				_update_mouse_mode_for_overlays()
 
 		if event.keycode == KEY_H:
 			show_hud = not show_hud
@@ -582,7 +608,10 @@ func _input(event: InputEvent) -> void:
 			_explicit_save_world_data()
 
 		if event.keycode == KEY_E:
-			_try_activate_nearest_gate_from_input()
+			if e_key_gate_enabled:
+				_try_activate_nearest_gate_from_input()
+			else:
+				last_discovery_text = "E-key gate use is disabled (Secret Admin)."
 
 
 func _slot_path(slot: int) -> String:
@@ -640,7 +669,15 @@ func _load_save_data() -> void:
 	start_fullscreen = bool(settings.get("start_fullscreen", true))
 	graphics_level = int(settings.get("graphics_level", 0))
 	density_level = int(settings.get("density_level", 2))
+	audio_muted = bool(settings.get("audio_muted", false))
+	audio_master_db = float(settings.get("audio_master_db", -3.0))
+	audio_music_db = float(settings.get("audio_music_db", -6.0))
+	audio_sfx_db = float(settings.get("audio_sfx_db", -4.0))
+	audio_output_device = str(settings.get("audio_output_device", "Default"))
+	if audio_output_device == "Default":
+		audio_output_device = _preferred_output_device()
 	lichen_count = int(universe.get("lichen_count", 0))
+	e_key_gate_enabled = bool(universe.get("e_key_gate_enabled", false))
 	_cycle_time = _cycle_time_from_universe(universe)
 
 
@@ -651,8 +688,14 @@ func _save_world_data() -> void:
 	settings["cycle_speed_multiplier"] = cycle_speed_multiplier
 	settings["start_fullscreen"] = start_fullscreen
 	settings["graphics_level"] = graphics_level
+	settings["audio_muted"] = audio_muted
+	settings["audio_master_db"] = audio_master_db
+	settings["audio_music_db"] = audio_music_db
+	settings["audio_sfx_db"] = audio_sfx_db
+	settings["audio_output_device"] = audio_output_device
 	universe["settings"] = settings
 	universe["lichen_count"] = lichen_count
+	universe["e_key_gate_enabled"] = e_key_gate_enabled
 	save_data = SaveManager.set_current_universe(save_data, universe)
 	var path: String = _slot_path(current_slot)
 	var file := FileAccess.open(path, FileAccess.WRITE)
@@ -1048,6 +1091,117 @@ func _on_toggle_start_fullscreen(pressed: bool, btn: Button) -> void:
 	_save_world_data()
 
 
+func _on_toggle_audio_mute(pressed: bool, btn: Button) -> void:
+	audio_muted = pressed
+	btn.text = "Muted" if audio_muted else "Unmuted"
+	_apply_audio_settings()
+	_save_world_data()
+
+
+func _on_audio_volume_changed(value: float) -> void:
+	audio_master_db = value
+	_apply_audio_settings()
+	_save_world_data()
+
+
+func _on_music_volume_changed(value: float) -> void:
+	audio_music_db = value
+	_apply_audio_settings()
+	_save_world_data()
+
+
+func _on_sfx_volume_changed(value: float) -> void:
+	audio_sfx_db = value
+	_apply_audio_settings()
+	_save_world_data()
+
+
+func _on_audio_output_device_selected(device_name: String) -> void:
+	audio_output_device = device_name
+	_apply_audio_settings()
+	_save_world_data()
+
+
+func _apply_audio_settings() -> void:
+	var bus_idx: int = _ensure_audio_bus("Master", "")
+	var music_idx: int = _ensure_audio_bus("Music", "Master")
+	var sfx_idx: int = _ensure_audio_bus("SFX", "Master")
+	audio_master_db = clamp(audio_master_db, -30.0, 6.0)
+	audio_music_db = clamp(audio_music_db, -30.0, 6.0)
+	audio_sfx_db = clamp(audio_sfx_db, -30.0, 6.0)
+	AudioServer.set_bus_mute(bus_idx, audio_muted)
+	AudioServer.set_bus_volume_db(bus_idx, audio_master_db)
+	AudioServer.set_bus_mute(music_idx, audio_muted)
+	AudioServer.set_bus_mute(sfx_idx, audio_muted)
+	AudioServer.set_bus_volume_db(music_idx, audio_music_db)
+	AudioServer.set_bus_volume_db(sfx_idx, audio_sfx_db)
+	var device_list: PackedStringArray = AudioServer.get_output_device_list()
+	if audio_output_device == "" or audio_output_device == "Default":
+		audio_output_device = _preferred_output_device()
+	if device_list.has(audio_output_device):
+		AudioServer.output_device = audio_output_device
+	else:
+		AudioServer.output_device = "Default"
+	print("Audio output applied: ", AudioServer.output_device)
+
+
+func _ensure_audio_bus(bus_name: String, send_name: String) -> int:
+	var idx: int = AudioServer.get_bus_index(bus_name)
+	if idx < 0:
+		AudioServer.add_bus(AudioServer.bus_count)
+		idx = AudioServer.bus_count - 1
+		AudioServer.set_bus_name(idx, bus_name)
+	if send_name != "":
+		AudioServer.set_bus_send(idx, send_name)
+	return idx
+
+
+func _preferred_output_device() -> String:
+	var device_list: PackedStringArray = AudioServer.get_output_device_list()
+	for i in range(device_list.size()):
+		var d: String = str(device_list[i])
+		if d.contains("Speakers"):
+			return d
+	for i in range(device_list.size()):
+		var d2: String = str(device_list[i])
+		if not d2.contains("BlackHole"):
+			return d2
+	return "Default"
+
+
+func _play_audio_test_tone() -> void:
+	if generated_root == null:
+		return
+	var test := AudioStreamPlayer.new()
+	test.name = "AudioTestTone"
+	test.bus = "Master"
+	test.volume_db = 0.0
+	test.stream = AudioManager.generate_wav_stream([440.0, 660.0, 880.0], 0.8, 0.65, false)
+	generated_root.add_child(test)
+	test.play()
+	call_deferred("_run_audio_bus_probe")
+	test.finished.connect(func() -> void:
+		if is_instance_valid(test):
+			test.queue_free()
+	)
+
+
+func _run_audio_bus_probe() -> void:
+	var master_idx: int = AudioServer.get_bus_index("Master")
+	if master_idx < 0:
+		last_discovery_text = "Audio probe: no Master bus."
+		return
+	var peak_l: float = -80.0
+	var peak_r: float = -80.0
+	for _i in range(20):
+		await get_tree().create_timer(0.05).timeout
+		peak_l = max(peak_l, AudioServer.get_bus_peak_volume_left_db(master_idx, 0))
+		peak_r = max(peak_r, AudioServer.get_bus_peak_volume_right_db(master_idx, 0))
+	var signal_present: bool = peak_l > -50.0 or peak_r > -50.0
+	last_discovery_text = "Audio probe: " + ("signal detected" if signal_present else "no signal") + " (L " + str(int(round(peak_l))) + " dB, R " + str(int(round(peak_r))) + " dB)"
+	print("Audio probe: master peaks L=", peak_l, " R=", peak_r, " device=", AudioServer.output_device, " muted=", audio_muted)
+
+
 func _update_time_speed_label() -> void:
 	if menu_layer == null:
 		return
@@ -1057,7 +1211,6 @@ func _update_time_speed_label() -> void:
 
 
 func _show_main_menu() -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if menu_layer != null:
 		menu_layer.queue_free()
 
@@ -1289,6 +1442,126 @@ func _show_main_menu() -> void:
 	fs_btn.toggled.connect(_on_toggle_start_fullscreen.bind(fs_btn))
 	fs_row.add_child(fs_btn)
 
+	var audio_header := HBoxContainer.new()
+	audio_header.add_theme_constant_override("separation", 6)
+	list.add_child(audio_header)
+	var audio_label := Label.new()
+	audio_label.text = "Audio:"
+	audio_label.add_theme_font_size_override("font_size", 12)
+	audio_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	audio_header.add_child(audio_label)
+	var audio_mute_btn := Button.new()
+	audio_mute_btn.text = "Muted" if audio_muted else "Unmuted"
+	audio_mute_btn.toggle_mode = true
+	audio_mute_btn.button_pressed = audio_muted
+	audio_mute_btn.toggled.connect(_on_toggle_audio_mute.bind(audio_mute_btn))
+	audio_header.add_child(audio_mute_btn)
+	var audio_test_btn := Button.new()
+	audio_test_btn.text = "Test Tone"
+	audio_test_btn.pressed.connect(_play_audio_test_tone)
+	audio_header.add_child(audio_test_btn)
+
+	var output_row := HBoxContainer.new()
+	output_row.add_theme_constant_override("separation", 6)
+	list.add_child(output_row)
+	var output_label := Label.new()
+	output_label.text = "Output Device:"
+	output_label.add_theme_font_size_override("font_size", 12)
+	output_label.custom_minimum_size.x = 108
+	output_row.add_child(output_label)
+	var output_option := OptionButton.new()
+	output_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	output_row.add_child(output_option)
+	output_option.add_item("Default")
+	var output_devices: PackedStringArray = AudioServer.get_output_device_list()
+	for i in range(output_devices.size()):
+		output_option.add_item(output_devices[i])
+	var selected_idx: int = 0
+	for i in range(output_option.item_count):
+		if output_option.get_item_text(i) == audio_output_device:
+			selected_idx = i
+			break
+	output_option.select(selected_idx)
+	output_option.item_selected.connect(func(idx: int) -> void:
+		_on_audio_output_device_selected(output_option.get_item_text(idx))
+	)
+	var output_active := Label.new()
+	output_active.text = "Active: " + AudioServer.output_device
+	output_active.add_theme_font_size_override("font_size", 11)
+	list.add_child(output_active)
+
+	var master_row := HBoxContainer.new()
+	master_row.add_theme_constant_override("separation", 6)
+	list.add_child(master_row)
+	var master_label := Label.new()
+	master_label.text = "Master:"
+	master_label.add_theme_font_size_override("font_size", 12)
+	master_label.custom_minimum_size.x = 64
+	master_row.add_child(master_label)
+	var master_slider := HSlider.new()
+	master_slider.min_value = -30.0
+	master_slider.max_value = 6.0
+	master_slider.step = 0.5
+	master_slider.value = audio_master_db
+	master_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	master_slider.value_changed.connect(_on_audio_volume_changed)
+	master_row.add_child(master_slider)
+	var master_val := Label.new()
+	master_val.text = str(int(round(audio_master_db))) + " dB"
+	master_val.add_theme_font_size_override("font_size", 12)
+	master_row.add_child(master_val)
+	master_slider.value_changed.connect(func(v: float) -> void:
+		master_val.text = str(int(round(v))) + " dB"
+	)
+
+	var music_row := HBoxContainer.new()
+	music_row.add_theme_constant_override("separation", 6)
+	list.add_child(music_row)
+	var music_label := Label.new()
+	music_label.text = "Music:"
+	music_label.add_theme_font_size_override("font_size", 12)
+	music_label.custom_minimum_size.x = 64
+	music_row.add_child(music_label)
+	var music_slider := HSlider.new()
+	music_slider.min_value = -30.0
+	music_slider.max_value = 6.0
+	music_slider.step = 0.5
+	music_slider.value = audio_music_db
+	music_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	music_slider.value_changed.connect(_on_music_volume_changed)
+	music_row.add_child(music_slider)
+	var music_val := Label.new()
+	music_val.text = str(int(round(audio_music_db))) + " dB"
+	music_val.add_theme_font_size_override("font_size", 12)
+	music_row.add_child(music_val)
+	music_slider.value_changed.connect(func(v: float) -> void:
+		music_val.text = str(int(round(v))) + " dB"
+	)
+
+	var sfx_row := HBoxContainer.new()
+	sfx_row.add_theme_constant_override("separation", 6)
+	list.add_child(sfx_row)
+	var sfx_label := Label.new()
+	sfx_label.text = "Effects:"
+	sfx_label.add_theme_font_size_override("font_size", 12)
+	sfx_label.custom_minimum_size.x = 64
+	sfx_row.add_child(sfx_label)
+	var sfx_slider := HSlider.new()
+	sfx_slider.min_value = -30.0
+	sfx_slider.max_value = 6.0
+	sfx_slider.step = 0.5
+	sfx_slider.value = audio_sfx_db
+	sfx_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sfx_slider.value_changed.connect(_on_sfx_volume_changed)
+	sfx_row.add_child(sfx_slider)
+	var sfx_val := Label.new()
+	sfx_val.text = str(int(round(audio_sfx_db))) + " dB"
+	sfx_val.add_theme_font_size_override("font_size", 12)
+	sfx_row.add_child(sfx_val)
+	sfx_slider.value_changed.connect(func(v: float) -> void:
+		sfx_val.text = str(int(round(v))) + " dB"
+	)
+
 	var atlas := Label.new()
 	atlas.text = _atlas_summary_text()
 	atlas.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1320,13 +1593,20 @@ func _show_main_menu() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 14)
 	list.add_child(hint)
+	_update_mouse_mode_for_overlays()
 
 
 func _close_menu() -> void:
 	if menu_layer != null:
 		menu_layer.queue_free()
 		menu_layer = null
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_update_mouse_mode_for_overlays()
+
+
+func _update_mouse_mode_for_overlays() -> void:
+	var menu_open: bool = menu_layer != null
+	var atlas_open: bool = atlas_view != null and atlas_view.is_open()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if (menu_open or atlas_open) else Input.MOUSE_MODE_CAPTURED
 
 
 func _show_achievements_dialog() -> void:
@@ -1651,6 +1931,30 @@ func _update_world_map_record(world_id: String, map_id: String, map_record: Dict
 		_save_world_data()
 
 
+func _get_e_key_gate_enabled() -> bool:
+	return e_key_gate_enabled
+
+
+func _set_e_key_gate_enabled(enabled: bool) -> void:
+	e_key_gate_enabled = enabled
+	_save_world_data()
+	last_discovery_text = "E-key gate use: " + ("enabled" if enabled else "disabled")
+
+
+func _set_map_name(world_id: String, map_id: String, map_name: String) -> void:
+	if world_id == "" or map_id == "":
+		return
+	var map_record: Dictionary = _get_map_record(world_id, map_id)
+	if map_record.is_empty():
+		return
+	var trimmed: String = map_name.strip_edges()
+	if trimmed == "":
+		map_record.erase("name")
+	else:
+		map_record["name"] = trimmed.left(48)
+	_update_world_map_record(world_id, map_id, map_record, true)
+
+
 func _backstory_text() -> String:
 	return "The Atlas of Gates once held every world together, but it shattered during the Convergence Collapse. Fragments of reality drifted apart, each sealed behind a dormant gate.\n\nYou are the last field cartographer of the Celestial Survey, dispatched from the floating observatory to cross the gates, map the splintered territories, and reassemble the Atlas one discovery at a time.\n\nOn the far side of certain gates lies the Moon — a silent world of glass craters and drifting lichen, where ancient shrines float in the void. Pilgrims who reach them all earn the title Moon Pilgrim.\n\nThe Survey's old handbooks speak of a limit: no more than thirty-two maps can be opened from a single world before the local gate-network saturates. Choose your path wisely."
 
@@ -1944,6 +2248,8 @@ func _add_discovery_area(parent: Node3D, local_position: Vector3, radius: float,
 	area.name = "DiscoveryArea"
 	area.collision_layer = 0
 	area.collision_mask = 2
+	area.monitoring = true
+	area.monitorable = true
 	area.position = local_position
 
 	var shape_node := CollisionShape3D.new()
@@ -1953,6 +2259,39 @@ func _add_discovery_area(parent: Node3D, local_position: Vector3, radius: float,
 	area.add_child(shape_node)
 	area.body_entered.connect(_on_discovery_body_entered.bind(discovery_id, title, kind, discovery_position))
 	parent.add_child(area)
+
+
+func _poll_wonder_proximity_fallback() -> void:
+	if current_world_id == "" or current_map_id == "" or generated_root == null or discovery_tracker == null:
+		return
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var wonders: Array = generated_root.find_children("Wonder_*", "Node3D", true, false)
+	for raw in wonders:
+		var wonder: Node3D = raw as Node3D
+		if wonder == null:
+			continue
+		var fallback_id: String = "wonder_" + str(int(round(wonder.global_position.x))) + "_" + str(int(round(wonder.global_position.z)))
+		var discovery_id: String = str(wonder.get_meta("discovery_id", fallback_id))
+		var title: String = str(wonder.get_meta("discovery_title", _wonder_title(wonder.name)))
+		var kind: String = str(wonder.get_meta("discovery_kind", "wonder"))
+		if not wonder.has_meta("discovery_id"):
+			wonder.set_meta("discovery_id", discovery_id)
+		if not wonder.has_meta("discovery_title"):
+			wonder.set_meta("discovery_title", title)
+		if not wonder.has_meta("discovery_kind"):
+			wonder.set_meta("discovery_kind", kind)
+		var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
+		var discoveries: Dictionary = map_record.get("discoveries", {})
+		if discoveries.has(discovery_id):
+			continue
+		var dist: float = wonder.global_position.distance_to(player.global_position)
+		if dist <= 13.0:
+			discovery_tracker.record_discovery(discovery_id, title, kind, wonder.global_position)
+			last_discovery_text = "New discovery: " + title
 
 
 func _height_at_world(wx: float, wz: float) -> float:
@@ -2213,8 +2552,10 @@ func _next_objective_hint(map_record: Dictionary) -> String:
 		for key in discoveries.keys():
 			if str(key).begins_with("moon_orb_"):
 				shrine_count += 1
+		var shrine_charge: Dictionary = map_record.get("moon_shrine_charge", {})
+		var charged_count: int = shrine_charge.size()
 		if shrine_count < 9:
-			return "Objective: Recover moon shrine orbs (" + str(shrine_count) + "/9)."
+			return "Objective: Attune moon shrines with thrown lichen, then recover orbs (" + str(shrine_count) + "/9, charged " + str(charged_count) + ")."
 		return "Objective: Return through a gate and continue atlas expansion."
 
 	var available: int = int(map_record.get("available_discoveries", 0))
@@ -2419,6 +2760,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		GateFactory.scatter_gate_room_return_portal(generated_root, _on_gate_room_return_body_entered)
 	elif _is_current_map_cave():
 		GateFactory.scatter_cave_items(generated_root, world_seed)
+		_spawn_wonders()
 		_begin_generation_channel("gates")
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
@@ -2450,6 +2792,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_ruins()
 			_scatter_underwater_plants()
 			_scatter_fish_schools()
+			_spawn_wonders()
 		else:
 			_scatter_trees()
 			_scatter_rocks()
@@ -2776,28 +3119,79 @@ func _spawn_wonders() -> void:
 	var half: float = _world_half_size()
 	var min_cell: int = int(floor(-half / WONDER_CELL_SIZE))
 	var max_cell: int = int(ceil(half / WONDER_CELL_SIZE))
+	var spawned_count: int = 0
 
 	for cell_z in range(min_cell, max_cell + 1):
 		for cell_x in range(min_cell, max_cell + 1):
 			if not WonderGenerator.cell_has_wonder(world_seed, cell_x, cell_z, WONDER_CHANCE):
 				continue
 			var wonder_pos: Vector3 = WonderGenerator.get_cell_wonder_position(world_seed, cell_x, cell_z, Callable(map_context, "height_at_world"), WONDER_CELL_SIZE)
-			if abs(wonder_pos.x) > half - 28.0 or abs(wonder_pos.z) > half - 28.0:
+			if not _can_place_wonder_at(wonder_pos, half):
 				continue
-			if wonder_pos.y < _water_level() + 0.4 or _river_distance(wonder_pos.x, wonder_pos.z) < 9.0:
-				continue
-			if wonder_pos.distance_to(Vector3.ZERO) < 25.0:
-				continue
+			if _spawn_wonder_instance(wonder_pos, cell_x, cell_z):
+				spawned_count += 1
 
-			var wonder: Node3D = WonderGenerator.create_wonder(world_seed, wonder_pos, 0, true)
-			var discovery_id: String = "wonder_" + str(cell_x) + "_" + str(cell_z)
-			var title: String = _wonder_title(wonder.name)
-			var wonder_kind: String = "crystal" if title == "Crystal Spire" else "wonder"
-			_wonder_positions.append({"x": wonder_pos.x, "z": wonder_pos.z, "kind": wonder_kind, "id": discovery_id, "title": title})
-			_add_discovery_area(wonder, Vector3(0.0, 2.0, 0.0), 12.0, discovery_id, title, wonder_kind)
-			if title == "Moon Gate":
-				MoonGateFactory.add_moon_gate_trigger(wonder, _on_moon_gate_body_entered)
-			_add_generated_child(wonder)
+	var min_wonders: int = 3
+	if _is_current_map_cave() or _is_current_map_water():
+		min_wonders = 2
+	elif _is_current_map_arctic():
+		min_wonders = 1
+	if spawned_count >= min_wonders:
+		return
+
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "wonder_fallback"))
+	var attempts: int = 0
+	while spawned_count < min_wonders and attempts < 220:
+		attempts += 1
+		var x: float = rng.randf_range(-(half - 30.0), half - 30.0)
+		var z: float = rng.randf_range(-(half - 30.0), half - 30.0)
+		var y: float = _height_at_world(x, z)
+		var pos := Vector3(x, y, z)
+		if not _can_place_wonder_at(pos, half):
+			continue
+		var cx: int = int(round(x / WONDER_CELL_SIZE))
+		var cz: int = int(round(z / WONDER_CELL_SIZE))
+		if _spawn_wonder_instance(pos, cx, cz):
+			spawned_count += 1
+
+
+func _can_place_wonder_at(wonder_pos: Vector3, half: float) -> bool:
+	if abs(wonder_pos.x) > half - 28.0 or abs(wonder_pos.z) > half - 28.0:
+		return false
+	if wonder_pos.distance_to(Vector3.ZERO) < 25.0:
+		return false
+	var river_min: float = 9.0
+	var water_clearance_min: float = 0.4
+	if _is_current_map_arctic():
+		river_min = 7.0
+		water_clearance_min = 0.2
+	elif _is_current_map_water():
+		river_min = 6.0
+		water_clearance_min = 0.15
+	if wonder_pos.y < _water_level() + water_clearance_min:
+		return false
+	if _river_distance(wonder_pos.x, wonder_pos.z) < river_min:
+		return false
+	return true
+
+
+func _spawn_wonder_instance(wonder_pos: Vector3, cell_x: int, cell_z: int) -> bool:
+	var discovery_id: String = "wonder_" + str(cell_x) + "_" + str(cell_z)
+	for existing in _wonder_positions:
+		if str(existing.get("id", "")) == discovery_id:
+			return false
+	var wonder: Node3D = WonderGenerator.create_wonder(world_seed, wonder_pos, 0, true)
+	var title: String = _wonder_title(wonder.name)
+	var wonder_kind: String = "wonder"
+	_wonder_positions.append({"x": wonder_pos.x, "z": wonder_pos.z, "kind": wonder_kind, "id": discovery_id, "title": title})
+	wonder.set_meta("discovery_id", discovery_id)
+	wonder.set_meta("discovery_title", title)
+	wonder.set_meta("discovery_kind", wonder_kind)
+	_add_discovery_area(wonder, Vector3(0.0, 2.0, 0.0), 12.0, discovery_id, title, wonder_kind)
+	if title == "Moon Gate":
+		MoonGateFactory.add_moon_gate_trigger(wonder, _on_moon_gate_body_entered)
+	_add_generated_child(wonder)
+	return true
 
 
 func _wonder_title(wonder_name: String) -> String:
@@ -2823,6 +3217,31 @@ func _on_moon_gate_body_entered(body: Node3D) -> void:
 		_update_world_map_record(current_world_id, "moon", _create_moon_map_record(_moon_seed(world)).to_dict(), true)
 
 	_load_map(current_world_id, "moon")
+
+
+func _poll_moon_gate_proximity_fallback() -> void:
+	if current_world_id == "" or current_map_id == "" or generated_root == null or _is_current_map_moon():
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var now_msec: int = Time.get_ticks_msec()
+	if now_msec - _moon_gate_last_trigger_msec < 1200:
+		return
+	var wonders: Array = generated_root.find_children("Wonder_*", "Node3D", true, false)
+	for raw in wonders:
+		var wonder: Node3D = raw as Node3D
+		if wonder == null:
+			continue
+		var title: String = str(wonder.get_meta("discovery_title", _wonder_title(wonder.name)))
+		if title != "Moon Gate":
+			continue
+		var dist: float = wonder.global_position.distance_to(player.global_position)
+		if dist <= 4.2:
+			_moon_gate_last_trigger_msec = now_msec
+			last_discovery_text = "Moon Gate activated."
+			_on_moon_gate_body_entered(player)
+			return
 
 
 func _scatter_moon_platforms() -> void:
@@ -2851,7 +3270,7 @@ func _scatter_moon_platforms() -> void:
 		var orb_body := Area3D.new()
 		orb_body.name = "ShrineOrb_" + str(i)
 		orb_body.collision_layer = 0
-		orb_body.collision_mask = 2
+		orb_body.collision_mask = 1 | 2
 		var orb_shape := CollisionShape3D.new()
 		var orb_sphere := SphereShape3D.new()
 		orb_sphere.radius = 1.2
@@ -2886,9 +3305,15 @@ func _random_position(rng: StableRng, half: float) -> Vector3:
 
 
 func _on_orb_collected(body: Node3D, platform_index: int, orb_body: Area3D) -> void:
-	if body.name != "Player" or discovery_tracker == null:
+	if body == null:
 		return
 	if not _is_current_map_moon():
+		return
+	var is_player: bool = body.name == "Player"
+	var is_thrown_lichen: bool = _is_thrown_lichen_node(body)
+	if not is_player and not is_thrown_lichen:
+		return
+	if discovery_tracker == null:
 		return
 	var world: Dictionary = _get_world(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
@@ -2899,10 +3324,104 @@ func _on_orb_collected(body: Node3D, platform_index: int, orb_body: Area3D) -> v
 		if orb_body != null:
 			orb_body.queue_free()
 		return
+	var shrine_charge: Dictionary = map_record.get("moon_shrine_charge", {})
+	var charge_key: String = str(platform_index)
+	if is_thrown_lichen:
+		if shrine_charge.has(charge_key):
+			if is_instance_valid(body):
+				body.queue_free()
+			last_discovery_text = "Shrine already attuned."
+			return
+		if is_instance_valid(body):
+			body.queue_free()
+		shrine_charge[charge_key] = true
+		map_record["moon_shrine_charge"] = shrine_charge
+		_update_world_map_record(current_world_id, current_map_id, map_record, true)
+		last_discovery_text = "Shrine attuned by lichen. Touch orb to claim."
+		return
+	if not shrine_charge.has(charge_key):
+		var lichen_node: Node3D = _find_nearby_thrown_lichen(orb_body.global_position if orb_body != null else body.global_position, 3.2)
+		if lichen_node == null:
+			last_discovery_text = "Shrine inert. Throw lichen at it first."
+			return
+		lichen_node.queue_free()
+		shrine_charge[charge_key] = true
+		map_record["moon_shrine_charge"] = shrine_charge
+		_update_world_map_record(current_world_id, current_map_id, map_record, true)
+		last_discovery_text = "Shrine attuned by lichen. Touch orb again to claim."
+		return
 	discovery_tracker.record_discovery(key, "Shrine " + str(platform_index + 1) + " Orb", "orb", body.global_position)
+	shrine_charge.erase(charge_key)
+	map_record["moon_shrine_charge"] = shrine_charge
+	_update_world_map_record(current_world_id, current_map_id, map_record, true)
 	if orb_body != null:
 		orb_body.queue_free()
 	print("Moon orb ", platform_index, " collected")
+
+
+func _poll_moon_shrine_fallback() -> void:
+	if not _is_current_map_moon() or generated_root == null or discovery_tracker == null:
+		return
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(current_map_id, {})
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	var shrine_charge: Dictionary = map_record.get("moon_shrine_charge", {})
+	var changed: bool = false
+	var orbs: Array = generated_root.find_children("ShrineOrb_*", "Area3D", true, false)
+	for raw in orbs:
+		var orb_area: Area3D = raw as Area3D
+		if orb_area == null:
+			continue
+		var idx_text: String = str(orb_area.name).trim_prefix("ShrineOrb_")
+		var idx: int = int(idx_text)
+		var key: String = "moon_orb_" + str(idx)
+		var charge_key: String = str(idx)
+		if discoveries.has(key):
+			if is_instance_valid(orb_area):
+				orb_area.queue_free()
+			continue
+			if not shrine_charge.has(charge_key):
+				var nearby_lichen: Node3D = _find_nearby_thrown_lichen(orb_area.global_position, 2.4)
+				if nearby_lichen != null:
+					nearby_lichen.queue_free()
+					shrine_charge[charge_key] = true
+					changed = true
+					last_discovery_text = "Shrine attuned by lichen. Touch orb to claim."
+	if changed:
+		map_record["moon_shrine_charge"] = shrine_charge
+		_update_world_map_record(current_world_id, current_map_id, map_record, true)
+
+
+func _find_nearby_thrown_lichen(from: Vector3, max_dist: float) -> Node3D:
+	if generated_root == null:
+		return null
+	var best: Node3D = null
+	var best_dist: float = max_dist
+	var stack: Array[Node] = [generated_root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node is Node3D:
+			var n3d: Node3D = node as Node3D
+			if n3d != null and n3d.is_in_group("floating_lichen") and n3d.name == "ThrownLichen" and is_instance_valid(n3d):
+				var dist: float = n3d.global_position.distance_to(from)
+				if dist <= best_dist:
+					best_dist = dist
+					best = n3d
+		for child in node.get_children():
+			stack.append(child)
+	return best
+
+
+func _is_thrown_lichen_node(node: Node) -> bool:
+	if node == null:
+		return false
+	if not (node is Node3D):
+		return false
+	var n3d: Node3D = node as Node3D
+	if n3d == null:
+		return false
+	return n3d.name == "ThrownLichen" or n3d.is_in_group("floating_lichen")
 
 
 func _on_gate_room_gate_body_entered(body: Node3D, slot_index: int) -> void:
@@ -3112,9 +3631,11 @@ func _ensure_player_above_surface(player: CharacterBody3D) -> bool:
 	if _is_current_map_cave() or _is_current_map_gate_room() or _is_current_map_map_nexus():
 		return false
 	var terrain_y: float = _height_at_world(player.global_position.x, player.global_position.z)
-	var min_safe_y: float = terrain_y + 1.2
-	if player.global_position.y < min_safe_y:
-		player.global_position = Vector3(player.global_position.x, min_safe_y, player.global_position.z)
+	# Only rescue when clearly below terrain to avoid canceling legitimate jumps,
+	# especially on moon maps with low gravity.
+	var rescue_y: float = terrain_y - 2.0
+	if player.global_position.y < rescue_y:
+		player.global_position = Vector3(player.global_position.x, terrain_y + 1.2, player.global_position.z)
 		player.velocity = Vector3.ZERO
 		return true
 	return false
@@ -3140,9 +3661,67 @@ func _check_moon_shrine_completion() -> void:
 			"z": 0.0,
 		}
 		map_record["discoveries"] = discoveries
+		map_record["moon_pilgrim_cutscene_seen"] = true
 		_update_world_map_record(current_world_id, current_map_id, map_record, true)
 		if discovery_tracker != null:
 			discovery_tracker.award_achievement("moon_pilgrim")
+		_play_moon_pilgrim_cutscene()
+
+
+func _play_moon_pilgrim_cutscene() -> void:
+	if _moon_cutscene_active or generated_root == null:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var player_camera: Camera3D = player.get_node_or_null("PlayerCamera") as Camera3D
+	if player_camera == null:
+		return
+	_moon_cutscene_active = true
+	AudioManager.play_moon_pilgrim_fanfare(generated_root)
+	last_discovery_text = "Moon Pilgrim complete. The Atlas resonates."
+
+	player.set_physics_process(false)
+	player.set_process_unhandled_input(false)
+	player.velocity = Vector3.ZERO
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+	var cutscene_rig := Node3D.new()
+	cutscene_rig.name = "MoonPilgrimCutsceneRig"
+	generated_root.add_child(cutscene_rig)
+	var cut_cam := Camera3D.new()
+	cut_cam.current = true
+	cutscene_rig.add_child(cut_cam)
+
+	var center: Vector3 = player.global_position + Vector3(0.0, 2.8, 0.0)
+	cutscene_rig.global_position = center + Vector3(-9.0, 4.5, -9.0)
+	cut_cam.look_at(center, Vector3.UP)
+
+	var t := create_tween()
+	t.set_trans(Tween.TRANS_SINE)
+	t.set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(cutscene_rig, "global_position", center + Vector3(10.0, 5.5, -6.0), 2.4)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(cut_cam):
+			cut_cam.look_at(center, Vector3.UP)
+	)
+	t.tween_property(cutscene_rig, "global_position", center + Vector3(0.0, 8.0, 12.0), 2.2)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(cut_cam):
+			cut_cam.look_at(center, Vector3.UP)
+	)
+	t.finished.connect(func() -> void:
+		if is_instance_valid(player_camera):
+			player_camera.current = true
+		if is_instance_valid(cutscene_rig):
+			cutscene_rig.queue_free()
+		if is_instance_valid(player):
+			player.set_physics_process(true)
+			player.set_process_unhandled_input(true)
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		_moon_cutscene_active = false
+		last_discovery_text = "Moon Pilgrim route unlocked. Return through a gate when ready."
+	)
 
 
 func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:

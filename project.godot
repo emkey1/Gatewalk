@@ -18,6 +18,13 @@ config/name="Random World Explorer v6"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 
+[audio]
+
+buses/default_bus_layout="uid://cwwvr2cgwqnwg"
+general/ios/mix_with_others=true
+driver/enable_input=true
+driver/mix_rate=48000
+
 [display]
 
 window/size/viewport_width=1280

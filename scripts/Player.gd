@@ -3,6 +3,9 @@ extends CharacterBody3D
 const WALK_SPEED: float = 8.0
 const SPRINT_SPEED: float = 13.0
 const JUMP_VELOCITY: float = 6.0
+const JUMP_MIN_HEIGHT_SCALE: float = 0.35
+const JUMP_MAX_HEIGHT_SCALE: float = 1.5
+const JUMP_HOLD_DURATION: float = 0.24
 const MOUSE_SENSITIVITY: float = 0.0025
 const GRAVITY: float = 20.0
 const SWIM_UP_SPEED: float = 3.2
@@ -10,6 +13,7 @@ const MAX_SPRINT_STAMINA: float = 15.0
 const MAX_BREATH: float = 60.0
 const FLASHLIGHT_MAX_CHARGE: float = 30.0
 const FLASHLIGHT_RECHARGE_RATE: float = 2.0
+const FLASHLIGHT_ENABLE_THRESHOLD: float = 8.0
 
 const WALKABLE_SLOPE_DEGREES: float = 72.0
 
@@ -24,6 +28,8 @@ var lichen_count: int = 0
 var flashlight_on: bool = false
 var flashlight_charge: float = FLASHLIGHT_MAX_CHARGE
 var flashlight: SpotLight3D
+var _jump_hold_remaining: float = 0.0
+var _jump_hold_boost_per_sec: float = 0.0
 
 
 func _ready() -> void:
@@ -78,9 +84,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			return
-		if flashlight_charge > 0.0:
-			flashlight_on = not flashlight_on
-			flashlight.light_energy = 10.5 if flashlight_on else 0.0
+		if flashlight_on:
+			flashlight_on = false
+			flashlight.light_energy = 0.0
+		elif flashlight_charge >= FLASHLIGHT_ENABLE_THRESHOLD:
+			flashlight_on = true
+			flashlight.light_energy = 10.5
 
 
 func _physics_process(delta: float) -> void:
@@ -116,11 +125,25 @@ func _physics_process(delta: float) -> void:
 			velocity.y = SWIM_UP_SPEED
 	elif is_on_floor():
 		if Input.is_action_just_pressed("jump"):
-			velocity.y = JUMP_VELOCITY * jump_multiplier
+			var min_velocity_scale: float = sqrt(JUMP_MIN_HEIGHT_SCALE)
+			var max_velocity_scale: float = sqrt(JUMP_MAX_HEIGHT_SCALE)
+			var base_jump_velocity: float = JUMP_VELOCITY * jump_multiplier * min_velocity_scale
+			velocity.y = base_jump_velocity
+			_jump_hold_remaining = JUMP_HOLD_DURATION
+			var target_jump_velocity: float = JUMP_VELOCITY * jump_multiplier * max_velocity_scale
+			var extra_velocity: float = max(target_jump_velocity - base_jump_velocity, 0.0)
+			_jump_hold_boost_per_sec = extra_velocity / JUMP_HOLD_DURATION
 		else:
 			velocity.y = -0.1
+			_jump_hold_remaining = 0.0
+	elif _jump_hold_remaining > 0.0 and velocity.y > 0.0 and Input.is_action_pressed("jump"):
+		var hold_step: float = min(delta, _jump_hold_remaining)
+		velocity.y += _jump_hold_boost_per_sec * hold_step
+		_jump_hold_remaining -= hold_step
 	else:
 		velocity.y -= GRAVITY * gravity_multiplier * delta
+		if not Input.is_action_pressed("jump"):
+			_jump_hold_remaining = 0.0
 
 	move_and_slide()
 
@@ -132,13 +155,13 @@ func _physics_process(delta: float) -> void:
 			var rigid_body: RigidBody3D = collider as RigidBody3D
 			rigid_body.apply_impulse(push_dir * 2.8, collision.get_position() - rigid_body.global_position)
 
+	var moving: bool = input_dir.length() > 0.0
+	if moving:
+		var recharge_scale: float = 0.35 if flashlight_on else 1.0
+		flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE * recharge_scale, FLASHLIGHT_MAX_CHARGE)
 	if flashlight_on:
-		var moving: bool = input_dir.length() > 0.0
-		if moving:
-			flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE, FLASHLIGHT_MAX_CHARGE)
-		else:
-			flashlight_charge -= delta
-			if flashlight_charge <= 0.0:
-				flashlight_charge = 0.0
-				flashlight_on = false
-				flashlight.light_energy = 0.0
+		flashlight_charge -= delta
+		if flashlight_charge <= 0.0:
+			flashlight_charge = 0.0
+			flashlight_on = false
+			flashlight.light_energy = 0.0

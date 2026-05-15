@@ -10,26 +10,38 @@ var seed_color_fn: Callable
 var short_id_fn: Callable
 var completion_text_fn: Callable
 var opposite_gate_index_fn: Callable
+var set_map_name_fn: Callable
 
 var current_world_id: String = ""
 var current_map_id: String = ""
 var gate_count: int = 4
 var focused_map_id: String = ""
+var _graph_viewport: SubViewport
+var _graph_camera: Camera3D
+var _graph_container: SubViewportContainer
+var _graph_root: Node3D
+var _hover_label: Label
+var _hover_map_names: Dictionary = {}
+var _hover_map_positions: Dictionary = {}
 
 
 func toggle() -> void:
-	if atlas_layer != null and atlas_layer.visible:
-		atlas_layer.visible = false
-		show_atlas = false
-	else:
-		show_atlas = true
+	show_atlas = not show_atlas
+	if show_atlas:
 		refresh()
-		if atlas_layer != null:
+		if is_instance_valid(atlas_layer):
 			atlas_layer.visible = true
+	else:
+		if is_instance_valid(atlas_layer):
+			atlas_layer.visible = false
+
+
+func is_open() -> bool:
+	return is_instance_valid(atlas_layer) and atlas_layer.visible
 
 
 func refresh() -> void:
-	if atlas_layer != null:
+	if is_instance_valid(atlas_layer):
 		atlas_layer.queue_free()
 	if focused_map_id == "":
 		focused_map_id = current_map_id
@@ -53,10 +65,10 @@ func refresh() -> void:
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -520.0
-	panel.offset_top = -280.0
-	panel.offset_right = 520.0
-	panel.offset_bottom = 280.0
+	panel.offset_left = -620.0
+	panel.offset_top = -340.0
+	panel.offset_right = 620.0
+	panel.offset_bottom = 340.0
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.06, 0.08, 0.12, 0.95)
 	panel_style.corner_radius_top_left = 8
@@ -76,7 +88,7 @@ func refresh() -> void:
 
 	var split := HSplitContainer.new()
 	split.anchors_preset = Control.PRESET_FULL_RECT
-	split.split_offset = 700
+	split.split_offset = 860
 	root_margin.add_child(split)
 
 	var left := VBoxContainer.new()
@@ -89,12 +101,14 @@ func refresh() -> void:
 	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	container.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_child(container)
+	_graph_container = container
 
 	var viewport := SubViewport.new()
-	viewport.size = Vector2i(700, 470)
+	viewport.size = Vector2i(860, 570)
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	viewport.transparent_bg = false
 	container.add_child(viewport)
+	_graph_viewport = viewport
 
 	var world_3d := World3D.new()
 	var env := Environment.new()
@@ -109,12 +123,14 @@ func refresh() -> void:
 	var root := Node3D.new()
 	root.name = "Atlas3DRoot"
 	viewport.add_child(root)
+	_graph_root = root
 
 	var camera := Camera3D.new()
 	camera.position = Vector3(0.0, 20.0, 39.0)
 	camera.rotation_degrees = Vector3(-40.0, 0.0, 0.0)
 	camera.current = true
 	root.add_child(camera)
+	_graph_camera = camera
 
 	var light := DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-40.0, -20.0, 0.0)
@@ -148,7 +164,7 @@ func refresh() -> void:
 	legend.text = "Node color = map type. Node size = completion. Gold gate dots = linked. Gray = unopened. [TAB] close."
 	legend.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	legend.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	legend.add_theme_font_size_override("font_size", 10)
+	legend.add_theme_font_size_override("font_size", 11)
 	legend.add_theme_color_override("font_color", Color(0.66, 0.73, 0.86))
 	legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	left.add_child(legend)
@@ -175,15 +191,26 @@ func refresh() -> void:
 	left.add_child(world_info)
 
 	var right := VBoxContainer.new()
-	right.custom_minimum_size = Vector2(280.0, 0.0)
+	right.custom_minimum_size = Vector2(340.0, 0.0)
 	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	split.add_child(right)
+
+	var header_row := HBoxContainer.new()
+	header_row.add_theme_constant_override("separation", 8)
+	right.add_child(header_row)
 
 	var maps_title := Label.new()
 	maps_title.text = "Map List"
 	maps_title.add_theme_font_size_override("font_size", 14)
 	maps_title.add_theme_color_override("font_color", Color(0.90, 0.94, 1.0))
-	right.add_child(maps_title)
+	maps_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_row.add_child(maps_title)
+
+	var help_btn := Button.new()
+	help_btn.text = "Help"
+	help_btn.custom_minimum_size = Vector2(72.0, 0.0)
+	help_btn.pressed.connect(_show_help_dialog.bind(panel))
+	header_row.add_child(help_btn)
 
 	var list_scroll := ScrollContainer.new()
 	list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -195,7 +222,31 @@ func refresh() -> void:
 	list_scroll.add_child(list_box)
 	_build_map_list(list_box, world)
 
-	atlas_layer.visible = false
+	_hover_label = Label.new()
+	_hover_label.visible = false
+	_hover_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hover_label.add_theme_font_size_override("font_size", 12)
+	_hover_label.add_theme_color_override("font_color", Color(0.95, 0.97, 1.0))
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color(0.04, 0.07, 0.12, 0.92)
+	hover_style.border_width_left = 1
+	hover_style.border_width_top = 1
+	hover_style.border_width_right = 1
+	hover_style.border_width_bottom = 1
+	hover_style.border_color = Color(0.35, 0.52, 0.76, 0.90)
+	hover_style.corner_radius_top_left = 4
+	hover_style.corner_radius_top_right = 4
+	hover_style.corner_radius_bottom_left = 4
+	hover_style.corner_radius_bottom_right = 4
+	_hover_label.add_theme_stylebox_override("normal", hover_style)
+	_hover_label.offset_left = 8
+	_hover_label.offset_right = 8
+	_hover_label.offset_top = 4
+	_hover_label.offset_bottom = 4
+	panel.add_child(_hover_label)
+
+	atlas_layer.visible = show_atlas
+	set_process(show_atlas)
 
 
 func get_text() -> String:
@@ -255,6 +306,8 @@ func _build_graph_3d(root: Node3D) -> void:
 
 	var positions: Dictionary = {}
 	var gate_positions: Dictionary = {}
+	_hover_map_names.clear()
+	_hover_map_positions.clear()
 	for i in range(map_ids.size()):
 		positions[map_ids[i]] = _atlas_layout_point(i, map_ids.size())
 		for gate_index in range(gate_count):
@@ -322,6 +375,21 @@ func _build_graph_3d(root: Node3D) -> void:
 		node_mat.emission_energy_multiplier = 1.55 if is_current else (1.25 if is_focused else 0.85)
 		node_instance.material_override = node_mat
 		root.add_child(node_instance)
+		_hover_map_names[map_id] = _display_map_name(map_id, map_record)
+		_hover_map_positions[map_id] = pos
+
+		var hover_area := Area3D.new()
+		hover_area.name = "AtlasHover_" + map_id
+		hover_area.position = pos
+		hover_area.set_meta("map_id", map_id)
+		hover_area.collision_layer = 1
+		hover_area.collision_mask = 0
+		var hover_shape := CollisionShape3D.new()
+		var hover_sphere := SphereShape3D.new()
+		hover_sphere.radius = node_radius + 0.45
+		hover_shape.shape = hover_sphere
+		hover_area.add_child(hover_shape)
+		root.add_child(hover_area)
 
 		for gate_index in range(gate_count):
 			var gate_pos: Vector3 = gate_positions[_gate_graph_key(map_id, gate_index)]
@@ -460,27 +528,43 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 		parent.add_child(row)
 
 		var margin := MarginContainer.new()
-		margin.add_theme_constant_override("margin_left", 8)
-		margin.add_theme_constant_override("margin_top", 6)
-		margin.add_theme_constant_override("margin_right", 8)
-		margin.add_theme_constant_override("margin_bottom", 6)
+		margin.add_theme_constant_override("margin_left", 6)
+		margin.add_theme_constant_override("margin_top", 4)
+		margin.add_theme_constant_override("margin_right", 6)
+		margin.add_theme_constant_override("margin_bottom", 4)
 		row.add_child(margin)
+
+		var content := VBoxContainer.new()
+		content.add_theme_constant_override("separation", 2)
+		margin.add_child(content)
+
+		var top_row := HBoxContainer.new()
+		top_row.add_theme_constant_override("separation", 6)
+		content.add_child(top_row)
 
 		var info := Label.new()
 		var marker: String = " [current]" if is_current else (" [focused]" if is_focused else (" [linked]" if is_linked else ""))
-		info.text = short_id_fn.call(map_id) + marker + "\n" + map_type + " | " + completion_text_fn.call(discoveries.size(), available) + " | pins " + str(pins.size()) + " | gates " + str(gates.size()) + "/" + str(gate_count)
-		info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		info.add_theme_font_size_override("font_size", 10)
-		margin.add_child(info)
+		info.text = _compact_label(_display_map_name(map_id, map_record), 24) + marker + " | " + map_type + " | " + completion_text_fn.call(discoveries.size(), available)
+		info.autowrap_mode = TextServer.AUTOWRAP_OFF
+		info.clip_text = true
+		info.add_theme_font_size_override("font_size", 9)
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		top_row.add_child(info)
 
 		var actions := HBoxContainer.new()
 		actions.add_theme_constant_override("separation", 6)
-		margin.add_child(actions)
+		top_row.add_child(actions)
 		var focus_btn := Button.new()
-		focus_btn.text = "Focus"
+		focus_btn.text = "Go"
 		focus_btn.disabled = is_focused
+		focus_btn.custom_minimum_size = Vector2(48, 0)
 		focus_btn.pressed.connect(_focus_map.bind(map_id))
 		actions.add_child(focus_btn)
+		var name_btn := Button.new()
+		name_btn.text = "Name"
+		name_btn.custom_minimum_size = Vector2(58, 0)
+		name_btn.pressed.connect(_prompt_rename_map.bind(map_id))
+		actions.add_child(name_btn)
 
 		var linked_targets: Array[String] = []
 		for gate_key in gates.keys():
@@ -489,11 +573,12 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 				linked_targets.append(short_id_fn.call(target))
 		if not linked_targets.is_empty():
 			var links := Label.new()
-			links.text = "Links: " + ", ".join(linked_targets)
-			links.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			links.add_theme_font_size_override("font_size", 9)
+			links.text = "Links: " + _compact_label(", ".join(linked_targets), 42)
+			links.autowrap_mode = TextServer.AUTOWRAP_OFF
+			links.clip_text = true
+			links.add_theme_font_size_override("font_size", 8)
 			links.add_theme_color_override("font_color", Color(0.72, 0.80, 0.92))
-			margin.add_child(links)
+			content.add_child(links)
 
 
 func _map_sort_key(map_id: String, maps: Dictionary, current_links: Dictionary) -> String:
@@ -516,9 +601,172 @@ func _focus_map(map_id: String) -> void:
 	if map_id == "":
 		return
 	focused_map_id = map_id
+	show_atlas = true
 	refresh()
-	if atlas_layer != null:
+	if is_instance_valid(atlas_layer):
 		atlas_layer.visible = true
+
+
+func _show_help_dialog(parent: Control) -> void:
+	if parent == null:
+		return
+	var dialog := AcceptDialog.new()
+	dialog.title = "Atlas Guide"
+	dialog.min_size = Vector2(760.0, 500.0)
+	dialog.size = Vector2(760.0, 500.0)
+	dialog.dialog_hide_on_ok = true
+	dialog.exclusive = true
+	parent.add_child(dialog)
+
+	var body := RichTextLabel.new()
+	body.bbcode_enabled = false
+	body.fit_content = true
+	body.scroll_active = true
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size = Vector2(700.0, 420.0)
+	body.text = "How to read the Atlas:\n\n" + \
+		"1) Every sphere is a discovered map in the current world.\n" + \
+		"2) Sphere color shows map type:\n" + \
+		"   - blue: normal\n" + \
+		"   - brown/stone: cave\n" + \
+		"   - pale cyan: moon\n" + \
+		"   - bright cyan: arctic\n" + \
+		"   - sea blue: water\n" + \
+		"   - violet: gate room\n" + \
+		"   - amber: nexus\n\n" + \
+		"3) Sphere size shows completion on that map.\n" + \
+		"4) Gold gate dots mean linked/known routes. Gray dots are unopened routes.\n" + \
+		"5) Bright vertical beam marks the current map. Blue beam marks the focused map.\n" + \
+		"6) In the map list:\n" + \
+		"   - Current Map: where you are now\n" + \
+		"   - Directly Linked: one gate away\n" + \
+		"   - Other Explored Maps: known but not directly linked from current map\n\n" + \
+		"Controls:\n" + \
+		"- Tab: open/close Atlas\n" + \
+		"- Focus button: highlight one map and its immediate route context\n\n" + \
+		"Practical navigation:\n" + \
+		"- Use Focus on a low-completion map.\n" + \
+		"- Prefer linked maps with remaining discoveries first.\n" + \
+		"- Use gate counts to find maps with unopened exits."
+	dialog.add_child(body)
+	dialog.popup_centered()
+
+
+func _prompt_rename_map(map_id: String) -> void:
+	if map_id == "" or not set_map_name_fn.is_valid() or atlas_layer == null:
+		return
+	var world: Dictionary = get_world_fn.call(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var map_record: Dictionary = maps.get(map_id, {}) if maps.has(map_id) else {}
+	var current_name: String = str(map_record.get("name", ""))
+	var dialog := AcceptDialog.new()
+	dialog.title = "Name Map"
+	dialog.min_size = Vector2(420.0, 0.0)
+	atlas_layer.add_child(dialog)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	dialog.add_child(box)
+	var prompt := Label.new()
+	prompt.text = "Map " + short_id_fn.call(map_id)
+	box.add_child(prompt)
+	var edit := LineEdit.new()
+	edit.placeholder_text = "Enter map name"
+	edit.text = current_name
+	edit.select_all()
+	box.add_child(edit)
+	dialog.confirmed.connect(_confirm_rename_map.bind(map_id, edit, dialog))
+	dialog.popup_centered()
+	edit.grab_focus()
+
+
+func _confirm_rename_map(map_id: String, edit: LineEdit, dialog: AcceptDialog) -> void:
+	if set_map_name_fn.is_valid() and edit != null:
+		set_map_name_fn.call(current_world_id, map_id, edit.text)
+	if dialog != null:
+		dialog.queue_free()
+	show_atlas = true
+	refresh()
+	if is_instance_valid(atlas_layer):
+		atlas_layer.visible = true
+
+
+func _display_map_name(map_id: String, map_record: Dictionary) -> String:
+	var custom_name: String = str(map_record.get("name", "")).strip_edges()
+	if custom_name != "":
+		return custom_name
+	return short_id_fn.call(map_id)
+
+
+func _compact_label(text: String, max_chars: int) -> String:
+	if max_chars <= 0:
+		return ""
+	var clean: String = text.replace("\n", " ").strip_edges()
+	if clean.length() <= max_chars:
+		return clean
+	return clean.substr(0, max_chars - 1) + "…"
+
+
+func _process(_delta: float) -> void:
+	if not is_open():
+		if _hover_label != null:
+			_hover_label.visible = false
+		return
+	_update_graph_hover()
+
+
+func _update_graph_hover() -> void:
+	if _hover_label == null or _graph_container == null or _graph_viewport == null or _graph_camera == null:
+		return
+	var mouse_global: Vector2 = get_viewport().get_mouse_position()
+	var container_rect: Rect2 = _graph_container.get_global_rect()
+	if not container_rect.has_point(mouse_global):
+		_hover_label.visible = false
+		return
+	var local: Vector2 = mouse_global - container_rect.position
+	var container_size: Vector2 = container_rect.size
+	if container_size.x <= 0.0 or container_size.y <= 0.0:
+		_hover_label.visible = false
+		return
+	var viewport_size: Vector2 = Vector2(_graph_viewport.size)
+	var vp_pos := Vector2(
+		clamp(local.x / container_size.x, 0.0, 1.0) * viewport_size.x,
+		clamp(local.y / container_size.y, 0.0, 1.0) * viewport_size.y
+	)
+	var origin: Vector3 = _graph_camera.project_ray_origin(vp_pos)
+	var dir: Vector3 = _graph_camera.project_ray_normal(vp_pos)
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + dir * 200.0)
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	var hit: Dictionary = _graph_viewport.world_3d.direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		_hover_label.visible = false
+		return
+	var collider: Object = hit.get("collider")
+	if not (collider is Area3D):
+		_hover_label.visible = false
+		return
+	var area := collider as Area3D
+	if not area.has_meta("map_id"):
+		_hover_label.visible = false
+		return
+	var map_id: String = str(area.get_meta("map_id", ""))
+	if map_id == "":
+		_hover_label.visible = false
+		return
+	var map_name: String = str(_hover_map_names.get(map_id, short_id_fn.call(map_id)))
+	var world_pos: Vector3 = area.global_position
+	var stored_pos = _hover_map_positions.get(map_id, null)
+	if stored_pos is Vector3:
+		world_pos = stored_pos as Vector3
+	var label_vp_pos: Vector2 = _graph_camera.unproject_position(world_pos + Vector3(0.0, 2.0, 0.0))
+	var label_panel_pos := container_rect.position + Vector2(
+		label_vp_pos.x / viewport_size.x * container_size.x,
+		label_vp_pos.y / viewport_size.y * container_size.y
+	)
+	_hover_label.text = " " + map_name + " "
+	_hover_label.reset_size()
+	_hover_label.position = label_panel_pos - Vector2(_hover_label.size.x * 0.5, _hover_label.size.y + 8.0)
+	_hover_label.visible = true
 
 
 func _map_node_color(map_type: String, is_current: bool) -> Color:

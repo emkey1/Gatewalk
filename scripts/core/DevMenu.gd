@@ -21,15 +21,22 @@ var moon_seed_fn: Callable
 var create_gate_room_map_record_fn: Callable
 var create_map_nexus_map_record_fn: Callable
 var close_main_menu_fn: Callable
+var get_e_key_gate_enabled_fn: Callable
+var set_e_key_gate_enabled_fn: Callable
 
 var current_world_id: String = ""
 var current_map_id: String = ""
 var world_seed: int = 12345
+var _session_authenticated: bool = false
 
 
 func show_login() -> void:
 	if dev_menu_layer != null:
 		close()
+		return
+	if _session_authenticated:
+		close_main_menu_fn.call()
+		_show_menu()
 		return
 	close_main_menu_fn.call()
 
@@ -117,6 +124,7 @@ func show_login() -> void:
 
 func _on_login_attempt(line_edit: LineEdit) -> void:
 	if line_edit.text == "1215":
+		_session_authenticated = true
 		_show_menu()
 	else:
 		line_edit.text = ""
@@ -246,7 +254,15 @@ func _show_menu() -> void:
 
 	var close_row := HBoxContainer.new()
 	close_row.alignment = 1
+	close_row.add_theme_constant_override("separation", 8)
 	menu_vbox.add_child(close_row)
+
+	if get_e_key_gate_enabled_fn.is_valid() and set_e_key_gate_enabled_fn.is_valid():
+		var e_btn := Button.new()
+		var enabled: bool = bool(get_e_key_gate_enabled_fn.call())
+		e_btn.text = "E-key Gates: " + ("ON" if enabled else "OFF")
+		e_btn.pressed.connect(_toggle_e_key_gate_use)
+		close_row.add_child(e_btn)
 
 	var close_btn := Button.new()
 	close_btn.text = "Close"
@@ -394,6 +410,14 @@ func _on_quick_map(map_type: String, world_id: String) -> void:
 			save_world_data_fn.call()
 			load_map_fn.call(world_id, mid)
 			return
+
+
+func _toggle_e_key_gate_use() -> void:
+	if not get_e_key_gate_enabled_fn.is_valid() or not set_e_key_gate_enabled_fn.is_valid():
+		return
+	var current: bool = bool(get_e_key_gate_enabled_fn.call())
+	set_e_key_gate_enabled_fn.call(not current)
+	_show_menu()
 
 
 func _create_moon_map_record(seed_value: int) -> MapRecord:
