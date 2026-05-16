@@ -98,43 +98,87 @@ static func create_gates(
 
 
 static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_entered: Callable) -> void:
-	var gate_mat := StandardMaterial3D.new()
-	gate_mat.albedo_color = Color(0.30, 0.24, 0.42)
-	gate_mat.roughness = 0.72
-	var arch_mesh := BoxMesh.new()
-	arch_mesh.size = Vector3(1.2, 4.0, 1.2)
-	var slot_area_box := BoxShape3D.new()
-	slot_area_box.size = Vector3(3.0, 3.0, 3.0)
+	var stone_mat := StandardMaterial3D.new()
+	stone_mat.albedo_color = Color(0.18, 0.21, 0.29)
+	stone_mat.roughness = 0.74
+	var trim_mat := StandardMaterial3D.new()
+	trim_mat.albedo_color = Color(0.36, 0.46, 0.64)
+	trim_mat.roughness = 0.40
+	trim_mat.emission_enabled = true
+	trim_mat.emission = Color(0.26, 0.44, 0.70)
+	trim_mat.emission_energy_multiplier = 0.55
 
-	var core_mat := StandardMaterial3D.new()
-	core_mat.albedo_color = Color(0.42, 0.30, 0.58)
-	core_mat.emission_enabled = true
-	core_mat.emission = Color(0.22, 0.12, 0.32)
-	core_mat.emission_energy_multiplier = 0.4
-	core_mat.roughness = 0.55
+	var arch_post_mesh := BoxMesh.new()
+	arch_post_mesh.size = Vector3(1.0, 4.8, 1.1)
+	var lintel_mesh := BoxMesh.new()
+	lintel_mesh.size = Vector3(3.7, 0.8, 1.0)
+	var gate_plane_mesh := PlaneMesh.new()
+	gate_plane_mesh.size = Vector2(2.8, 3.6)
+	var slot_area_box := BoxShape3D.new()
+	slot_area_box.size = Vector3(4.2, 3.2, 4.2)
 
 	var core := MeshInstance3D.new()
 	core.name = "GateRoomCore"
-	var core_mesh := CylinderMesh.new()
-	core_mesh.top_radius = 1.1
-	core_mesh.bottom_radius = 1.3
-	core_mesh.height = 6.0
-	core_mesh.radial_segments = 16
+	var core_mesh := TorusMesh.new()
+	core_mesh.outer_radius = 2.8
+	core_mesh.inner_radius = 2.45
 	core.mesh = core_mesh
-	core.material_override = core_mat
-	core.position = Vector3(0.0, 3.0, 0.0)
+	core.material_override = trim_mat
+	core.position = Vector3(0.0, 2.6, 0.0)
+	core.rotation_degrees.x = 90.0
 	parent.add_child(core)
 
 	for si in range(slot_count):
 		var angle: float = TAU * float(si) / float(slot_count)
-		var slot_pos: Vector3 = Vector3(cos(angle) * 24.0, 0.0, sin(angle) * 24.0)
+		var dir: Vector3 = Vector3(cos(angle), 0.0, sin(angle))
+		var slot_pos: Vector3 = dir * 24.0
+		var yaw_deg: float = -rad_to_deg(angle) + 90.0
 
-		var arch := MeshInstance3D.new()
-		arch.name = "GateRoomGate_" + str(si)
-		arch.mesh = arch_mesh
-		arch.material_override = gate_mat
-		arch.position = slot_pos
-		parent.add_child(arch)
+		var gate_root := Node3D.new()
+		gate_root.name = "GateRoomGate_" + str(si)
+		gate_root.position = slot_pos
+		gate_root.rotation_degrees.y = yaw_deg
+		parent.add_child(gate_root)
+
+		var left_post := MeshInstance3D.new()
+		left_post.mesh = arch_post_mesh
+		left_post.material_override = stone_mat
+		left_post.position = Vector3(-1.35, 2.4, 0.0)
+		gate_root.add_child(left_post)
+
+		var right_post := MeshInstance3D.new()
+		right_post.mesh = arch_post_mesh
+		right_post.material_override = stone_mat
+		right_post.position = Vector3(1.35, 2.4, 0.0)
+		gate_root.add_child(right_post)
+
+		var lintel := MeshInstance3D.new()
+		lintel.mesh = lintel_mesh
+		lintel.material_override = stone_mat
+		lintel.position = Vector3(0.0, 4.8, 0.0)
+		gate_root.add_child(lintel)
+
+		var gate_plane := MeshInstance3D.new()
+		gate_plane.mesh = gate_plane_mesh
+		gate_plane.position = Vector3(0.0, 2.6, 0.04)
+		gate_plane.rotation_degrees.x = 90.0
+		var plane_mat := StandardMaterial3D.new()
+		plane_mat.albedo_color = Color(0.30, 0.56, 0.92, 0.32)
+		plane_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		plane_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		plane_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		plane_mat.emission_enabled = true
+		plane_mat.emission = Color(0.24, 0.60, 1.00)
+		plane_mat.emission_energy_multiplier = 1.2
+		gate_plane.material_override = plane_mat
+		gate_root.add_child(gate_plane)
+
+		var gate_light := OmniLight3D.new()
+		gate_light.position = Vector3(0.0, 2.6, 0.0)
+		gate_light.omni_range = 13.0
+		gate_light.light_energy = 1.6
+		gate_light.light_color = Color(0.38, 0.58, 0.92)
+		gate_root.add_child(gate_light)
 
 		var area := Area3D.new()
 		area.name = "GateRoomSlot_" + str(si)
@@ -151,25 +195,49 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 
 static func scatter_gate_room_return_portal(parent: Node3D, on_body_entered: Callable) -> void:
 	var portal_mat := StandardMaterial3D.new()
-	portal_mat.albedo_color = Color(0.30, 0.56, 0.88, 0.40)
+	portal_mat.albedo_color = Color(0.30, 0.78, 1.00, 0.46)
 	portal_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	portal_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	portal_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	portal_mat.emission_enabled = true
-	portal_mat.emission = Color(0.16, 0.38, 0.72)
-	portal_mat.emission_energy_multiplier = 0.9
+	portal_mat.emission = Color(0.20, 0.70, 1.00)
+	portal_mat.emission_energy_multiplier = 1.25
+
+	var altar_mat := StandardMaterial3D.new()
+	altar_mat.albedo_color = Color(0.16, 0.22, 0.32)
+	altar_mat.roughness = 0.60
 
 	var portal := MeshInstance3D.new()
 	portal.name = "GateRoomReturnPortal"
 	var portal_mesh := CylinderMesh.new()
-	portal_mesh.top_radius = 1.6
-	portal_mesh.bottom_radius = 1.6
-	portal_mesh.height = 3.0
+	portal_mesh.top_radius = 1.9
+	portal_mesh.bottom_radius = 1.9
+	portal_mesh.height = 3.4
 	portal_mesh.radial_segments = 20
 	portal.mesh = portal_mesh
 	portal.material_override = portal_mat
-	portal.position = Vector3(0.0, 1.5, -24.0)
+	portal.position = Vector3(0.0, 1.8, -24.0)
 	parent.add_child(portal)
+
+	var altar := MeshInstance3D.new()
+	altar.name = "GateRoomReturnAltar"
+	var altar_mesh := CylinderMesh.new()
+	altar_mesh.top_radius = 3.2
+	altar_mesh.bottom_radius = 3.7
+	altar_mesh.height = 1.0
+	altar_mesh.radial_segments = 20
+	altar.mesh = altar_mesh
+	altar.material_override = altar_mat
+	altar.position = Vector3(0.0, 0.5, -24.0)
+	parent.add_child(altar)
+
+	var return_light := OmniLight3D.new()
+	return_light.name = "GateRoomReturnLight"
+	return_light.position = Vector3(0.0, 2.4, -24.0)
+	return_light.omni_range = 14.0
+	return_light.light_energy = 1.9
+	return_light.light_color = Color(0.34, 0.78, 1.0)
+	parent.add_child(return_light)
 
 	var area := Area3D.new()
 	area.name = "GateRoomReturnArea"
@@ -179,8 +247,8 @@ static func scatter_gate_room_return_portal(parent: Node3D, on_body_entered: Cal
 	area.monitorable = true
 	var area_shape := CollisionShape3D.new()
 	var shape := CylinderShape3D.new()
-	shape.radius = 2.4
-	shape.height = 3.6
+	shape.radius = 2.8
+	shape.height = 4.0
 	area_shape.shape = shape
 	area.add_child(area_shape)
 	area.position = portal.position

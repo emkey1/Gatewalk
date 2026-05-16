@@ -59,6 +59,7 @@ var hud_controller: HudController
 var atlas_view: AtlasView
 var dev_menu: DevMenu
 var show_hud: bool = true
+var hud_position: String = "left"
 var world_environment: Environment
 var sun_light: DirectionalLight3D
 var world_environment_node: WorldEnvironment
@@ -104,6 +105,7 @@ var _gate_room_slot_in_range: int = -1
 var _gate_room_return_in_range: bool = false
 var _moon_gate_last_trigger_msec: int = 0
 var _moon_cutscene_active: bool = false
+var _cutscene_active: bool = false
 var _cycle_time: float = 0.0
 var _map_loaded_at_msec: int = 0
 var cycle_speed_multiplier: float = 1.0
@@ -113,6 +115,7 @@ var generation_rng = StableRng.new(1)
 const CYCLE_HOURS_PER_SECOND: float = 0.01
 const CYCLE_LENGTH: float = 24.0 / CYCLE_HOURS_PER_SECOND
 const DEFAULT_START_HOUR: float = 7.5
+const MAP_SURVEY_LICHEN_REWARD: int = 1
 
 
 func _ready() -> void:
@@ -199,6 +202,7 @@ func _ready() -> void:
 
 	_setup_environment()
 	hud_controller.setup(self)
+	hud_controller.set_hud_position(hud_position)
 	hud_controller.world_environment = world_environment
 	_apply_graphics_level()
 	_ensure_default_world()
@@ -706,6 +710,9 @@ func _load_save_data() -> void:
 	start_fullscreen = bool(settings.get("start_fullscreen", true))
 	graphics_level = int(settings.get("graphics_level", 0))
 	density_level = int(settings.get("density_level", 2))
+	hud_position = str(settings.get("hud_position", "left"))
+	if hud_position != "bottom":
+		hud_position = "left"
 	audio_muted = bool(settings.get("audio_muted", false))
 	audio_master_db = float(settings.get("audio_master_db", -3.0))
 	audio_music_db = float(settings.get("audio_music_db", -6.0))
@@ -720,8 +727,12 @@ func _load_save_data() -> void:
 
 func _save_world_data() -> void:
 	var universe: Dictionary = _current_universe()
+	var player_state: Dictionary = _capture_player_save_state()
+	if bool(player_state.get("has_position", false)):
+		universe["last_player_state"] = player_state
 	var settings: Dictionary = universe.get("settings", {})
 	settings["density_level"] = density_level
+	settings["hud_position"] = hud_position
 	settings["cycle_speed_multiplier"] = cycle_speed_multiplier
 	settings["start_fullscreen"] = start_fullscreen
 	settings["graphics_level"] = graphics_level
@@ -809,6 +820,15 @@ func _capture_player_save_state() -> Dictionary:
 	}
 
 
+func _persist_active_player_state() -> void:
+	var state: Dictionary = _capture_player_save_state()
+	if not bool(state.get("has_position", false)):
+		return
+	var universe: Dictionary = _current_universe()
+	universe["last_player_state"] = state
+	_set_current_universe(universe)
+
+
 func _restore_player_save_state(player: CharacterBody3D) -> bool:
 	if player == null:
 		return false
@@ -822,11 +842,13 @@ func _restore_player_save_state(player: CharacterBody3D) -> bool:
 		return false
 	if not bool(state.get("has_position", false)):
 		return false
-	player.global_position = Vector3(
+	var restored_position := Vector3(
 		float(state.get("x", player.global_position.x)),
 		float(state.get("y", player.global_position.y)),
 		float(state.get("z", player.global_position.z)),
 	)
+	var safe_position: Vector3 = _sanitize_player_position(restored_position)
+	player.global_position = safe_position
 	player.rotation.y = float(state.get("yaw", player.rotation.y))
 	if state.has("sprint_stamina"):
 		player.set("sprint_stamina", float(state.get("sprint_stamina", player.get("sprint_stamina"))))
@@ -846,6 +868,8 @@ func _restore_player_save_state(player: CharacterBody3D) -> bool:
 	var flashlight: SpotLight3D = player.get_node_or_null("PlayerCamera/Flashlight") as SpotLight3D
 	if flashlight != null:
 		flashlight.light_energy = 10.5 if bool(player.get("flashlight_on")) else 0.0
+	if safe_position.distance_to(restored_position) > 1.0:
+		last_discovery_text = "Spawn adjusted to map bounds."
 	return true
 
 
@@ -899,8 +923,13 @@ func _apply_current_universe_runtime_state() -> void:
 	start_fullscreen = bool(settings.get("start_fullscreen", true))
 	graphics_level = int(settings.get("graphics_level", 0))
 	density_level = int(settings.get("density_level", 2))
+	hud_position = str(settings.get("hud_position", "left"))
+	if hud_position != "bottom":
+		hud_position = "left"
 	lichen_count = int(universe.get("lichen_count", 0))
 	_cycle_time = _cycle_time_from_universe(universe)
+	if hud_controller != null:
+		hud_controller.set_hud_position(hud_position)
 
 
 func _default_daylight_cycle_time() -> float:
@@ -1153,6 +1182,14 @@ func _on_time_speed_changed(value: float) -> void:
 func _on_toggle_start_fullscreen(pressed: bool, btn: Button) -> void:
 	start_fullscreen = pressed
 	btn.text = "Fullscreen" if start_fullscreen else "Windowed"
+	_save_world_data()
+
+
+func _on_toggle_hud_position(btn: Button) -> void:
+	hud_position = "bottom" if hud_position == "left" else "left"
+	btn.text = "Bottom" if hud_position == "bottom" else "Left"
+	if hud_controller != null:
+		hud_controller.set_hud_position(hud_position)
 	_save_world_data()
 
 
@@ -1530,6 +1567,19 @@ func _show_main_menu() -> void:
 	fs_btn.button_pressed = start_fullscreen
 	fs_btn.toggled.connect(_on_toggle_start_fullscreen.bind(fs_btn))
 	fs_row.add_child(fs_btn)
+
+	var hud_row := HBoxContainer.new()
+	hud_row.add_theme_constant_override("separation", 6)
+	system_section.add_child(hud_row)
+	var hud_label := Label.new()
+	hud_label.text = "HUD Position:"
+	hud_label.add_theme_font_size_override("font_size", 12)
+	hud_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hud_row.add_child(hud_label)
+	var hud_btn := Button.new()
+	hud_btn.text = "Bottom" if hud_position == "bottom" else "Left"
+	hud_btn.pressed.connect(_on_toggle_hud_position.bind(hud_btn))
+	hud_row.add_child(hud_btn)
 
 	var audio_header := HBoxContainer.new()
 	audio_header.add_theme_constant_override("separation", 6)
@@ -2204,6 +2254,7 @@ func _set_worlds_typed(worlds: Dictionary) -> void:
 func _on_discovery_message(msg: String) -> void:
 	last_discovery_text = msg
 	_push_status_banner(msg, 2600)
+	_try_award_map_survey_completion(current_world_id, current_map_id)
 
 
 func _set_world(world_id: String, world: Dictionary) -> void:
@@ -2274,6 +2325,7 @@ func _atlas_summary_text() -> String:
 	var map_count: int = 0
 	var discovery_count: int = 0
 	var pin_count: int = 0
+	var surveyed_count: int = 0
 	for world_key in worlds.keys():
 		var world: Dictionary = worlds[world_key]
 		var maps: Dictionary = world.get("maps", {})
@@ -2286,12 +2338,14 @@ func _atlas_summary_text() -> String:
 			var pins: Dictionary = map_record.get("pins", {})
 			discovery_count += discoveries.size()
 			pin_count += pins.size()
+			if bool(map_record.get("map_survey_rewarded", false)):
+				surveyed_count += 1
 
 	var current_completion: String = ""
 	if current_map_id != "":
 		current_completion = " Current map: " + _map_completion_text(current_map_id) + "."
 
-	return "Universe: " + str(universe.get("name", current_universe_id)) + " | Atlas: " + str(world_count) + " worlds, " + str(map_count) + " maps, " + str(discovery_count) + " discoveries, " + str(pin_count) + " pins." + current_completion
+	return "Universe: " + str(universe.get("name", current_universe_id)) + " | Atlas: " + str(world_count) + " worlds, " + str(map_count) + " maps, " + str(discovery_count) + " discoveries, " + str(pin_count) + " pins, " + str(surveyed_count) + " surveyed." + current_completion
 
 
 func _store_current_map_available_discoveries() -> void:
@@ -2404,6 +2458,7 @@ func _throw_lichen() -> void:
 	body.name = "ThrownLichen"
 	body.collision_layer = 1
 	body.collision_mask = 1 | 2 | 4
+	body.continuous_cd = true
 	body.gravity_scale = 0.0
 	body.linear_damp = 0.25
 	body.angular_damp = 0.4
@@ -2637,7 +2692,7 @@ func _recover_fallen_player() -> void:
 		return
 	if player.global_position.y > -50.0:
 		return
-	player.global_position = _find_spawn_position()
+	player.global_position = _sanitize_player_position(_find_spawn_position())
 	player.velocity = Vector3.ZERO
 
 
@@ -2804,6 +2859,7 @@ func _update_hud(delta: float = 0.0) -> void:
 	var music_text: String = _current_music_line()
 
 	var world_name: String = "?"
+	var map_name: String = ""
 	var gate_room_return_world: String = ""
 	var gate_room_source_world: String = ""
 	var gate_room_source_map: String = ""
@@ -2814,6 +2870,7 @@ func _update_hud(delta: float = 0.0) -> void:
 		gate_room_source_map = str(w.get("gate_room_source_map", ""))
 	if _is_current_map_gate_room():
 		gate_room_return_world = str(_get_map_record(current_world_id, current_map_id).get("gate_room_return_world", ""))
+	map_name = _display_name_for_map(current_world_id, current_map_id)
 
 	var now_msec: int = Time.get_ticks_msec()
 	var discovery_line: String = _status_banner_text if now_msec <= _status_banner_until_msec else last_discovery_text
@@ -2822,6 +2879,7 @@ func _update_hud(delta: float = 0.0) -> void:
 	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
 	var objective_line: String = _next_objective_hint(map_record)
 	var progression_line: String = _progression_hint(map_record)
+	var next_reward_line: String = _next_survey_reward_hint(current_world_id)
 	var world_map_count: int = discovery_tracker.current_world_map_count() if discovery_tracker != null else 0
 	var maps_line: String = "Maps in world: " + str(world_map_count)
 	var map_type: String = str(map_record.get("type", ""))
@@ -2830,7 +2888,9 @@ func _update_hud(delta: float = 0.0) -> void:
 		"delta": delta,
 		"map_short": map_short,
 		"world_name": world_name,
+		"map_name": map_name,
 		"map_type": map_type,
+		"map_type_label": _map_type_label(map_type),
 		"position_text": position_text,
 		"warning_text": warning_text,
 			"flashlight_text": flashlight_text,
@@ -2838,6 +2898,7 @@ func _update_hud(delta: float = 0.0) -> void:
 		"discovery_line": discovery_line,
 		"objective_line": objective_line,
 		"progression_line": progression_line,
+		"next_reward_line": next_reward_line,
 		"recent_discoveries": recent_discoveries,
 		"maps_line": maps_line,
 		"atlas_summary": _atlas_summary_text(),
@@ -2882,6 +2943,8 @@ func _next_objective_hint(map_record: Dictionary) -> String:
 
 	var available: int = int(map_record.get("available_discoveries", 0))
 	var found: int = map_record.get("discoveries", {}).size()
+	if found <= 0 and map_record.get("pins", {}).is_empty():
+		return "Objective: Find a discovery, then drop a pin [P] to mark your route."
 	if available > 0 and found < available:
 		return "Objective: Find remaining discoveries on this map (" + str(found) + "/" + str(available) + ")."
 	if found <= 0:
@@ -3062,13 +3125,66 @@ func _progression_hint(map_record: Dictionary) -> String:
 	var universe: Dictionary = _current_universe()
 	var achievements: Dictionary = universe.get("achievements", {})
 	var achieved: int = achievements.size()
+	var total_discoveries: int = 0
+	var surveyed_in_world: int = _surveyed_map_count_in_world(current_world_id)
+	if discovery_tracker != null:
+		total_discoveries = discovery_tracker.total_discoveries_in_universe()
 	if found < 3:
 		return "Progress: Early survey - secure 3 discoveries on this map."
+	if total_discoveries < 25:
+		return "Progress: Surveyor I - reach 25 total discoveries (" + str(total_discoveries) + "/25)."
+	if surveyed_in_world < 3:
+		return "Progress: Atlas Restorer I - fully survey 3 maps in this world (" + str(surveyed_in_world) + "/3)."
 	if world_map_count < 3:
 		return "Progress: Cartographer I - chart 3 maps in this world."
 	if achieved < 5:
 		return "Progress: Expeditioner - unlock 5 achievements."
 	return "Progress: Deep expedition - pursue moon shrines and world saturation routes."
+
+
+func _surveyed_map_count_in_world(world_id: String) -> int:
+	if world_id == "":
+		return 0
+	var world: Dictionary = _get_world(world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var count: int = 0
+	for map_id in maps.keys():
+		var raw = maps[map_id]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var map_record: Dictionary = raw
+		if bool(map_record.get("map_survey_rewarded", false)):
+			count += 1
+	return count
+
+
+func _next_survey_reward_hint(world_id: String) -> String:
+	var milestones: Array[int] = [3, 6, 10, 15]
+	var surveyed: int = _surveyed_map_count_in_world(world_id)
+	for milestone in milestones:
+		if surveyed < milestone:
+			return "Next survey reward: " + str(milestone) + " surveyed maps (" + str(surveyed) + "/" + str(milestone) + ")."
+	return "Survey rewards complete: all milestones reached (" + str(surveyed) + " surveyed maps)."
+
+
+func _map_type_label(map_type: String) -> String:
+	match map_type:
+		WorldGraph.MAP_NORMAL:
+			return "Frontier"
+		WorldGraph.MAP_WATER:
+			return "Archipelago"
+		WorldGraph.MAP_ARCTIC:
+			return "Arctic Expanse"
+		WorldGraph.MAP_CAVE:
+			return "Labyrinth Cave"
+		WorldGraph.MAP_MOON:
+			return "Moon Surface"
+		WorldGraph.MAP_GATE_ROOM:
+			return "Inter-world Gate Room"
+		WorldGraph.MAP_NEXUS:
+			return "World Nexus"
+		_:
+			return map_type
 
 
 func _linked_route_hint(map_record: Dictionary) -> String:
@@ -3097,8 +3213,19 @@ func _linked_route_hint(map_record: Dictionary) -> String:
 			best_target_id = target_id
 			best_remaining = remaining
 	if best_target_id != "":
-		return "Objective: Route through linked map " + _short_id(best_target_id) + " (" + str(best_remaining) + " discoveries remaining)."
+		var target_name: String = _display_name_for_map(current_world_id, best_target_id)
+		return "Objective: Route through " + target_name + " (" + str(best_remaining) + " discoveries remaining)."
 	return ""
+
+
+func _display_name_for_map(world_id: String, map_id: String) -> String:
+	if world_id == "" or map_id == "":
+		return _short_id(map_id)
+	var map_record: Dictionary = _get_map_record(world_id, map_id)
+	var custom_name: String = str(map_record.get("name", "")).strip_edges()
+	if custom_name != "" and custom_name != map_id:
+		return custom_name
+	return _short_id(map_id)
 
 
 func _recent_discovery_titles(discoveries: Dictionary, max_count: int) -> Array[String]:
@@ -3174,6 +3301,7 @@ func _on_discovery_body_entered(body: Node3D, discovery_id: String, title: Strin
 
 
 func _load_map(world_id: String, map_id: String) -> void:
+	_persist_active_player_state()
 	_gate_transition_in_progress = false
 	_gate_overlap_active.clear()
 	_gate_proximity_active.clear()
@@ -3807,6 +3935,7 @@ func _scatter_moon_platforms() -> void:
 		platform_root.add_child(orb_body)
 
 		var orb_visual := MeshInstance3D.new()
+		orb_visual.name = "ShrineOrbVisual"
 		var orb_mesh := SphereMesh.new()
 		orb_mesh.radius = 0.20
 		orb_mesh.height = 0.40
@@ -3818,6 +3947,8 @@ func _scatter_moon_platforms() -> void:
 		orb_mat.emission_energy_multiplier = 1.5
 		orb_visual.material_override = orb_mat
 		orb_body.add_child(orb_visual)
+		orb_body.set_meta("platform_index", i)
+	_refresh_moon_shrine_visuals()
 
 
 func _random_position(rng: StableRng, half: float) -> Vector3:
@@ -3864,6 +3995,7 @@ func _on_orb_collected(body: Node3D, platform_index: int, orb_body: Area3D) -> v
 		map_record["moon_shrine_charge"] = shrine_charge
 		_update_world_map_record(current_world_id, current_map_id, map_record, true)
 		last_discovery_text = "Shrine attuned by lichen. Touch orb to claim."
+		_refresh_moon_shrine_visuals(map_record)
 		return
 	if not shrine_charge.has(charge_key):
 		var lichen_node: Node3D = _find_nearby_thrown_lichen(orb_body.global_position if orb_body != null else body.global_position, 3.2)
@@ -3875,18 +4007,16 @@ func _on_orb_collected(body: Node3D, platform_index: int, orb_body: Area3D) -> v
 		map_record["moon_shrine_charge"] = shrine_charge
 		_update_world_map_record(current_world_id, current_map_id, map_record, true)
 		last_discovery_text = "Shrine attuned by lichen. Touch orb again to claim."
+		_refresh_moon_shrine_visuals(map_record)
 		return
-	discovery_tracker.record_discovery(key, "Shrine " + str(platform_index + 1) + " Orb", "orb", body.global_position)
-	shrine_charge.erase(charge_key)
-	map_record["moon_shrine_charge"] = shrine_charge
-	_update_world_map_record(current_world_id, current_map_id, map_record, true)
-	if orb_body != null:
-		orb_body.queue_free()
-	print("Moon orb ", platform_index, " collected")
+	_claim_moon_orb(platform_index, orb_body, body.global_position, map_record)
 
 
 func _poll_moon_shrine_fallback() -> void:
 	if not _is_current_map_moon() or generated_root == null or discovery_tracker == null:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
 		return
 	var world: Dictionary = _get_world(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
@@ -3907,16 +4037,24 @@ func _poll_moon_shrine_fallback() -> void:
 			if is_instance_valid(orb_area):
 				orb_area.queue_free()
 			continue
-			if not shrine_charge.has(charge_key):
-				var nearby_lichen: Node3D = _find_nearby_thrown_lichen(orb_area.global_position, 2.4)
-				if nearby_lichen != null:
-					nearby_lichen.queue_free()
-					shrine_charge[charge_key] = true
-					changed = true
-					last_discovery_text = "Shrine attuned by lichen. Touch orb to claim."
+		if not shrine_charge.has(charge_key):
+			var nearby_lichen: Node3D = _find_nearby_thrown_lichen(orb_area.global_position, 3.0)
+			if nearby_lichen != null:
+				nearby_lichen.queue_free()
+				shrine_charge[charge_key] = true
+				changed = true
+				last_discovery_text = "Shrine attuned by lichen. Touch orb to claim."
+		if shrine_charge.has(charge_key) and is_instance_valid(orb_area):
+			var claim_dist: float = orb_area.global_position.distance_to(player.global_position)
+			if claim_dist <= 1.8:
+				_claim_moon_orb(idx, orb_area, player.global_position, map_record)
+				discoveries = map_record.get("discoveries", {})
+				shrine_charge = map_record.get("moon_shrine_charge", {})
+				changed = false
 	if changed:
 		map_record["moon_shrine_charge"] = shrine_charge
 		_update_world_map_record(current_world_id, current_map_id, map_record, true)
+	_refresh_moon_shrine_visuals(map_record)
 
 
 func _find_nearby_thrown_lichen(from: Vector3, max_dist: float) -> Node3D:
@@ -3948,6 +4086,67 @@ func _is_thrown_lichen_node(node: Node) -> bool:
 	if n3d == null:
 		return false
 	return n3d.name == "ThrownLichen" or n3d.is_in_group("floating_lichen")
+
+
+func _claim_moon_orb(platform_index: int, orb_body: Area3D, discovery_position: Vector3, map_record: Dictionary) -> void:
+	if discovery_tracker == null:
+		return
+	var key: String = "moon_orb_" + str(platform_index)
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	if discoveries.has(key):
+		if orb_body != null:
+			orb_body.queue_free()
+		return
+	discovery_tracker.record_discovery(key, "Shrine " + str(platform_index + 1) + " Orb", "orb", discovery_position)
+	var shrine_charge: Dictionary = map_record.get("moon_shrine_charge", {})
+	shrine_charge.erase(str(platform_index))
+	map_record["moon_shrine_charge"] = shrine_charge
+	_update_world_map_record(current_world_id, current_map_id, map_record, true)
+	if orb_body != null:
+		orb_body.queue_free()
+	_refresh_moon_shrine_visuals(map_record)
+	print("Moon orb ", platform_index, " collected")
+
+
+func _refresh_moon_shrine_visuals(map_record_override: Dictionary = {}) -> void:
+	if not _is_current_map_moon() or generated_root == null:
+		return
+	var map_record: Dictionary = map_record_override
+	if map_record.is_empty():
+		map_record = _get_map_record(current_world_id, current_map_id)
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	var shrine_charge: Dictionary = map_record.get("moon_shrine_charge", {})
+	var orbs: Array = generated_root.find_children("ShrineOrb_*", "Area3D", true, false)
+	for raw in orbs:
+		var orb_area: Area3D = raw as Area3D
+		if orb_area == null:
+			continue
+		var idx: int = int(str(orb_area.name).trim_prefix("ShrineOrb_"))
+		var key: String = "moon_orb_" + str(idx)
+		var charge_key: String = str(idx)
+		var visual: MeshInstance3D = orb_area.get_node_or_null("ShrineOrbVisual") as MeshInstance3D
+		if visual == null:
+			continue
+		var mat: StandardMaterial3D = visual.material_override as StandardMaterial3D
+		if mat == null:
+			continue
+		if discoveries.has(key):
+			orb_area.visible = false
+			orb_area.monitoring = false
+			continue
+		orb_area.visible = true
+		orb_area.monitoring = true
+		var charged: bool = shrine_charge.has(charge_key)
+		if charged:
+			mat.albedo_color = Color(0.35, 1.0, 0.88)
+			mat.emission = Color(0.28, 1.0, 0.85)
+			mat.emission_energy_multiplier = 3.2
+			visual.scale = Vector3.ONE * 1.45
+		else:
+			mat.albedo_color = Color(1.0, 0.88, 0.28)
+			mat.emission = Color(0.70, 0.45, 0.08)
+			mat.emission_energy_multiplier = 1.5
+			visual.scale = Vector3.ONE
 
 
 func _on_gate_room_gate_body_entered(body: Node3D, slot_index: int) -> void:
@@ -4088,7 +4287,7 @@ func _spawn_player() -> void:
 	var player_scene: PackedScene = preload("res://scenes/player.tscn")
 	var player: CharacterBody3D = player_scene.instantiate()
 	player.name = "Player"
-	player.position = _find_spawn_position()
+	player.position = _sanitize_player_position(_find_spawn_position())
 	if _is_current_map_moon():
 		player.set("gravity_multiplier", 0.25)
 		player.set("jump_multiplier", 4.0)
@@ -4108,6 +4307,35 @@ func _spawn_player() -> void:
 	player.lichen_count = lichen_count
 	_restore_player_save_state(player)
 	_ensure_player_above_surface(player)
+
+
+func _sanitize_player_position(position: Vector3) -> Vector3:
+	var pos: Vector3 = position
+	if _is_current_map_gate_room():
+		var radial: Vector2 = Vector2(pos.x, pos.z)
+		if radial.length() > 27.0:
+			radial = radial.normalized() * 27.0
+		return Vector3(radial.x, max(pos.y, 1.2), radial.y)
+	if _is_current_map_map_nexus():
+		var radial_n: Vector2 = Vector2(pos.x, pos.z)
+		if radial_n.length() > 39.0:
+			radial_n = radial_n.normalized() * 39.0
+		return Vector3(radial_n.x, max(pos.y, 1.2), radial_n.y)
+	if _is_current_map_cave():
+		var cave_half: float = _world_half_size() * 0.90
+		pos.x = clamp(pos.x, -cave_half, cave_half)
+		pos.z = clamp(pos.z, -cave_half, cave_half)
+		pos.y = clamp(pos.y, 1.2, 4.2)
+		return pos
+	var half: float = _world_half_size() * 0.90
+	pos.x = clamp(pos.x, -half, half)
+	pos.z = clamp(pos.z, -half, half)
+	var terrain_y: float = _height_at_world(pos.x, pos.z)
+	var min_y: float = terrain_y + 1.2
+	if not _is_current_map_moon() and not _is_current_map_arctic():
+		min_y = max(min_y, _water_level() + 1.2)
+	pos.y = max(pos.y, min_y)
+	return pos
 
 
 func _find_spawn_position() -> Vector3:
@@ -4174,10 +4402,7 @@ func _check_moon_shrine_completion() -> void:
 	var maps: Dictionary = world.get("maps", {})
 	var map_record: Dictionary = maps.get(current_map_id, {})
 	var discoveries: Dictionary = map_record.get("discoveries", {})
-	var orb_count := 0
-	for key in discoveries.keys():
-		if key.begins_with("moon_orb_"):
-			orb_count += 1
+	var orb_count: int = _moon_orb_discovery_count(discoveries)
 	if orb_count >= MOON_SHRINE_COUNT and not discoveries.has("moon_pilgrim"):
 		discoveries["moon_pilgrim"] = {
 			"title": "Moon Pilgrim",
@@ -4187,15 +4412,15 @@ func _check_moon_shrine_completion() -> void:
 			"z": 0.0,
 		}
 		map_record["discoveries"] = discoveries
-		map_record["moon_pilgrim_cutscene_seen"] = true
 		_update_world_map_record(current_world_id, current_map_id, map_record, true)
 		if discovery_tracker != null:
 			discovery_tracker.award_achievement("moon_pilgrim")
 		_play_moon_pilgrim_cutscene()
+		_try_award_map_survey_completion(current_world_id, current_map_id)
 
 
 func _play_moon_pilgrim_cutscene() -> void:
-	if _moon_cutscene_active or generated_root == null:
+	if _cutscene_active or _moon_cutscene_active or generated_root == null:
 		return
 	var player: CharacterBody3D = _get_player()
 	if player == null:
@@ -4203,9 +4428,16 @@ func _play_moon_pilgrim_cutscene() -> void:
 	var player_camera: Camera3D = player.get_node_or_null("PlayerCamera") as Camera3D
 	if player_camera == null:
 		return
+	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
+	if bool(map_record.get("moon_pilgrim_cutscene_seen", false)):
+		return
+	map_record["moon_pilgrim_cutscene_seen"] = true
+	_update_world_map_record(current_world_id, current_map_id, map_record, true)
+	_cutscene_active = true
 	_moon_cutscene_active = true
 	AudioManager.play_moon_pilgrim_fanfare(generated_root)
 	last_discovery_text = "Moon Pilgrim complete. The Atlas resonates."
+	_push_status_banner(last_discovery_text, 5200)
 
 	player.set_physics_process(false)
 	player.set_process_unhandled_input(false)
@@ -4220,18 +4452,29 @@ func _play_moon_pilgrim_cutscene() -> void:
 	cutscene_rig.add_child(cut_cam)
 
 	var center: Vector3 = player.global_position + Vector3(0.0, 2.8, 0.0)
-	cutscene_rig.global_position = center + Vector3(-9.0, 4.5, -9.0)
+	cutscene_rig.global_position = center + Vector3(-14.0, 6.0, -12.0)
 	cut_cam.look_at(center, Vector3.UP)
+	var base_ambient: float = world_environment.ambient_light_energy if world_environment != null else 0.65
+	if world_environment != null:
+		world_environment.ambient_light_energy = min(base_ambient + 0.35, 1.2)
+		world_environment.fog_light_color = Color(0.55, 0.78, 0.98)
 
 	var t := create_tween()
 	t.set_trans(Tween.TRANS_SINE)
 	t.set_ease(Tween.EASE_IN_OUT)
-	t.tween_property(cutscene_rig, "global_position", center + Vector3(10.0, 5.5, -6.0), 2.4)
+	t.tween_property(cutscene_rig, "global_position", center + Vector3(13.0, 6.5, -7.0), 2.8)
 	t.tween_callback(func() -> void:
 		if is_instance_valid(cut_cam):
 			cut_cam.look_at(center, Vector3.UP)
+		_push_status_banner("Final shrine attuned. Atlas signal stabilizing...", 2400)
 	)
-	t.tween_property(cutscene_rig, "global_position", center + Vector3(0.0, 8.0, 12.0), 2.2)
+	t.tween_property(cutscene_rig, "global_position", center + Vector3(0.0, 10.5, 16.0), 2.6)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(cut_cam):
+			cut_cam.look_at(center + Vector3(0.0, 0.8, 0.0), Vector3.UP)
+		_push_status_banner("Moon route indexed. Return gate lanes are now clear.", 2800)
+	)
+	t.tween_property(cutscene_rig, "global_position", center + Vector3(-9.0, 5.5, 8.0), 2.0)
 	t.tween_callback(func() -> void:
 		if is_instance_valid(cut_cam):
 			cut_cam.look_at(center, Vector3.UP)
@@ -4244,10 +4487,115 @@ func _play_moon_pilgrim_cutscene() -> void:
 		if is_instance_valid(player):
 			player.set_physics_process(true)
 			player.set_process_unhandled_input(true)
+		if world_environment != null:
+			world_environment.ambient_light_energy = base_ambient
+			world_environment.fog_light_color = Color(0.65, 0.75, 0.85)
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		_moon_cutscene_active = false
-		last_discovery_text = "Moon Pilgrim route unlocked. Return through a gate when ready."
+		_cutscene_active = false
+		lichen_count += 3
+		if player != null and player.has_method(&"set"):
+			player.set("lichen_count", lichen_count)
+		last_discovery_text = "Moon Pilgrim route unlocked. +3 lichen. Return through a gate when ready."
+		_push_status_banner(last_discovery_text, 5200)
 	)
+
+
+func _try_award_map_survey_completion(world_id: String, map_id: String) -> void:
+	if world_id == "" or map_id == "" or current_world_id == "":
+		return
+	var map_record: Dictionary = _get_map_record(world_id, map_id)
+	if map_record.is_empty():
+		return
+	var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
+	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_NEXUS:
+		return
+	if bool(map_record.get("map_survey_rewarded", false)):
+		return
+	var available: int = int(map_record.get("available_discoveries", 0))
+	if available <= 0:
+		return
+	var found: int = map_record.get("discoveries", {}).size()
+	if found < available:
+		return
+	map_record["map_survey_rewarded"] = true
+	map_record["map_survey_rewarded_at"] = Time.get_unix_time_from_system()
+	_update_world_map_record(world_id, map_id, map_record, true)
+	lichen_count += MAP_SURVEY_LICHEN_REWARD
+	var player: CharacterBody3D = _get_player()
+	if player != null and player.has_method(&"set"):
+		player.set("lichen_count", lichen_count)
+	var map_label: String = _display_name_for_map(world_id, map_id)
+	last_discovery_text = "Survey complete: " + map_label + " (+%d lichen)." % MAP_SURVEY_LICHEN_REWARD
+	_push_status_banner(last_discovery_text, 3200)
+	if world_id == current_world_id and map_id == current_map_id and map_type == WorldGraph.MAP_MOON:
+		_try_play_map_survey_cutscene(map_record, map_label)
+
+
+func _try_play_map_survey_cutscene(map_record: Dictionary, map_label: String) -> void:
+	if _cutscene_active or _moon_cutscene_active or generated_root == null:
+		return
+	if bool(map_record.get("map_survey_cutscene_seen", false)):
+		return
+	if bool(map_record.get("moon_pilgrim_cutscene_seen", false)):
+		return
+	if map_record.get("discoveries", {}).has("moon_pilgrim"):
+		return
+	var orb_count: int = _moon_orb_discovery_count(map_record.get("discoveries", {}))
+	if orb_count >= MOON_SHRINE_COUNT:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var player_camera: Camera3D = player.get_node_or_null("PlayerCamera") as Camera3D
+	if player_camera == null:
+		return
+	map_record["map_survey_cutscene_seen"] = true
+	_update_world_map_record(current_world_id, current_map_id, map_record, true)
+	_cutscene_active = true
+	player.set_physics_process(false)
+	player.set_process_unhandled_input(false)
+	player.velocity = Vector3.ZERO
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var rig := Node3D.new()
+	rig.name = "MapSurveyCutsceneRig"
+	generated_root.add_child(rig)
+	var cam := Camera3D.new()
+	cam.current = true
+	rig.add_child(cam)
+	var center: Vector3 = player.global_position + Vector3(0.0, 2.2, 0.0)
+	rig.global_position = center + Vector3(-7.0, 3.6, -8.0)
+	cam.look_at(center, Vector3.UP)
+	var t := create_tween()
+	t.set_trans(Tween.TRANS_SINE)
+	t.set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(rig, "global_position", center + Vector3(8.5, 4.2, -5.0), 1.5)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(cam):
+			cam.look_at(center, Vector3.UP)
+	)
+	t.tween_property(rig, "global_position", center + Vector3(0.0, 6.8, 10.0), 1.3)
+	t.finished.connect(func() -> void:
+		if is_instance_valid(player_camera):
+			player_camera.current = true
+		if is_instance_valid(rig):
+			rig.queue_free()
+		if is_instance_valid(player):
+			player.set_physics_process(true)
+			player.set_process_unhandled_input(true)
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		_cutscene_active = false
+		last_discovery_text = "Atlas entry sealed for " + map_label + "."
+		_push_status_banner(last_discovery_text, 2600)
+	)
+
+
+func _moon_orb_discovery_count(discoveries: Dictionary) -> int:
+	var count: int = 0
+	for key in discoveries.keys():
+		if str(key).begins_with("moon_orb_"):
+			count += 1
+	return count
 
 
 func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:

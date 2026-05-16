@@ -263,46 +263,132 @@ func _create_terrain_collision() -> void:
 
 func _create_gate_room_terrain() -> void:
 	var floor_mat := StandardMaterial3D.new()
-	floor_mat.albedo_color = Color(0.08, 0.09, 0.12)
-	floor_mat.roughness = 0.80
+	floor_mat.albedo_color = Color(0.07, 0.08, 0.12)
+	floor_mat.roughness = 0.82
+	var trim_mat := StandardMaterial3D.new()
+	trim_mat.albedo_color = Color(0.21, 0.24, 0.32)
+	trim_mat.roughness = 0.62
+	trim_mat.emission_enabled = true
+	trim_mat.emission = Color(0.12, 0.16, 0.25)
+	trim_mat.emission_energy_multiplier = 0.22
+	var pillar_mat := StandardMaterial3D.new()
+	pillar_mat.albedo_color = Color(0.12, 0.14, 0.20)
+	pillar_mat.roughness = 0.86
 
 	var floor := MeshInstance3D.new()
 	floor.name = "GateRoomFloor"
 	var floor_mesh := CylinderMesh.new()
-	floor_mesh.top_radius = 32.0
-	floor_mesh.bottom_radius = 32.0
-	floor_mesh.height = 0.6
-	floor_mesh.radial_segments = 32
+	floor_mesh.top_radius = 34.0
+	floor_mesh.bottom_radius = 34.0
+	floor_mesh.height = 0.8
+	floor_mesh.radial_segments = 56
 	floor.mesh = floor_mesh
 	floor.material_override = floor_mat
-	floor.position.y = -0.3
+	floor.position.y = -0.4
 	generated_root.add_child(floor)
 
-	var body := StaticBody3D.new()
-	body.name = "GateRoomFloorBody"
-	var col_shape := CollisionShape3D.new()
-	var col_cyl := CylinderShape3D.new()
-	col_cyl.radius = 32.0
-	col_cyl.height = 0.6
-	col_shape.shape = col_cyl
-	col_shape.position.y = -0.3
-	body.add_child(col_shape)
-	generated_root.add_child(body)
+	var floor_body := StaticBody3D.new()
+	floor_body.name = "GateRoomFloorBody"
+	var floor_col := CollisionShape3D.new()
+	var floor_shape := CylinderShape3D.new()
+	floor_shape.radius = 34.0
+	floor_shape.height = 0.8
+	floor_col.shape = floor_shape
+	floor_col.position.y = -0.4
+	floor_body.add_child(floor_col)
+	generated_root.add_child(floor_body)
 
-	for i in range(24):
-		var angle: float = TAU * float(i) / 24.0
-		var wall_mat := StandardMaterial3D.new()
-		wall_mat.albedo_color = Color(0.12, 0.13, 0.18)
-		wall_mat.roughness = 0.9
+	var ring_walk := MeshInstance3D.new()
+	ring_walk.name = "GateRoomRingWalk"
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.outer_radius = 22.0
+	ring_mesh.inner_radius = 20.0
+	ring_walk.mesh = ring_mesh
+	ring_walk.material_override = trim_mat
+	ring_walk.position = Vector3(0.0, 0.28, 0.0)
+	ring_walk.rotation_degrees.x = 90.0
+	generated_root.add_child(ring_walk)
+
+	var center_dais := MeshInstance3D.new()
+	center_dais.name = "GateRoomCenterDais"
+	var dais_mesh := CylinderMesh.new()
+	dais_mesh.top_radius = 7.0
+	dais_mesh.bottom_radius = 7.6
+	dais_mesh.height = 1.2
+	dais_mesh.radial_segments = 24
+	center_dais.mesh = dais_mesh
+	center_dais.material_override = trim_mat
+	center_dais.position = Vector3(0.0, 0.6, 0.0)
+	generated_root.add_child(center_dais)
+
+	var cardinal_angles: Array[float] = [0.0, PI * 0.5, PI, PI * 1.5]
+	for ci in range(cardinal_angles.size()):
+		var angle: float = cardinal_angles[ci]
+		var gate_anchor := MeshInstance3D.new()
+		gate_anchor.name = "GateRoomAnchor_" + str(ci)
+		var anchor_mesh := BoxMesh.new()
+		anchor_mesh.size = Vector3(7.0, 1.0, 7.0)
+		gate_anchor.mesh = anchor_mesh
+		gate_anchor.material_override = trim_mat
+		gate_anchor.position = Vector3(cos(angle) * 24.0, 0.5, sin(angle) * 24.0)
+		generated_root.add_child(gate_anchor)
+
+		var bridge := MeshInstance3D.new()
+		bridge.name = "GateRoomBridge_" + str(ci)
+		var bridge_mesh := BoxMesh.new()
+		bridge_mesh.size = Vector3(4.0, 0.4, 12.0)
+		bridge.mesh = bridge_mesh
+		bridge.material_override = floor_mat
+		var bridge_pos := Vector3(cos(angle) * 15.5, 0.2, sin(angle) * 15.5)
+		bridge.position = bridge_pos
+		bridge.rotation_degrees.y = -rad_to_deg(angle)
+		generated_root.add_child(bridge)
+
+	var wall_count: int = 28
+	for i in range(wall_count):
+		var angle: float = TAU * float(i) / float(wall_count)
 		var wall := MeshInstance3D.new()
 		wall.name = "GateRoomWall_" + str(i)
 		var wall_mesh := BoxMesh.new()
-		wall_mesh.size = Vector3(2.5, 8.0, 0.6)
+		wall_mesh.size = Vector3(2.8, 10.0, 0.9)
 		wall.mesh = wall_mesh
-		wall.material_override = wall_mat
-		wall.position = Vector3(cos(angle) * 31.5, 4.0, sin(angle) * 31.5)
+		wall.material_override = pillar_mat
+		wall.position = Vector3(cos(angle) * 33.2, 5.0, sin(angle) * 33.2)
 		wall.rotation_degrees.y = -rad_to_deg(angle) + 90.0
 		generated_root.add_child(wall)
+
+	var buttress_count: int = 12
+	for bi in range(buttress_count):
+		var angle_b: float = TAU * float(bi) / float(buttress_count)
+		var buttress := MeshInstance3D.new()
+		buttress.name = "GateRoomButtress_" + str(bi)
+		var butt_mesh := CylinderMesh.new()
+		butt_mesh.top_radius = 1.1
+		butt_mesh.bottom_radius = 1.3
+		butt_mesh.height = 9.0
+		butt_mesh.radial_segments = 12
+		buttress.mesh = butt_mesh
+		buttress.material_override = pillar_mat
+		buttress.position = Vector3(cos(angle_b) * 27.5, 4.5, sin(angle_b) * 27.5)
+		generated_root.add_child(buttress)
+
+	var room_light := OmniLight3D.new()
+	room_light.name = "GateRoomAmbientLight"
+	room_light.position = Vector3(0.0, 6.0, 0.0)
+	room_light.omni_range = 60.0
+	room_light.light_energy = 1.8
+	room_light.light_color = Color(0.46, 0.58, 0.78)
+	generated_root.add_child(room_light)
+
+	for li in range(cardinal_angles.size()):
+		var a: float = cardinal_angles[li]
+		var lamp := OmniLight3D.new()
+		lamp.name = "GateRoomRimLight_" + str(li)
+		lamp.position = Vector3(cos(a) * 23.5, 3.2, sin(a) * 23.5)
+		lamp.omni_range = 18.0
+		lamp.light_energy = 1.35
+		lamp.light_color = Color(0.34, 0.50, 0.76)
+		generated_root.add_child(lamp)
 
 
 func _create_cave_terrain() -> void:

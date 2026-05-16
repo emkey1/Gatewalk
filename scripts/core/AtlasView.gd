@@ -530,6 +530,7 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 		var pins: Dictionary = map_record.get("pins", {})
 		var gates: Dictionary = map_record.get("gates", {})
 		var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
+		var survey_complete: bool = bool(map_record.get("map_survey_rewarded", false))
 
 		if is_current and not current_added:
 			_add_map_section_header(parent, "Current Map")
@@ -581,6 +582,8 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 
 		var info := Label.new()
 		var marker: String = " [current]" if is_current else (" [focused]" if is_focused else (" [linked]" if is_linked else ""))
+		if survey_complete:
+			marker += " [surveyed]"
 		var linked_count: int = 0
 		for gate_key in gates.keys():
 			var target_id: String = str(gates[gate_key])

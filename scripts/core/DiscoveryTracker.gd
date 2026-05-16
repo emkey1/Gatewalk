@@ -1,6 +1,8 @@
 extends RefCounted
 class_name DiscoveryTracker
 
+const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
+
 var get_world: Callable
 var set_world: Callable
 var update_world_map_record: Callable
@@ -128,8 +130,16 @@ func check_world_wonders_complete() -> void:
 func check_map_visit_achievements() -> void:
 	var universe: Dictionary = get_current_universe.call()
 	var visited: Array = universe.get("maps_visited", [])
-	if current_map_id != "" and not visited.has(current_map_id):
-		visited.append(current_map_id)
+	var map_record: Dictionary = get_map_record.call(current_world_id, current_map_id)
+	var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
+	# Hub-only spaces should not count toward map exploration progression.
+	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_NEXUS:
+		return
+	if current_world_id == "" or current_map_id == "":
+		return
+	var visit_key: String = current_world_id + ":" + current_map_id
+	if not visited.has(visit_key):
+		visited.append(visit_key)
 		universe["maps_visited"] = visited
 		set_current_universe.call(universe)
 		save_world_data.call()
@@ -167,6 +177,10 @@ func check_discovery_total_achievements() -> void:
 		award_achievement("surveyor_75")
 	if total >= 150:
 		award_achievement("surveyor_150")
+
+
+func total_discoveries_in_universe() -> int:
+	return _total_discoveries_in_universe()
 
 
 func _total_discoveries_in_universe() -> int:

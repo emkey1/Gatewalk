@@ -6,6 +6,7 @@ const CELL_SIZE: float = 2.0
 const WATER_LEVEL: float = -1.7
 
 var hud_layer: CanvasLayer
+var hud_root_panel: PanelContainer
 var meta_label: Label
 var status_label: Label
 var controls_label: Label
@@ -21,6 +22,8 @@ var fps_label: Label
 var underwater_layer: CanvasLayer
 var underwater_overlay: ColorRect
 var is_underwater: bool = false
+var hud_position: String = "left"
+var _ui_parent: Node
 
 var world_environment: Environment :
 	set(value):
@@ -48,119 +51,207 @@ var _minimap_zoom: float = 1.0
 
 
 func setup(parent: Node) -> void:
+	_ui_parent = parent
 	hud_layer = CanvasLayer.new()
 	hud_layer.name = "HudLayer"
 	hud_layer.layer = 10
 	parent.add_child(hud_layer)
+	_rebuild_hud_layout()
 
+	fps_label = Label.new()
+	fps_label.anchor_left = 0.0
+	fps_label.anchor_top = 0.0
+	fps_label.anchor_right = 1.0
+	fps_label.anchor_bottom = 0.0
+	fps_label.offset_left = 0.0
+	fps_label.offset_top = 4.0
+	fps_label.offset_right = -8.0
+	fps_label.offset_bottom = 30.0
+	fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	fps_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	fps_label.add_theme_font_size_override("font_size", 11)
+	fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fps_label.visible = false
+	hud_layer.add_child(fps_label)
+
+	_setup_underwater_overlay(parent)
+
+
+func set_hud_position(position: String) -> void:
+	var normalized: String = "bottom" if position == "bottom" else "left"
+	if hud_position == normalized and hud_root_panel != null:
+		return
+	hud_position = normalized
+	_rebuild_hud_layout()
+
+
+func _rebuild_hud_layout() -> void:
+	if hud_layer == null:
+		return
+	if hud_root_panel != null:
+		hud_root_panel.queue_free()
+		hud_root_panel = null
 	var panel := PanelContainer.new()
-	panel.anchor_left = 0.0
-	panel.anchor_top = 0.0
-	panel.anchor_right = 0.0
-	panel.anchor_bottom = 1.0
-	panel.offset_left = 16.0
-	panel.offset_top = 16.0
-	panel.offset_right = 300.0
-	panel.offset_bottom = -16.0
+	hud_root_panel = panel
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if hud_position == "bottom":
+		panel.anchor_left = 0.0
+		panel.anchor_top = 1.0
+		panel.anchor_right = 1.0
+		panel.anchor_bottom = 1.0
+		panel.offset_left = 14.0
+		panel.offset_top = -208.0
+		panel.offset_right = -14.0
+		panel.offset_bottom = -10.0
+	else:
+		panel.anchor_left = 0.0
+		panel.anchor_top = 0.0
+		panel.anchor_right = 0.0
+		panel.anchor_bottom = 1.0
+		panel.offset_left = 12.0
+		panel.offset_top = 12.0
+		panel.offset_right = 256.0
+		panel.offset_bottom = -12.0
 	hud_layer.add_child(panel)
 
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 10)
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 8)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(margin)
 
+	if hud_position == "bottom":
+		_build_bottom_hud(margin)
+	else:
+		_build_left_hud(margin)
+
+
+func _build_left_hud(parent: Control) -> void:
 	var hud_stack := VBoxContainer.new()
-	hud_stack.add_theme_constant_override("separation", 10)
+	hud_stack.add_theme_constant_override("separation", 6)
 	hud_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(hud_stack)
+	parent.add_child(hud_stack)
 
 	var info_stack := VBoxContainer.new()
-	info_stack.add_theme_constant_override("separation", 8)
+	info_stack.add_theme_constant_override("separation", 5)
 	info_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud_stack.add_child(info_stack)
+	meta_label = _add_info_block(info_stack, 11)
+	status_label = _add_info_block(info_stack, 11)
+	controls_label = _add_info_block(info_stack, 11)
+	goals_label = _add_info_block(info_stack, 11)
 
-	meta_label = _add_info_block(info_stack)
-	status_label = _add_info_block(info_stack)
-	controls_label = _add_info_block(info_stack)
-	goals_label = _add_info_block(info_stack)
+	hud_stack.add_child(_create_vitals_panel(11))
 
+	minimap_panel = PanelContainer.new()
+	minimap_panel.custom_minimum_size = Vector2(130.0, 130.0)
+	minimap_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minimap_panel.set_h_size_flags(Control.SIZE_SHRINK_CENTER)
+	hud_stack.add_child(minimap_panel)
+	minimap_marker_layer = Control.new()
+	minimap_marker_layer.custom_minimum_size = Vector2(130.0, 130.0)
+	minimap_marker_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minimap_panel.add_child(minimap_marker_layer)
+
+	hud_stack.add_child(_create_music_panel(11))
+
+
+func _build_bottom_hud(parent: Control) -> void:
+	var root := HBoxContainer.new()
+	root.add_theme_constant_override("separation", 8)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(root)
+
+	var info_col := VBoxContainer.new()
+	info_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_col.add_theme_constant_override("separation", 4)
+	root.add_child(info_col)
+	meta_label = _add_info_block(info_col, 10)
+	status_label = _add_info_block(info_col, 10)
+	goals_label = _add_info_block(info_col, 10)
+	controls_label = _add_info_block(info_col, 10)
+
+	var right_col := VBoxContainer.new()
+	right_col.custom_minimum_size = Vector2(360.0, 0.0)
+	right_col.add_theme_constant_override("separation", 5)
+	root.add_child(right_col)
+	right_col.add_child(_create_vitals_panel(10))
+	right_col.add_child(_create_music_panel(10))
+
+	minimap_panel = PanelContainer.new()
+	minimap_panel.custom_minimum_size = Vector2(122.0, 122.0)
+	minimap_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(minimap_panel)
+	minimap_marker_layer = Control.new()
+	minimap_marker_layer.custom_minimum_size = Vector2(122.0, 122.0)
+	minimap_marker_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minimap_panel.add_child(minimap_marker_layer)
+
+
+func _create_vitals_panel(font_size: int) -> PanelContainer:
 	var vitals_panel := PanelContainer.new()
 	vitals_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hud_stack.add_child(vitals_panel)
 	var vitals_margin := MarginContainer.new()
 	vitals_margin.add_theme_constant_override("margin_left", 6)
-	vitals_margin.add_theme_constant_override("margin_top", 6)
+	vitals_margin.add_theme_constant_override("margin_top", 5)
 	vitals_margin.add_theme_constant_override("margin_right", 6)
-	vitals_margin.add_theme_constant_override("margin_bottom", 6)
+	vitals_margin.add_theme_constant_override("margin_bottom", 5)
 	vitals_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitals_panel.add_child(vitals_margin)
 	var vitals_stack := VBoxContainer.new()
-	vitals_stack.add_theme_constant_override("separation", 6)
+	vitals_stack.add_theme_constant_override("separation", 4)
 	vitals_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitals_margin.add_child(vitals_stack)
 
 	var stamina_label := Label.new()
 	stamina_label.text = "Sprint"
-	stamina_label.add_theme_font_size_override("font_size", 12)
+	stamina_label.add_theme_font_size_override("font_size", font_size)
 	stamina_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitals_stack.add_child(stamina_label)
-
 	stamina_bar = ProgressBar.new()
 	stamina_bar.min_value = 0.0
 	stamina_bar.max_value = 15.0
 	stamina_bar.value = 15.0
 	stamina_bar.show_percentage = false
-	stamina_bar.custom_minimum_size = Vector2(0.0, 15.0)
+	stamina_bar.custom_minimum_size = Vector2(0.0, 12.0)
 	stamina_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitals_stack.add_child(stamina_bar)
 
 	var breath_label := Label.new()
 	breath_label.text = "Breath"
-	breath_label.add_theme_font_size_override("font_size", 12)
+	breath_label.add_theme_font_size_override("font_size", font_size)
 	breath_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitals_stack.add_child(breath_label)
-
 	breath_bar = ProgressBar.new()
 	breath_bar.min_value = 0.0
 	breath_bar.max_value = 60.0
 	breath_bar.value = 60.0
 	breath_bar.show_percentage = false
-	breath_bar.custom_minimum_size = Vector2(0.0, 15.0)
+	breath_bar.custom_minimum_size = Vector2(0.0, 12.0)
 	breath_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitals_stack.add_child(breath_bar)
+	return vitals_panel
 
-	minimap_panel = PanelContainer.new()
-	minimap_panel.custom_minimum_size = Vector2(150.0, 150.0)
-	minimap_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	minimap_panel.set_h_size_flags(Control.SIZE_SHRINK_CENTER)
-	hud_stack.add_child(minimap_panel)
 
-	minimap_marker_layer = Control.new()
-	minimap_marker_layer.custom_minimum_size = Vector2(150.0, 150.0)
-	minimap_marker_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	minimap_panel.add_child(minimap_marker_layer)
-
+func _create_music_panel(font_size: int) -> PanelContainer:
 	var music_panel := PanelContainer.new()
 	music_panel.mouse_filter = Control.MOUSE_FILTER_PASS
-	hud_stack.add_child(music_panel)
 	var music_margin := MarginContainer.new()
 	music_margin.add_theme_constant_override("margin_left", 6)
-	music_margin.add_theme_constant_override("margin_top", 6)
+	music_margin.add_theme_constant_override("margin_top", 5)
 	music_margin.add_theme_constant_override("margin_right", 6)
-	music_margin.add_theme_constant_override("margin_bottom", 6)
+	music_margin.add_theme_constant_override("margin_bottom", 5)
 	music_margin.mouse_filter = Control.MOUSE_FILTER_PASS
 	music_panel.add_child(music_margin)
 	var music_stack := VBoxContainer.new()
-	music_stack.add_theme_constant_override("separation", 6)
+	music_stack.add_theme_constant_override("separation", 4)
 	music_stack.mouse_filter = Control.MOUSE_FILTER_PASS
 	music_margin.add_child(music_stack)
 	music_label = Label.new()
 	music_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	music_label.add_theme_font_size_override("font_size", 12)
+	music_label.add_theme_font_size_override("font_size", font_size)
 	music_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	music_stack.add_child(music_label)
 	var music_controls := HBoxContainer.new()
@@ -185,24 +276,7 @@ func setup(parent: Node) -> void:
 			_on_next_music_fn.call()
 	)
 	music_controls.add_child(music_next_button)
-
-	fps_label = Label.new()
-	fps_label.anchor_left = 0.0
-	fps_label.anchor_top = 0.0
-	fps_label.anchor_right = 1.0
-	fps_label.anchor_bottom = 0.0
-	fps_label.offset_left = 0.0
-	fps_label.offset_top = 4.0
-	fps_label.offset_right = -8.0
-	fps_label.offset_bottom = 30.0
-	fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	fps_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	fps_label.add_theme_font_size_override("font_size", 11)
-	fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fps_label.visible = false
-	hud_layer.add_child(fps_label)
-
-	_setup_underwater_overlay(parent)
+	return music_panel
 
 
 func _setup_underwater_overlay(parent: Node) -> void:
@@ -226,8 +300,10 @@ func update(data: Dictionary) -> void:
 		return
 
 	var map_short: String = str(data.get("map_short", "none"))
+	var map_name: String = str(data.get("map_name", map_short))
 	var world_name: String = str(data.get("world_name", "?"))
 	var map_type: String = str(data.get("map_type", ""))
+	var map_type_label: String = str(data.get("map_type_label", map_type))
 	var position_text: String = str(data.get("position_text", "No active player"))
 	var warning_text: String = str(data.get("warning_text", ""))
 	var flashlight_text: String = str(data.get("flashlight_text", ""))
@@ -235,6 +311,7 @@ func update(data: Dictionary) -> void:
 	var discovery_line: String = str(data.get("discovery_line", "Seek gates, ruins, and wonders."))
 	var objective_line: String = str(data.get("objective_line", ""))
 	var progression_line: String = str(data.get("progression_line", ""))
+	var next_reward_line: String = str(data.get("next_reward_line", ""))
 	var recent_discoveries: Array = data.get("recent_discoveries", [])
 	var maps_line: String = str(data.get("maps_line", ""))
 	var atlas_summary: String = str(data.get("atlas_summary", ""))
@@ -274,11 +351,11 @@ func update(data: Dictionary) -> void:
 			"World: " + world_name,
 			atlas_summary,
 			maps_line,
-			"Map " + map_short + ": " + map_completion,
+			"Map " + map_name + " (" + map_short + "): " + map_completion,
 		]
 		status_lines = [position_text, discovery_line]
 		if map_type != "":
-			status_lines.append("Biome: " + map_type)
+			status_lines.append("Biome: " + map_type_label)
 		if gate_room_source_world != "" and gate_room_source_map != "":
 			controls_lines.append("[G] Return to Gate Room")
 
@@ -299,6 +376,8 @@ func update(data: Dictionary) -> void:
 		goals_lines.append(objective_line)
 	if progression_line != "":
 		goals_lines.append(progression_line)
+	if next_reward_line != "":
+		goals_lines.append(next_reward_line)
 
 	meta_label.text = "\n".join(header_lines)
 	status_label.text = "\n".join(status_lines)
@@ -354,7 +433,7 @@ func update(data: Dictionary) -> void:
 		fps_label.text = str(Engine.get_frames_per_second()) + " FPS"
 
 
-func _add_info_block(parent: VBoxContainer) -> Label:
+func _add_info_block(parent: VBoxContainer, font_size: int = 12) -> Label:
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(panel)
@@ -367,7 +446,7 @@ func _add_info_block(parent: VBoxContainer) -> Label:
 	panel.add_child(margin)
 	var label := Label.new()
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_font_size_override("font_size", font_size)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(label)
 	return label
