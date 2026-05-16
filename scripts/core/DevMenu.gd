@@ -23,6 +23,8 @@ var create_map_nexus_map_record_fn: Callable
 var close_main_menu_fn: Callable
 var get_e_key_gate_enabled_fn: Callable
 var set_e_key_gate_enabled_fn: Callable
+var get_gate_debug_hud_enabled_fn: Callable
+var set_gate_debug_hud_enabled_fn: Callable
 
 var current_world_id: String = ""
 var current_map_id: String = ""
@@ -263,6 +265,12 @@ func _show_menu() -> void:
 		e_btn.text = "E-key Gates: " + ("ON" if enabled else "OFF")
 		e_btn.pressed.connect(_toggle_e_key_gate_use)
 		close_row.add_child(e_btn)
+	if get_gate_debug_hud_enabled_fn.is_valid() and set_gate_debug_hud_enabled_fn.is_valid():
+		var dbg_btn := Button.new()
+		var dbg_enabled: bool = bool(get_gate_debug_hud_enabled_fn.call())
+		dbg_btn.text = "Gate HUD Debug: " + ("ON" if dbg_enabled else "OFF")
+		dbg_btn.pressed.connect(_toggle_gate_hud_debug)
+		close_row.add_child(dbg_btn)
 
 	var close_btn := Button.new()
 	close_btn.text = "Close"
@@ -417,6 +425,14 @@ func _toggle_e_key_gate_use() -> void:
 		return
 	var current: bool = bool(get_e_key_gate_enabled_fn.call())
 	set_e_key_gate_enabled_fn.call(not current)
+	_show_menu()
+
+
+func _toggle_gate_hud_debug() -> void:
+	if not get_gate_debug_hud_enabled_fn.is_valid() or not set_gate_debug_hud_enabled_fn.is_valid():
+		return
+	var current: bool = bool(get_gate_debug_hud_enabled_fn.call())
+	set_gate_debug_hud_enabled_fn.call(not current)
 	_show_menu()
 
 

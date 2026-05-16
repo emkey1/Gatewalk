@@ -28,6 +28,7 @@ var lichen_count: int = 0
 var flashlight_on: bool = false
 var flashlight_charge: float = FLASHLIGHT_MAX_CHARGE
 var flashlight: SpotLight3D
+var flashlight_requested_on: bool = false
 var _jump_hold_remaining: float = 0.0
 var _jump_hold_boost_per_sec: float = 0.0
 
@@ -84,7 +85,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			return
-		if flashlight_on:
+		flashlight_requested_on = not flashlight_requested_on
+		if not flashlight_requested_on:
 			flashlight_on = false
 			flashlight.light_energy = 0.0
 		elif flashlight_charge >= FLASHLIGHT_ENABLE_THRESHOLD:
@@ -155,13 +157,22 @@ func _physics_process(delta: float) -> void:
 			var rigid_body: RigidBody3D = collider as RigidBody3D
 			rigid_body.apply_impulse(push_dir * 2.8, collision.get_position() - rigid_body.global_position)
 
-	var moving: bool = input_dir.length() > 0.0
-	if moving:
-		var recharge_scale: float = 0.35 if flashlight_on else 1.0
-		flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE * recharge_scale, FLASHLIGHT_MAX_CHARGE)
+	var horizontal_speed: float = Vector2(get_real_velocity().x, get_real_velocity().z).length()
+	var vertical_motion: float = abs(velocity.y)
+	var moving: bool = horizontal_speed > 0.35 or (underwater and vertical_motion > 0.2)
 	if flashlight_on:
-		flashlight_charge -= delta
-		if flashlight_charge <= 0.0:
-			flashlight_charge = 0.0
-			flashlight_on = false
-			flashlight.light_energy = 0.0
+		if moving:
+			# Motion charging should beat active drain to avoid "moving but still emptying" behavior.
+			flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE * 1.25, FLASHLIGHT_MAX_CHARGE)
+		else:
+			flashlight_charge -= delta
+	else:
+		if moving:
+			flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE, FLASHLIGHT_MAX_CHARGE)
+	if flashlight_charge <= 0.0:
+		flashlight_charge = 0.0
+		flashlight_on = false
+		flashlight.light_energy = 0.0
+	if flashlight_requested_on and not flashlight_on and flashlight_charge >= FLASHLIGHT_ENABLE_THRESHOLD:
+		flashlight_on = true
+		flashlight.light_energy = 10.5

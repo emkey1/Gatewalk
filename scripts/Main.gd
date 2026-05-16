@@ -40,6 +40,12 @@ const WONDER_CELL_SIZE: float = 96.0
 const WONDER_CHANCE: float = 0.20
 const MOON_SHRINE_COUNT: int = 9
 const WATER_ROUTE_CHANCE: float = 0.12
+const MAZE_OBJECTIVE_VARIANTS: Array[String] = [
+	"gate_sprint",
+	"discover_then_exit",
+	"orb_and_exit",
+	"clean_exit",
+]
 
 
 const SLOT_INDEX_PATH: String = "user://save_index.json"
@@ -76,6 +82,11 @@ var audio_output_device: String = "Default"
 var current_slot: int = 0
 var slot_count: int = 0
 var show_fps: bool = false
+var _save_audit_summary: String = ""
+var _transition_status_line: String = ""
+var show_gate_debug_hud: bool = false
+var _status_banner_text: String = ""
+var _status_banner_until_msec: int = 0
 
 var _moon_grid_scale: int = 1
 var _gate_transition_in_progress: bool = false
@@ -94,6 +105,7 @@ var _gate_room_return_in_range: bool = false
 var _moon_gate_last_trigger_msec: int = 0
 var _moon_cutscene_active: bool = false
 var _cycle_time: float = 0.0
+var _map_loaded_at_msec: int = 0
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
 var discovery_tracker: DiscoveryTracker
@@ -120,6 +132,8 @@ func _ready() -> void:
 	hud_controller._is_cave_fn = _is_current_map_cave
 	hud_controller._is_arctic_fn = _is_current_map_arctic
 	hud_controller._is_gate_room_fn = _is_current_map_gate_room
+	hud_controller._on_prev_music_fn = _on_prev_music_pressed
+	hud_controller._on_next_music_fn = _on_next_music_pressed
 	add_child(hud_controller)
 
 	discovery_tracker = DiscoveryTracker.new()
@@ -165,6 +179,8 @@ func _ready() -> void:
 	dev_menu.close_main_menu_fn = _close_menu
 	dev_menu.get_e_key_gate_enabled_fn = _get_e_key_gate_enabled
 	dev_menu.set_e_key_gate_enabled_fn = _set_e_key_gate_enabled
+	dev_menu.get_gate_debug_hud_enabled_fn = _get_gate_debug_hud_enabled
+	dev_menu.set_gate_debug_hud_enabled_fn = _set_gate_debug_hud_enabled
 	add_child(dev_menu)
 
 	_load_slot_index()
@@ -205,7 +221,7 @@ func _process(_delta: float) -> void:
 		_cycle_time += _delta * cycle_speed_multiplier
 		if _cycle_time >= CYCLE_LENGTH:
 			_cycle_time = fmod(_cycle_time, CYCLE_LENGTH)
-			_update_day_night_cycle()
+		_update_day_night_cycle()
 	_update_underwater_state()
 	_recover_fallen_player()
 	_update_hud(_delta)
@@ -390,6 +406,13 @@ func _force_gate_transition(gate_index: int, player: CharacterBody3D = null) -> 
 	_gate_transition_in_progress = true
 	var worlds: Dictionary = _get_worlds()
 	var world: Dictionary = worlds.get(current_world_id, {})
+	if _is_current_map_cave():
+		var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
+		if not map_record.is_empty():
+			var updated_record: Dictionary = _try_complete_maze_objective_on_exit(map_record)
+			if updated_record != map_record:
+				_update_world_map_record(current_world_id, current_map_id, updated_record, true)
+				world = _get_world(current_world_id)
 	var gate_result: Dictionary = GateTravelService.resolve_gate_transition(
 		world_seed,
 		current_map_id,
@@ -600,6 +623,12 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_T:
 			_throw_lichen()
 
+		if event.keycode == KEY_COMMA:
+			_on_prev_music_pressed()
+
+		if event.keycode == KEY_PERIOD:
+			_on_next_music_pressed()
+
 		if event.keycode == KEY_S and event.shift_pressed:
 			if dev_menu != null:
 				dev_menu.show_login()
@@ -661,7 +690,14 @@ func _load_save_data() -> void:
 			if parsed is Dictionary:
 				save_data = parsed
 
-	save_data = SaveManager.normalize_save_data(save_data)
+	var audited: Dictionary = SaveManager.audit_and_repair_save_data(save_data)
+	save_data = audited.get("save_data", SaveManager.normalize_save_data(save_data))
+	var audit_report: Dictionary = audited.get("report", {})
+	var repaired_fields: int = int(audit_report.get("repaired_fields", 0))
+	if repaired_fields > 0:
+		_save_audit_summary = "Integrity repair: " + str(repaired_fields) + " fields across " + str(int(audit_report.get("repaired_worlds", 0))) + " worlds / " + str(int(audit_report.get("repaired_maps", 0))) + " maps."
+	else:
+		_save_audit_summary = "Integrity check: no repairs needed."
 	current_universe_id = SaveManager.current_universe_id(save_data)
 	var universe: Dictionary = _current_universe()
 	var settings: Dictionary = universe.get("settings", {})
@@ -717,6 +753,30 @@ func _explicit_save_world_data() -> void:
 	last_discovery_text = "Game saved."
 
 
+func _last_explicit_save_line() -> String:
+	var universe: Dictionary = _current_universe()
+	if not universe.has("last_explicit_save_unix"):
+		return "Last explicit save: none in this universe."
+	var unix_time: int = int(universe.get("last_explicit_save_unix", 0))
+	if unix_time <= 0:
+		return "Last explicit save: none in this universe."
+	return "Last explicit save: " + _format_unix_local(unix_time)
+
+
+func _format_unix_local(unix_time: int) -> String:
+	var dt: Dictionary = Time.get_datetime_dict_from_unix_time(unix_time)
+	var year: int = int(dt.get("year", 0))
+	var month: int = int(dt.get("month", 0))
+	var day: int = int(dt.get("day", 0))
+	var hour: int = int(dt.get("hour", 0))
+	var minute: int = int(dt.get("minute", 0))
+	return str(year) + "-" + _two(month) + "-" + _two(day) + " " + _two(hour) + ":" + _two(minute)
+
+
+func _two(value: int) -> String:
+	return str(value).pad_zeros(2)
+
+
 func _capture_player_save_state() -> Dictionary:
 	var base := {
 		"world_id": current_world_id,
@@ -744,6 +804,7 @@ func _capture_player_save_state() -> Dictionary:
 		"breath": float(player.get("breath")),
 		"flashlight_on": bool(player.get("flashlight_on")),
 		"flashlight_charge": float(player.get("flashlight_charge")),
+		"flashlight_requested_on": bool(player.get("flashlight_requested_on")),
 	}
 
 
@@ -774,6 +835,8 @@ func _restore_player_save_state(player: CharacterBody3D) -> bool:
 		player.set("flashlight_on", bool(state.get("flashlight_on", player.get("flashlight_on"))))
 	if state.has("flashlight_charge"):
 		player.set("flashlight_charge", float(state.get("flashlight_charge", player.get("flashlight_charge"))))
+	if state.has("flashlight_requested_on"):
+		player.set("flashlight_requested_on", bool(state.get("flashlight_requested_on", player.get("flashlight_requested_on"))))
 	var camera: Camera3D = player.get_node_or_null("PlayerCamera") as Camera3D
 	var pitch: float = float(state.get("pitch", player.get("pitch")))
 	player.set("pitch", pitch)
@@ -1293,16 +1356,23 @@ func _show_main_menu() -> void:
 	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	story.add_theme_font_size_override("font_size", 12)
 	story.add_theme_constant_override("line_separation", -3)
-	list.add_child(story)
+	var progression_section: VBoxContainer = _add_menu_section(list, "Mission")
+	progression_section.add_child(story)
+
+	var worlds_section: VBoxContainer = _add_menu_section(list, "Universes & Worlds")
+	var map_section: VBoxContainer = _add_menu_section(list, "Map Session")
+	var system_section: VBoxContainer = _add_menu_section(list, "System")
+	var audio_section: VBoxContainer = _add_menu_section(list, "Audio")
+	var atlas_section: VBoxContainer = _add_menu_section(list, "Atlas & Progress")
 
 	var universe_header := Label.new()
 	universe_header.text = "Universes:"
 	universe_header.add_theme_font_size_override("font_size", 13)
-	list.add_child(universe_header)
+	worlds_section.add_child(universe_header)
 
 	var universe_list := VBoxContainer.new()
 	universe_list.add_theme_constant_override("separation", 4)
-	list.add_child(universe_list)
+	worlds_section.add_child(universe_list)
 	var universes: Dictionary = save_data.get("universes", {})
 	for universe_key in universes.keys():
 		var uid: String = str(universe_key)
@@ -1317,11 +1387,11 @@ func _show_main_menu() -> void:
 	var world_header := Label.new()
 	world_header.text = "Worlds:"
 	world_header.add_theme_font_size_override("font_size", 13)
-	list.add_child(world_header)
+	worlds_section.add_child(world_header)
 
 	var world_list := VBoxContainer.new()
 	world_list.add_theme_constant_override("separation", 4)
-	list.add_child(world_list)
+	worlds_section.add_child(world_list)
 
 	var worlds: Dictionary = _get_worlds()
 	if worlds.is_empty():
@@ -1354,12 +1424,29 @@ func _show_main_menu() -> void:
 		var resume_button := Button.new()
 		resume_button.text = "Resume Current Map"
 		resume_button.pressed.connect(_close_menu)
-		world_list.add_child(resume_button)
+		map_section.add_child(resume_button)
 
 		var save_btn := Button.new()
 		save_btn.text = "Save Game"
 		save_btn.pressed.connect(_explicit_save_world_data)
-		world_list.add_child(save_btn)
+		map_section.add_child(save_btn)
+
+	var smoke_btn := Button.new()
+	smoke_btn.text = "Run Smoke Check"
+	smoke_btn.pressed.connect(_run_stability_smoke_check)
+	map_section.add_child(smoke_btn)
+
+	var save_meta := Label.new()
+	save_meta.text = _last_explicit_save_line()
+	save_meta.add_theme_font_size_override("font_size", 11)
+	save_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	map_section.add_child(save_meta)
+
+	var integrity_meta := Label.new()
+	integrity_meta.text = _save_audit_summary
+	integrity_meta.add_theme_font_size_override("font_size", 11)
+	integrity_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	map_section.add_child(integrity_meta)
 
 	var new_world_btn := Button.new()
 	new_world_btn.text = "New World"
@@ -1373,7 +1460,7 @@ func _show_main_menu() -> void:
 
 	var gfx_row := HBoxContainer.new()
 	gfx_row.add_theme_constant_override("separation", 6)
-	list.add_child(gfx_row)
+	system_section.add_child(gfx_row)
 	var gfx_label := Label.new()
 	gfx_label.text = "Graphics:"
 	gfx_label.add_theme_font_size_override("font_size", 12)
@@ -1389,7 +1476,7 @@ func _show_main_menu() -> void:
 
 	var dens_row := HBoxContainer.new()
 	dens_row.add_theme_constant_override("separation", 6)
-	list.add_child(dens_row)
+	system_section.add_child(dens_row)
 	var dens_label := Label.new()
 	dens_label.text = "Density:"
 	dens_label.add_theme_font_size_override("font_size", 12)
@@ -1405,7 +1492,7 @@ func _show_main_menu() -> void:
 
 	var time_row := HBoxContainer.new()
 	time_row.add_theme_constant_override("separation", 6)
-	list.add_child(time_row)
+	system_section.add_child(time_row)
 	var time_label := Label.new()
 	time_label.text = "Time Speed:"
 	time_label.add_theme_font_size_override("font_size", 12)
@@ -1429,7 +1516,7 @@ func _show_main_menu() -> void:
 
 	var fs_row := HBoxContainer.new()
 	fs_row.add_theme_constant_override("separation", 6)
-	list.add_child(fs_row)
+	system_section.add_child(fs_row)
 	var fs_label := Label.new()
 	fs_label.text = "Start Mode:"
 	fs_label.add_theme_font_size_override("font_size", 12)
@@ -1444,7 +1531,7 @@ func _show_main_menu() -> void:
 
 	var audio_header := HBoxContainer.new()
 	audio_header.add_theme_constant_override("separation", 6)
-	list.add_child(audio_header)
+	audio_section.add_child(audio_header)
 	var audio_label := Label.new()
 	audio_label.text = "Audio:"
 	audio_label.add_theme_font_size_override("font_size", 12)
@@ -1463,7 +1550,7 @@ func _show_main_menu() -> void:
 
 	var output_row := HBoxContainer.new()
 	output_row.add_theme_constant_override("separation", 6)
-	list.add_child(output_row)
+	audio_section.add_child(output_row)
 	var output_label := Label.new()
 	output_label.text = "Output Device:"
 	output_label.add_theme_font_size_override("font_size", 12)
@@ -1488,11 +1575,11 @@ func _show_main_menu() -> void:
 	var output_active := Label.new()
 	output_active.text = "Active: " + AudioServer.output_device
 	output_active.add_theme_font_size_override("font_size", 11)
-	list.add_child(output_active)
+	audio_section.add_child(output_active)
 
 	var master_row := HBoxContainer.new()
 	master_row.add_theme_constant_override("separation", 6)
-	list.add_child(master_row)
+	audio_section.add_child(master_row)
 	var master_label := Label.new()
 	master_label.text = "Master:"
 	master_label.add_theme_font_size_override("font_size", 12)
@@ -1516,7 +1603,7 @@ func _show_main_menu() -> void:
 
 	var music_row := HBoxContainer.new()
 	music_row.add_theme_constant_override("separation", 6)
-	list.add_child(music_row)
+	audio_section.add_child(music_row)
 	var music_label := Label.new()
 	music_label.text = "Music:"
 	music_label.add_theme_font_size_override("font_size", 12)
@@ -1540,7 +1627,7 @@ func _show_main_menu() -> void:
 
 	var sfx_row := HBoxContainer.new()
 	sfx_row.add_theme_constant_override("separation", 6)
-	list.add_child(sfx_row)
+	audio_section.add_child(sfx_row)
 	var sfx_label := Label.new()
 	sfx_label.text = "Effects:"
 	sfx_label.add_theme_font_size_override("font_size", 12)
@@ -1566,17 +1653,17 @@ func _show_main_menu() -> void:
 	atlas.text = _atlas_summary_text()
 	atlas.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	atlas.add_theme_font_size_override("font_size", 15)
-	list.add_child(atlas)
+	atlas_section.add_child(atlas)
 
 	var atlas_title := Label.new()
 	atlas_title.text = "Atlas Graph"
 	atlas_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	atlas_title.add_theme_font_size_override("font_size", 18)
-	list.add_child(atlas_title)
+	atlas_section.add_child(atlas_title)
 
 	var ach_row := HBoxContainer.new()
 	ach_row.add_theme_constant_override("separation", 6)
-	list.add_child(ach_row)
+	atlas_section.add_child(ach_row)
 	var ach_earned := 0
 	var saved_achs: Dictionary = _current_universe().get("achievements", {})
 	for ak in DiscoveryTracker.ACHIEVEMENT_DEFS.keys():
@@ -1592,8 +1679,152 @@ func _show_main_menu() -> void:
 	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu | Tab: atlas graph | G: return to Gate Room | P: pin location | H: HUD | F10: windowed | F11: fullscreen"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 14)
-	list.add_child(hint)
+	progression_section.add_child(hint)
 	_update_mouse_mode_for_overlays()
+
+
+func _add_menu_section(parent: VBoxContainer, title_text: String) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	parent.add_child(panel)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.11, 0.14, 0.18, 0.45)
+	panel_style.corner_radius_top_left = 6
+	panel_style.corner_radius_top_right = 6
+	panel_style.corner_radius_bottom_left = 6
+	panel_style.corner_radius_bottom_right = 6
+	panel_style.border_width_left = 1
+	panel_style.border_width_top = 1
+	panel_style.border_width_right = 1
+	panel_style.border_width_bottom = 1
+	panel_style.border_color = Color(0.34, 0.42, 0.52, 0.45)
+	panel.add_theme_stylebox_override("panel", panel_style)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	panel.add_child(margin)
+
+	var section := VBoxContainer.new()
+	section.add_theme_constant_override("separation", 6)
+	margin.add_child(section)
+
+	var title := Label.new()
+	title.text = title_text
+	title.add_theme_font_size_override("font_size", 14)
+	section.add_child(title)
+	return section
+
+
+func _run_stability_smoke_check() -> void:
+	var findings: Array[String] = []
+	var warnings: Array[String] = []
+	var checked_maps: int = 0
+
+	var universe: Dictionary = _current_universe()
+	var worlds: Dictionary = universe.get("worlds", {})
+	if worlds.is_empty():
+		findings.append("FAIL: universe has no worlds.")
+	else:
+		findings.append("PASS: worlds present (" + str(worlds.size()) + ").")
+
+	for world_id in worlds.keys():
+		var world: Dictionary = worlds[world_id] as Dictionary
+		var maps: Dictionary = world.get("maps", {})
+		if maps.is_empty():
+			findings.append("FAIL: world " + str(world_id) + " has no maps.")
+			continue
+		var root_map_id: String = str(world.get("root_map", ""))
+		if root_map_id == "" or not maps.has(root_map_id):
+			findings.append("FAIL: world " + str(world_id) + " missing valid root_map.")
+		var current_map_ref: String = str(world.get("current_map", ""))
+		if current_map_ref == "" or not maps.has(current_map_ref):
+			warnings.append("WARN: world " + str(world_id) + " has invalid current_map.")
+		for map_id in maps.keys():
+			checked_maps += 1
+			var map_record: Dictionary = maps[map_id] as Dictionary
+			if typeof(map_record) != TYPE_DICTIONARY or map_record.is_empty():
+				findings.append("FAIL: map " + str(map_id) + " record invalid.")
+				continue
+			var map_type: String = str(map_record.get("type", ""))
+			if map_type == "":
+				findings.append("FAIL: map " + str(map_id) + " missing type.")
+			var gates: Dictionary = map_record.get("gates", {})
+			for gate_key in gates.keys():
+				var target_id: String = str(gates[gate_key])
+				if target_id != "" and not maps.has(target_id):
+					findings.append("FAIL: map " + str(map_id) + " gate " + str(gate_key) + " targets missing map " + target_id + ".")
+			var discoveries = map_record.get("discoveries", {})
+			if typeof(discoveries) != TYPE_DICTIONARY:
+				findings.append("FAIL: map " + str(map_id) + " discoveries malformed.")
+			var pins = map_record.get("pins", {})
+			if typeof(pins) != TYPE_DICTIONARY:
+				findings.append("FAIL: map " + str(map_id) + " pins malformed.")
+
+	if current_world_id == "" or current_map_id == "":
+		warnings.append("WARN: no active world/map loaded.")
+	else:
+		if generated_root == null:
+			findings.append("FAIL: generated_root missing during active map.")
+		var player: CharacterBody3D = _get_player()
+		if player == null:
+			findings.append("FAIL: player missing during active map.")
+		if generated_root != null and not _is_current_map_gate_room() and not _is_current_map_map_nexus():
+			var gates_root: Node = generated_root.get_node_or_null("Gates")
+			if gates_root == null:
+				findings.append("FAIL: active map missing Gates root.")
+			elif gates_root.get_child_count() < GATE_COUNT:
+				findings.append("FAIL: active map has only " + str(gates_root.get_child_count()) + "/" + str(GATE_COUNT) + " gates.")
+
+	var fail_count: int = 0
+	for line in findings:
+		if line.begins_with("FAIL:"):
+			fail_count += 1
+	var pass_summary: String = "Smoke Check: " + ("PASS" if fail_count == 0 else "FAIL") + " | checked maps " + str(checked_maps) + " | failures " + str(fail_count) + " | warnings " + str(warnings.size())
+	last_discovery_text = pass_summary
+	_show_smoke_report_dialog(pass_summary, findings, warnings)
+
+
+func _show_smoke_report_dialog(summary: String, findings: Array[String], warnings: Array[String]) -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = "Stability Smoke Report"
+	dialog.dialog_text = ""
+	dialog.min_size = Vector2(640, 420)
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(600, 340)
+	dialog.add_child(scroll)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 4)
+	scroll.add_child(vb)
+
+	var summary_label := Label.new()
+	summary_label.text = summary
+	summary_label.add_theme_font_size_override("font_size", 14)
+	summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(summary_label)
+
+	for line in findings:
+		var l := Label.new()
+		l.text = line
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.add_theme_font_size_override("font_size", 12)
+		if line.begins_with("FAIL:"):
+			l.modulate = Color(1.0, 0.5, 0.5)
+		vb.add_child(l)
+
+	for line in warnings:
+		var w := Label.new()
+		w.text = line
+		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		w.add_theme_font_size_override("font_size", 12)
+		w.modulate = Color(1.0, 0.85, 0.45)
+		vb.add_child(w)
+
+	add_child(dialog)
+	dialog.popup_centered()
 
 
 func _close_menu() -> void:
@@ -1914,6 +2145,7 @@ func _set_worlds_typed(worlds: Dictionary) -> void:
 
 func _on_discovery_message(msg: String) -> void:
 	last_discovery_text = msg
+	_push_status_banner(msg, 2600)
 
 
 func _set_world(world_id: String, world: Dictionary) -> void:
@@ -1939,6 +2171,24 @@ func _set_e_key_gate_enabled(enabled: bool) -> void:
 	e_key_gate_enabled = enabled
 	_save_world_data()
 	last_discovery_text = "E-key gate use: " + ("enabled" if enabled else "disabled")
+	_push_status_banner(last_discovery_text, 2200)
+
+
+func _get_gate_debug_hud_enabled() -> bool:
+	return show_gate_debug_hud
+
+
+func _set_gate_debug_hud_enabled(enabled: bool) -> void:
+	show_gate_debug_hud = enabled
+	last_discovery_text = "Gate debug HUD: " + ("enabled" if enabled else "disabled")
+	_push_status_banner(last_discovery_text, 2200)
+
+
+func _push_status_banner(message: String, duration_msec: int = 2200) -> void:
+	if message.strip_edges() == "":
+		return
+	_status_banner_text = message
+	_status_banner_until_msec = Time.get_ticks_msec() + max(duration_msec, 400)
 
 
 func _set_map_name(world_id: String, map_id: String, map_name: String) -> void:
@@ -2471,19 +2721,29 @@ func _update_hud(delta: float = 0.0) -> void:
 			warning_text = "Edge barrier nearby"
 		stamina = float(player.get("sprint_stamina")) if player.get("sprint_stamina") != null else -1.0
 		breath = float(player.get("breath")) if player.get("breath") != null else -1.0
-	if not _is_current_map_gate_room() and not _is_current_map_map_nexus() and _gate_debug_line != "":
+	if show_gate_debug_hud and not _is_current_map_gate_room() and not _is_current_map_map_nexus() and _gate_debug_line != "":
 		if warning_text != "":
 			warning_text += " | "
 		warning_text += _gate_debug_line
+	if _transition_status_line != "":
+		if warning_text != "":
+			warning_text += " | "
+		warning_text += _transition_status_line
 
 	var flashlight_text: String = ""
 	if player != null and player.get("flashlight_on") != null:
 		var f_on: bool = bool(player.get("flashlight_on"))
+		var f_requested: bool = bool(player.get("flashlight_requested_on"))
+		var f_charge: float = float(player.get("flashlight_charge"))
 		if f_on:
-			var f_charge: float = float(player.get("flashlight_charge"))
 			flashlight_text = "Flashlight: " + str(int(f_charge)) + "s"
+		elif f_requested and f_charge <= 0.01:
+			flashlight_text = "Flashlight: DEAD (ON)"
+		elif f_requested:
+			flashlight_text = "Flashlight: charging " + str(int(f_charge)) + "s/8s"
 		else:
 			flashlight_text = "[F] Flashlight"
+	var music_text: String = _current_music_line()
 
 	var world_name: String = "?"
 	var gate_room_return_world: String = ""
@@ -2497,7 +2757,8 @@ func _update_hud(delta: float = 0.0) -> void:
 	if _is_current_map_gate_room():
 		gate_room_return_world = str(_get_map_record(current_world_id, current_map_id).get("gate_room_return_world", ""))
 
-	var discovery_line: String = last_discovery_text
+	var now_msec: int = Time.get_ticks_msec()
+	var discovery_line: String = _status_banner_text if now_msec <= _status_banner_until_msec else last_discovery_text
 	if discovery_line == "":
 		discovery_line = "Seek gates, ruins, and wonders."
 	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
@@ -2514,7 +2775,8 @@ func _update_hud(delta: float = 0.0) -> void:
 		"map_type": map_type,
 		"position_text": position_text,
 		"warning_text": warning_text,
-		"flashlight_text": flashlight_text,
+			"flashlight_text": flashlight_text,
+			"music_text": music_text,
 		"discovery_line": discovery_line,
 		"objective_line": objective_line,
 		"progression_line": progression_line,
@@ -2557,6 +2819,8 @@ func _next_objective_hint(map_record: Dictionary) -> String:
 		if shrine_count < 9:
 			return "Objective: Attune moon shrines with thrown lichen, then recover orbs (" + str(shrine_count) + "/9, charged " + str(charged_count) + ")."
 		return "Objective: Return through a gate and continue atlas expansion."
+	if _is_current_map_cave():
+		return _maze_objective_text(map_record)
 
 	var available: int = int(map_record.get("available_discoveries", 0))
 	var found: int = map_record.get("discoveries", {}).size()
@@ -2569,9 +2833,168 @@ func _next_objective_hint(map_record: Dictionary) -> String:
 		return route_hint
 
 	var world_map_count: int = discovery_tracker.current_world_map_count() if discovery_tracker != null else 0
-	if world_map_count < 5:
-		return "Objective: Traverse gates and expand this world atlas (" + str(world_map_count) + " maps)."
-	return "Objective: Use gates to reach rare biomes and hidden routes."
+	return "Objective: Traverse gates and expand this world atlas (" + str(world_map_count) + " maps)."
+
+
+func _maze_objective_text(map_record: Dictionary) -> String:
+	var objective: Dictionary = _maze_objective_data(map_record)
+	var key: String = str(objective.get("key", "gate_sprint"))
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	var found: int = discoveries.size()
+	match key:
+		"gate_sprint":
+			var seconds: int = int(objective.get("seconds", 0))
+			var elapsed: int = max(int(round(float(Time.get_ticks_msec() - _map_loaded_at_msec) / 1000.0)), 0)
+			var remaining: int = max(seconds - elapsed, 0)
+			if bool(map_record.get("maze_objective_completed", false)):
+				return "Objective complete: Gate sprint done (reward secured)."
+			return "Objective: Find any gate and route out in " + str(seconds) + "s for a bonus (" + str(remaining) + "s left)."
+		"discover_then_exit":
+			var target: int = int(objective.get("target_discoveries", 2))
+			if bool(map_record.get("maze_objective_completed", false)):
+				return "Objective complete: Cartography sweep done."
+			if found < target:
+				return "Objective: Secure " + str(target) + " discoveries, then route through any gate (" + str(found) + "/" + str(target) + ")."
+			return "Objective: Discoveries secured. Exit through any gate for reward."
+		"orb_and_exit":
+			if bool(map_record.get("maze_objective_completed", false)):
+				return "Objective complete: Orb relay done."
+			var has_orb: bool = lichen_count > 0
+			if not has_orb:
+				return "Objective: Recover a cave orb/lichen and carry it to a gate."
+			return "Objective: Orb cargo ready. Route through any gate for reward."
+		"clean_exit":
+			if bool(map_record.get("maze_objective_completed", false)):
+				return "Objective complete: Clean run done."
+			var sprint_value: float = 0.0
+			var player: CharacterBody3D = _get_player()
+			if player != null and player.get("sprint_stamina") != null:
+				sprint_value = float(player.get("sprint_stamina"))
+			var stamina_target: float = float(objective.get("stamina_min", 8.0))
+			if sprint_value < stamina_target:
+				return "Objective: Recover stamina to " + str(int(stamina_target)) + "+, then exit through a gate."
+			return "Objective: Stamina threshold met. Exit through any gate for reward."
+	return "Objective: Route deeper into the maze network."
+
+
+func _maze_objective_data(map_record: Dictionary) -> Dictionary:
+	var objective: Dictionary = map_record.get("maze_objective", {})
+	if typeof(objective) != TYPE_DICTIONARY or objective.is_empty():
+		return {"key": "gate_sprint", "seconds": 90, "target_discoveries": 2, "stamina_min": 8.0}
+	return objective
+
+
+func _ensure_maze_objective(map_record: Dictionary) -> Dictionary:
+	var existing: Dictionary = map_record.get("maze_objective", {})
+	if typeof(existing) == TYPE_DICTIONARY and not existing.is_empty():
+		return map_record
+	var seed: int = int(map_record.get("seed", 0))
+	var idx: int = int(abs(seed) % MAZE_OBJECTIVE_VARIANTS.size())
+	var key: String = MAZE_OBJECTIVE_VARIANTS[idx]
+	var objective: Dictionary = {"key": key}
+	match key:
+		"gate_sprint":
+			objective["seconds"] = 75 + int(abs(seed) % 56)
+		"discover_then_exit":
+			objective["target_discoveries"] = 2 + int(abs(seed / 5) % 2)
+		"orb_and_exit":
+			objective["carry_key"] = "lichen"
+		"clean_exit":
+			objective["stamina_min"] = 8.0 + float(int(abs(seed / 7) % 5))
+	map_record["maze_objective"] = objective
+	map_record["maze_objective_completed"] = false
+	map_record["maze_objective_rewarded"] = false
+	return map_record
+
+
+func _try_complete_maze_objective_on_exit(map_record: Dictionary) -> Dictionary:
+	if not _is_current_map_cave():
+		return map_record
+	map_record = _ensure_maze_objective(map_record)
+	if bool(map_record.get("maze_objective_completed", false)):
+		return map_record
+	var objective: Dictionary = _maze_objective_data(map_record)
+	var key: String = str(objective.get("key", "gate_sprint"))
+	var completed: bool = false
+	match key:
+		"gate_sprint":
+			var seconds: int = int(objective.get("seconds", 90))
+			var elapsed: float = float(Time.get_ticks_msec() - _map_loaded_at_msec) / 1000.0
+			completed = elapsed <= float(seconds)
+			if not completed:
+				last_discovery_text = "Maze objective missed: gate sprint over " + str(seconds) + "s."
+				_push_status_banner(last_discovery_text, 3600)
+		"discover_then_exit":
+			var target: int = int(objective.get("target_discoveries", 2))
+			var found: int = map_record.get("discoveries", {}).size()
+			completed = found >= target
+			if not completed:
+				last_discovery_text = "Maze objective incomplete: discoveries " + str(found) + "/" + str(target) + "."
+				_push_status_banner(last_discovery_text, 3600)
+		"orb_and_exit":
+			completed = lichen_count > 0
+			if not completed:
+				last_discovery_text = "Maze objective incomplete: carry a lichen/orb through gate."
+				_push_status_banner(last_discovery_text, 3600)
+		"clean_exit":
+			var player: CharacterBody3D = _get_player()
+			var stamina: float = 0.0
+			if player != null and player.get("sprint_stamina") != null:
+				stamina = float(player.get("sprint_stamina"))
+			completed = stamina >= float(objective.get("stamina_min", 8.0))
+			if not completed:
+				last_discovery_text = "Maze objective incomplete: stamina threshold not met."
+				_push_status_banner(last_discovery_text, 3600)
+	if not completed:
+		if last_discovery_text == "":
+			last_discovery_text = "Maze objective incomplete; route logged."
+			_push_status_banner(last_discovery_text, 3000)
+		return map_record
+	map_record["maze_objective_completed"] = true
+	if not bool(map_record.get("maze_objective_rewarded", false)):
+		map_record["maze_objective_rewarded"] = true
+		lichen_count += 2
+		var player_node: CharacterBody3D = _get_player()
+		if player_node != null and player_node.has_method(&"set"):
+			player_node.set("lichen_count", lichen_count)
+		last_discovery_text = "Maze objective complete: +2 lichen reward."
+		_push_status_banner(last_discovery_text, 4200)
+	return map_record
+
+
+func _current_music_line() -> String:
+	if generated_root == null:
+		return ""
+	var music_player: AudioStreamPlayer = generated_root.get_node_or_null("MusicPlayer") as AudioStreamPlayer
+	if music_player != null:
+		var title: String = str(music_player.get_meta("track_title", "")).strip_edges()
+		if title != "":
+			return "Now Playing: " + title
+		if music_player.stream != null and str(music_player.stream.resource_path) != "":
+			var path: String = str(music_player.stream.resource_path)
+			var file_name: String = path.get_file()
+			var dot: int = file_name.rfind(".")
+			if dot > 0:
+				file_name = file_name.substr(0, dot)
+			return "Now Playing: " + file_name
+	var proc_pad: AudioStreamPlayer = generated_root.get_node_or_null("ProceduralSynthPad") as AudioStreamPlayer
+	if proc_pad != null:
+		return "Now Playing: Procedural Synth"
+	return ""
+
+
+func _on_prev_music_pressed() -> void:
+	if generated_root == null:
+		return
+	if not AudioManager.playlist_prev(generated_root):
+		last_discovery_text = "Now Playing: at first track."
+
+
+func _on_next_music_pressed() -> void:
+	if generated_root == null:
+		return
+	if not AudioManager.playlist_next(generated_root):
+		last_discovery_text = "Now Playing: no playlist loaded."
 
 
 func _progression_hint(map_record: Dictionary) -> String:
@@ -2708,6 +3131,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_close_menu()
 	current_world_id = world_id
 	current_map_id = map_id
+	_transition_status_line = ""
+	_map_loaded_at_msec = Time.get_ticks_msec()
 	_wonder_positions.clear()
 	if atlas_view != null:
 		atlas_view.current_world_id = world_id
@@ -2723,6 +3148,12 @@ func _load_map(world_id: String, map_id: String) -> void:
 	if map_record.is_empty():
 		push_error("Missing map record: " + map_id)
 		return
+	if WorldGraph.map_type_from_dict(map_record) == WorldGraph.MAP_CAVE:
+		map_record = _ensure_maze_objective(map_record)
+		maps[map_id] = map_record
+		world["maps"] = maps
+		last_discovery_text = _maze_objective_text(map_record)
+		_push_status_banner(last_discovery_text, 4200)
 
 	world["current_map"] = map_id
 	_set_world(world_id, world)
@@ -2806,6 +3237,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			target_seeds.append(_gate_target_seed(gi))
 		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
 		_gate_positions_to_wonders()
+	_post_load_map_sanity(map_type)
 	_store_current_map_available_discoveries()
 
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
@@ -2848,6 +3280,26 @@ func _clear_factory_caches() -> void:
 	FlowerFactory.clear_cache()
 	UnderwaterPlantFactory.clear_cache()
 	GateFactory.clear_cache()
+
+
+func _post_load_map_sanity(map_type: String) -> void:
+	if generated_root == null:
+		_transition_status_line = "Sanity: generated root missing."
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		_transition_status_line = "Sanity: player missing after load."
+		return
+	if map_type != WorldGraph.MAP_GATE_ROOM and map_type != WorldGraph.MAP_NEXUS:
+		var gates_root: Node = generated_root.get_node_or_null("Gates")
+		if gates_root == null:
+			_transition_status_line = "Sanity: gate root missing on map load."
+			return
+		var gate_nodes: Array = gates_root.get_children()
+		if gate_nodes.size() < GATE_COUNT:
+			_transition_status_line = "Sanity: expected " + str(GATE_COUNT) + " gates, found " + str(gate_nodes.size()) + "."
+			return
+	_transition_status_line = ""
 
 
 func _add_generated_child(node: Node) -> void:
@@ -3180,15 +3632,31 @@ func _spawn_wonder_instance(wonder_pos: Vector3, cell_x: int, cell_z: int) -> bo
 	for existing in _wonder_positions:
 		if str(existing.get("id", "")) == discovery_id:
 			return false
-	var wonder: Node3D = WonderGenerator.create_wonder(world_seed, wonder_pos, 0, true)
-	var title: String = _wonder_title(wonder.name)
+	var wonder_info: Dictionary = WonderGenerator.describe_wonder(world_seed, cell_x, cell_z, 0)
+	var wonder_seed: int = int(wonder_info.get("seed", 0))
+	var archetype: String = str(wonder_info.get("archetype", "wonder"))
+	var variant: int = int(wonder_info.get("variant", 0))
+	var wonder: Node3D = WonderGenerator.create_wonder_from_seed(wonder_pos, wonder_seed, true)
+	var title: String = str(wonder.get_meta("wonder_title", WonderGenerator.title_for_archetype(archetype, variant)))
 	var wonder_kind: String = "wonder"
-	_wonder_positions.append({"x": wonder_pos.x, "z": wonder_pos.z, "kind": wonder_kind, "id": discovery_id, "title": title})
+	_wonder_positions.append({
+		"x": wonder_pos.x,
+		"z": wonder_pos.z,
+		"kind": wonder_kind,
+		"id": discovery_id,
+		"title": title,
+		"seed": wonder_seed,
+		"archetype": archetype,
+		"variant": variant,
+	})
 	wonder.set_meta("discovery_id", discovery_id)
 	wonder.set_meta("discovery_title", title)
 	wonder.set_meta("discovery_kind", wonder_kind)
+	wonder.set_meta("wonder_seed", wonder_seed)
+	wonder.set_meta("wonder_archetype", archetype)
+	wonder.set_meta("wonder_variant", variant)
 	_add_discovery_area(wonder, Vector3(0.0, 2.0, 0.0), 12.0, discovery_id, title, wonder_kind)
-	if title == "Moon Gate":
+	if archetype == "moon_gate":
 		MoonGateFactory.add_moon_gate_trigger(wonder, _on_moon_gate_body_entered)
 	_add_generated_child(wonder)
 	return true
@@ -3742,6 +4210,26 @@ func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
 
 func _deferred_load_gate_target(target_world_id: String, target_map_id: String) -> void:
 	_gate_transition_in_progress = false
+	if not _validate_transition_target(target_world_id, target_map_id):
+		return
 	_load_map(target_world_id, target_map_id)
 	if discovery_tracker != null:
 		discovery_tracker.award_achievement("gate_crasher")
+
+
+func _validate_transition_target(world_id: String, map_id: String) -> bool:
+	if world_id == "" or map_id == "":
+		_transition_status_line = "Transition: missing world/map id."
+		last_discovery_text = _transition_status_line
+		return false
+	var world: Dictionary = _get_world(world_id)
+	if world.is_empty():
+		_transition_status_line = "Transition: target world missing."
+		last_discovery_text = _transition_status_line
+		return false
+	var maps: Dictionary = world.get("maps", {})
+	if not maps.has(map_id):
+		_transition_status_line = "Transition: target map missing."
+		last_discovery_text = _transition_status_line
+		return false
+	return true

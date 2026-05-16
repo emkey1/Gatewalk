@@ -72,6 +72,91 @@ static func normalize_save_data(raw_data: Dictionary) -> Dictionary:
 	return migrated
 
 
+static func audit_and_repair_save_data(raw_data: Dictionary) -> Dictionary:
+	var report: Dictionary = {
+		"repaired_worlds": 0,
+		"repaired_maps": 0,
+		"repaired_fields": 0,
+	}
+	var normalized: Dictionary = normalize_save_data(raw_data)
+	var universes: Dictionary = normalized.get("universes", {})
+	var changed_worlds: int = 0
+	var changed_maps: int = 0
+	var changed_fields: int = 0
+	for universe_id in universes.keys():
+		var universe: Dictionary = universes[universe_id] as Dictionary
+		var worlds: Dictionary = universe.get("worlds", {})
+		for world_id in worlds.keys():
+			var world: Dictionary = worlds[world_id] as Dictionary
+			var world_changed: bool = false
+			var maps: Dictionary = world.get("maps", {})
+			if typeof(maps) != TYPE_DICTIONARY:
+				maps = {}
+				world["maps"] = maps
+				changed_fields += 1
+				world_changed = true
+			var map_changed_local: bool = false
+			for map_id in maps.keys():
+				var raw_map = maps[map_id]
+				var mr: Dictionary = raw_map if typeof(raw_map) == TYPE_DICTIONARY else {}
+				var fixed: Dictionary = _sanitize_map_record(mr, str(map_id), report)
+				if fixed.hash() != mr.hash() or typeof(raw_map) != TYPE_DICTIONARY:
+					maps[map_id] = fixed
+					map_changed_local = true
+			if map_changed_local:
+				changed_maps += 1
+				world_changed = true
+			if world.get("root_map", "") == "" or not maps.has(str(world.get("root_map", ""))):
+				var map_keys: Array = maps.keys()
+				world["root_map"] = str(map_keys[0]) if not map_keys.is_empty() else ""
+				changed_fields += 1
+				world_changed = true
+			if world.get("current_map", "") == "" or not maps.has(str(world.get("current_map", ""))):
+				world["current_map"] = str(world.get("root_map", ""))
+				changed_fields += 1
+				world_changed = true
+			if world_changed:
+				world["maps"] = maps
+				worlds[world_id] = world
+				changed_worlds += 1
+		universe["worlds"] = worlds
+		universes[universe_id] = universe
+	normalized["universes"] = universes
+	report["repaired_worlds"] = changed_worlds
+	report["repaired_maps"] = changed_maps
+	report["repaired_fields"] = changed_fields + int(report.get("repaired_fields", 0))
+	return {"save_data": normalized, "report": report}
+
+
+static func _sanitize_map_record(mr: Dictionary, map_id: String, report: Dictionary) -> Dictionary:
+	var fixed: Dictionary = mr.duplicate(true)
+	if not fixed.has("seed"):
+		fixed["seed"] = 0
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	if not fixed.has("type"):
+		fixed["type"] = "normal"
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	if not fixed.has("gates") or typeof(fixed.get("gates")) != TYPE_DICTIONARY:
+		fixed["gates"] = {}
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	if not fixed.has("discoveries") or typeof(fixed.get("discoveries")) != TYPE_DICTIONARY:
+		fixed["discoveries"] = {}
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	if not fixed.has("pins") or typeof(fixed.get("pins")) != TYPE_DICTIONARY:
+		fixed["pins"] = {}
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	if not fixed.has("available_discoveries"):
+		fixed["available_discoveries"] = 0
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	if not fixed.has("wonder_count"):
+		fixed["wonder_count"] = 0
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	if not fixed.has("name") or str(fixed.get("name", "")).strip_edges() == "":
+		fixed["name"] = map_id
+		report["repaired_fields"] = int(report.get("repaired_fields", 0)) + 1
+	return fixed
+
+
 static func current_universe_id(save_data: Dictionary) -> String:
 	return str(save_data.get("current_universe_id", ""))
 

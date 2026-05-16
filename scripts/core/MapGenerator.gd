@@ -367,10 +367,7 @@ func _create_cave_terrain() -> void:
 					if not (gx == 0 or gx == gw - 1 or gz == 0 or gz == gh - 1):
 						grid[gz][gx] = false
 
-	var wall_mat := StandardMaterial3D.new()
-	wall_mat.albedo_color = Color(0.14, 0.11, 0.09)
-	wall_mat.roughness = 0.95
-	wall_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var wall_mat := _cave_brick_material(world_seed)
 
 	var floor_mat := StandardMaterial3D.new()
 	floor_mat.albedo_color = Color(0.16, 0.13, 0.12)
@@ -429,13 +426,31 @@ func _create_cave_terrain() -> void:
 
 	var wall_body := StaticBody3D.new()
 	wall_body.name = "DungeonWallCollision"
-	var wall_col := CollisionShape3D.new()
-	var concave := ConcavePolygonShape3D.new()
-	var faces: PackedVector3Array = wall_mesh.get_faces()
-	if faces.size() > 0:
-		concave.set_faces(faces)
-	wall_col.shape = concave
-	wall_body.add_child(wall_col)
+	# Use merged box strips instead of one concave collider to avoid corner snagging.
+	var collision_inset: float = unit * 0.04
+	for gz in range(gh):
+		var gx: int = 0
+		while gx < gw:
+			if not bool(grid[gz][gx]):
+				gx += 1
+				continue
+			var start_x: int = gx
+			while gx < gw and bool(grid[gz][gx]):
+				gx += 1
+			var end_x: int = gx - 1
+			var run_len: int = end_x - start_x + 1
+			var run_center_x: float = (float(start_x + end_x + 1) * unit * 0.5) - hw
+			var run_center_z: float = float(gz) * unit - hh + unit * 0.5
+			var run_col := CollisionShape3D.new()
+			var run_shape := BoxShape3D.new()
+			run_shape.size = Vector3(
+				max(float(run_len) * unit - collision_inset, unit * 0.88),
+				wall_h,
+				max(unit - collision_inset, unit * 0.88)
+			)
+			run_col.shape = run_shape
+			run_col.position = Vector3(run_center_x, wall_h * 0.5, run_center_z)
+			wall_body.add_child(run_col)
 	generated_root.add_child(wall_body)
 
 	var floor_mesh := MeshInstance3D.new()
@@ -616,6 +631,51 @@ void fragment() {
 }
 """
 	return shader
+
+
+func _cave_brick_material(seed: int) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.roughness = 0.93
+	mat.metallic = 0.0
+	mat.uv1_triplanar = true
+	mat.uv1_scale = Vector3(1.7, 1.7, 1.7)
+	var tex: ImageTexture = _generate_cave_brick_texture(seed)
+	mat.albedo_texture = tex
+	return mat
+
+
+func _generate_cave_brick_texture(seed: int) -> ImageTexture:
+	var w: int = 256
+	var h: int = 256
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var rng := StableRng.new(StableRng.mix_string(seed, "cave_brick_tex"))
+	var seed_tint: float = float(abs(seed % 17)) / 17.0
+	var brick_a := Color(0.18 + seed_tint * 0.05, 0.13 + seed_tint * 0.03, 0.10 + seed_tint * 0.02, 1.0)
+	var brick_b := Color(0.30 + seed_tint * 0.03, 0.22 + seed_tint * 0.02, 0.16 + seed_tint * 0.02, 1.0)
+	var mortar := Color(0.09, 0.085, 0.08, 1.0)
+	var brick_h: int = 16
+	var brick_w: int = 32
+	var mortar_w: int = 2
+	for y in range(h):
+		var row: int = y / brick_h
+		var offset: int = (brick_w / 2) if (row % 2 == 1) else 0
+		for x in range(w):
+			var xx: int = (x + offset) % brick_w
+			var yy: int = y % brick_h
+			var is_mortar: bool = xx < mortar_w or yy < mortar_w
+			if is_mortar:
+				img.set_pixel(x, y, mortar)
+			else:
+				var n: float = rng.randf_range(-0.07, 0.07)
+				var t: float = float((x / brick_w + y / brick_h) % 2)
+				var c: Color = brick_a.lerp(brick_b, t * 0.65 + 0.2)
+				c.r = clamp(c.r + n, 0.0, 1.0)
+				c.g = clamp(c.g + n * 0.8, 0.0, 1.0)
+				c.b = clamp(c.b + n * 0.6, 0.0, 1.0)
+				img.set_pixel(x, y, c)
+	var tex := ImageTexture.create_from_image(img)
+	return tex
 
 
 func _create_water() -> void:

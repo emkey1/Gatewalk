@@ -14,6 +14,9 @@ var stamina_bar: ProgressBar
 var breath_bar: ProgressBar
 var minimap_panel: PanelContainer
 var minimap_marker_layer: Control
+var music_label: Label
+var music_prev_button: Button
+var music_next_button: Button
 var fps_label: Label
 var underwater_layer: CanvasLayer
 var underwater_overlay: ColorRect
@@ -33,6 +36,8 @@ var _is_water_fn: Callable
 var _is_cave_fn: Callable
 var _is_arctic_fn: Callable
 var _is_gate_room_fn: Callable
+var _on_prev_music_fn: Callable
+var _on_next_music_fn: Callable
 
 var _trail: Array = []
 var _trail_timer: float = 0.0
@@ -139,6 +144,48 @@ func setup(parent: Node) -> void:
 	minimap_marker_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	minimap_panel.add_child(minimap_marker_layer)
 
+	var music_panel := PanelContainer.new()
+	music_panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	hud_stack.add_child(music_panel)
+	var music_margin := MarginContainer.new()
+	music_margin.add_theme_constant_override("margin_left", 6)
+	music_margin.add_theme_constant_override("margin_top", 6)
+	music_margin.add_theme_constant_override("margin_right", 6)
+	music_margin.add_theme_constant_override("margin_bottom", 6)
+	music_margin.mouse_filter = Control.MOUSE_FILTER_PASS
+	music_panel.add_child(music_margin)
+	var music_stack := VBoxContainer.new()
+	music_stack.add_theme_constant_override("separation", 6)
+	music_stack.mouse_filter = Control.MOUSE_FILTER_PASS
+	music_margin.add_child(music_stack)
+	music_label = Label.new()
+	music_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	music_label.add_theme_font_size_override("font_size", 12)
+	music_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	music_stack.add_child(music_label)
+	var music_controls := HBoxContainer.new()
+	music_controls.add_theme_constant_override("separation", 6)
+	music_controls.mouse_filter = Control.MOUSE_FILTER_PASS
+	music_stack.add_child(music_controls)
+	music_prev_button = Button.new()
+	music_prev_button.text = "Prev"
+	music_prev_button.focus_mode = Control.FOCUS_NONE
+	music_prev_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	music_prev_button.pressed.connect(func() -> void:
+		if _on_prev_music_fn.is_valid():
+			_on_prev_music_fn.call()
+	)
+	music_controls.add_child(music_prev_button)
+	music_next_button = Button.new()
+	music_next_button.text = "Next"
+	music_next_button.focus_mode = Control.FOCUS_NONE
+	music_next_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	music_next_button.pressed.connect(func() -> void:
+		if _on_next_music_fn.is_valid():
+			_on_next_music_fn.call()
+	)
+	music_controls.add_child(music_next_button)
+
 	fps_label = Label.new()
 	fps_label.anchor_left = 0.0
 	fps_label.anchor_top = 0.0
@@ -184,6 +231,7 @@ func update(data: Dictionary) -> void:
 	var position_text: String = str(data.get("position_text", "No active player"))
 	var warning_text: String = str(data.get("warning_text", ""))
 	var flashlight_text: String = str(data.get("flashlight_text", ""))
+	var music_text: String = str(data.get("music_text", ""))
 	var discovery_line: String = str(data.get("discovery_line", "Seek gates, ruins, and wonders."))
 	var objective_line: String = str(data.get("objective_line", ""))
 	var progression_line: String = str(data.get("progression_line", ""))
@@ -242,7 +290,6 @@ func update(data: Dictionary) -> void:
 		controls_lines.append("Lichen: " + str(lichen_count) + " [C] grab [T] throw")
 	if flashlight_text != "":
 		controls_lines.append(flashlight_text)
-
 	if warning_text != "":
 		status_lines.append(warning_text)
 
@@ -257,6 +304,12 @@ func update(data: Dictionary) -> void:
 	status_label.text = "\n".join(status_lines)
 	controls_label.text = "\n".join(controls_lines)
 	goals_label.text = "\n".join(goals_lines)
+	if music_label != null:
+		music_label.text = music_text if music_text != "" else "Now Playing: None"
+	if music_prev_button != null:
+		music_prev_button.disabled = music_text == ""
+	if music_next_button != null:
+		music_next_button.disabled = music_text == ""
 
 	var stamina: float = float(data.get("stamina", -1.0))
 	if stamina_bar != null and stamina >= 0.0:

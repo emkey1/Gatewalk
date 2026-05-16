@@ -63,7 +63,7 @@ static func resolve_gate_transition(
 			is_cave_route = gate_rng.chance(cave_route_chance)
 			if is_cave_route:
 				target_type = WorldGraph.MAP_CAVE
-		if not is_cave_route and not is_arctic_route and not is_water_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
+		if not from_cave and not is_cave_route and not is_arctic_route and not is_water_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
 			return {
 				"ok": true,
 				"inert": true,

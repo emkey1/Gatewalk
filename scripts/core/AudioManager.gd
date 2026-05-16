@@ -18,39 +18,104 @@ static func setup_music(parent: Node3D, rng: StableRng) -> void:
 			files.append("res://audio/music/" + fname)
 		fname = dir.get_next()
 	dir.list_dir_end()
+	files.sort()
 	if files.is_empty():
 		setup_procedural_music(parent, rng)
 		return
 	_setup_rotating_playlist(parent, files, rng)
 
 
-static func _setup_rotating_playlist(parent: Node3D, files: Array[String], rng: StableRng) -> void:
+static func _setup_rotating_playlist(parent: Node3D, files: Array[String], _rng: StableRng) -> void:
 	if parent == null or files.is_empty():
 		return
 	var player := AudioStreamPlayer.new()
 	player.name = "MusicPlayer"
 	player.bus = "Music"
 	player.volume_db = -14.0
+	player.set_meta("playlist_files", files)
+	player.set_meta("playlist_index", -1)
+	player.set_meta("playlist_history", [])
+	player.set_meta("playlist_history_cursor", -1)
 	parent.add_child(player)
-
-	var last_index: int = -1
-	var play_next := func() -> void:
-		if files.is_empty():
-			return
-		var idx: int = int(rng.next_u32() % files.size())
-		if files.size() > 1 and idx == last_index:
-			idx = (idx + 1 + int(rng.next_u32() % (files.size() - 1))) % files.size()
-		last_index = idx
-		var stream: AudioStream = load(files[idx]) as AudioStream
-		if stream == null:
-			return
-		player.stream = stream
-		player.play()
-
+	var start_idx: int = int(randi() % files.size())
+	_play_playlist_index(player, start_idx)
+	player.set_meta("playlist_history", [start_idx])
+	player.set_meta("playlist_history_cursor", 0)
 	player.finished.connect(func() -> void:
-		play_next.call()
+		playlist_next(parent)
 	)
-	play_next.call()
+
+
+static func _play_playlist_index(player: AudioStreamPlayer, index: int) -> bool:
+	if player == null:
+		return false
+	var files: Array = player.get_meta("playlist_files", [])
+	if files.is_empty():
+		return false
+	var clamped: int = clamp(index, 0, files.size() - 1)
+	var path: String = str(files[clamped])
+	var stream: AudioStream = load(path) as AudioStream
+	if stream == null:
+		return false
+	player.set_meta("playlist_index", clamped)
+	player.set_meta("track_title", _track_title_from_path(path))
+	player.stream = stream
+	player.play()
+	return true
+
+
+static func playlist_next(parent: Node3D) -> bool:
+	if parent == null:
+		return false
+	var player: AudioStreamPlayer = parent.get_node_or_null("MusicPlayer") as AudioStreamPlayer
+	if player == null:
+		return false
+	var files: Array = player.get_meta("playlist_files", [])
+	if files.is_empty():
+		return false
+	var current: int = int(player.get_meta("playlist_index", -1))
+	var history: Array = player.get_meta("playlist_history", [])
+	var cursor: int = int(player.get_meta("playlist_history_cursor", -1))
+	if cursor >= 0 and cursor < history.size() - 1:
+		cursor += 1
+		player.set_meta("playlist_history_cursor", cursor)
+		return _play_playlist_index(player, int(history[cursor]))
+	var next_index: int = int(randi() % files.size())
+	if files.size() > 1 and next_index == current:
+		next_index = (next_index + 1 + int(randi() % (files.size() - 1))) % files.size()
+	if cursor < history.size() - 1:
+		history = history.slice(0, cursor + 1)
+	history.append(next_index)
+	cursor = history.size() - 1
+	player.set_meta("playlist_history", history)
+	player.set_meta("playlist_history_cursor", cursor)
+	return _play_playlist_index(player, next_index)
+
+
+static func playlist_prev(parent: Node3D) -> bool:
+	if parent == null:
+		return false
+	var player: AudioStreamPlayer = parent.get_node_or_null("MusicPlayer") as AudioStreamPlayer
+	if player == null:
+		return false
+	var files: Array = player.get_meta("playlist_files", [])
+	if files.is_empty():
+		return false
+	var history: Array = player.get_meta("playlist_history", [])
+	var cursor: int = int(player.get_meta("playlist_history_cursor", -1))
+	if history.is_empty() or cursor <= 0:
+		return false
+	cursor -= 1
+	player.set_meta("playlist_history_cursor", cursor)
+	return _play_playlist_index(player, int(history[cursor]))
+
+
+static func _track_title_from_path(path: String) -> String:
+	var file_name: String = path.get_file()
+	var dot: int = file_name.rfind(".")
+	if dot > 0:
+		return file_name.substr(0, dot)
+	return file_name
 
 
 static func generate_wav_stream(freqs: Array[float], duration: float, vol: float, loop_enabled: bool = true) -> AudioStreamWAV:

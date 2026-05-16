@@ -23,6 +23,8 @@ var _graph_root: Node3D
 var _hover_label: Label
 var _hover_map_names: Dictionary = {}
 var _hover_map_positions: Dictionary = {}
+var _connected_only: bool = false
+var _sort_mode: String = "route"
 
 
 func toggle() -> void:
@@ -212,13 +214,32 @@ func refresh() -> void:
 	help_btn.pressed.connect(_show_help_dialog.bind(panel))
 	header_row.add_child(help_btn)
 
+	var controls_row := HBoxContainer.new()
+	controls_row.add_theme_constant_override("separation", 6)
+	right.add_child(controls_row)
+
+	var connected_btn := Button.new()
+	connected_btn.text = "Connected Only: " + ("On" if _connected_only else "Off")
+	connected_btn.toggle_mode = true
+	connected_btn.button_pressed = _connected_only
+	connected_btn.pressed.connect(_toggle_connected_only)
+	controls_row.add_child(connected_btn)
+
+	var sort_option := OptionButton.new()
+	sort_option.add_item("Route")
+	sort_option.add_item("Completion")
+	sort_option.add_item("Name")
+	sort_option.select(_sort_mode_index())
+	sort_option.item_selected.connect(_on_sort_mode_selected)
+	controls_row.add_child(sort_option)
+
 	var list_scroll := ScrollContainer.new()
 	list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	right.add_child(list_scroll)
 
 	var list_box := VBoxContainer.new()
-	list_box.add_theme_constant_override("separation", 6)
+	list_box.add_theme_constant_override("separation", 4)
 	list_scroll.add_child(list_box)
 	_build_map_list(list_box, world)
 
@@ -469,9 +490,16 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 	map_ids.sort_custom(func(a: String, b: String) -> bool:
 		return _map_sort_key(a, maps, current_links) < _map_sort_key(b, maps, current_links)
 	)
+	if _connected_only:
+		var filtered: Array[String] = []
+		for map_id in map_ids:
+			if map_id == current_map_id or current_links.has(map_id):
+				filtered.append(map_id)
+		map_ids = filtered
 
 	var summary := Label.new()
-	summary.text = "Current: " + short_id_fn.call(current_map_id) + " | Total maps: " + str(map_ids.size())
+	var connected_suffix: String = " (connected-only)" if _connected_only else ""
+	summary.text = "Current: " + short_id_fn.call(current_map_id) + " | Showing: " + str(map_ids.size()) + connected_suffix
 	summary.add_theme_font_size_override("font_size", 10)
 	summary.add_theme_color_override("font_color", Color(0.75, 0.82, 0.92))
 	parent.add_child(summary)
@@ -502,6 +530,7 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 			explored_added = true
 
 		var row := PanelContainer.new()
+		row.custom_minimum_size = Vector2(0.0, 38.0)
 		var row_style := StyleBoxFlat.new()
 		row_style.bg_color = Color(0.11, 0.14, 0.19, 0.92)
 		if is_current:
@@ -529,25 +558,25 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 
 		var margin := MarginContainer.new()
 		margin.add_theme_constant_override("margin_left", 6)
-		margin.add_theme_constant_override("margin_top", 4)
+		margin.add_theme_constant_override("margin_top", 3)
 		margin.add_theme_constant_override("margin_right", 6)
-		margin.add_theme_constant_override("margin_bottom", 4)
+		margin.add_theme_constant_override("margin_bottom", 3)
 		row.add_child(margin)
 
-		var content := VBoxContainer.new()
-		content.add_theme_constant_override("separation", 2)
-		margin.add_child(content)
-
 		var top_row := HBoxContainer.new()
-		top_row.add_theme_constant_override("separation", 6)
-		content.add_child(top_row)
+		top_row.add_theme_constant_override("separation", 4)
+		margin.add_child(top_row)
 
 		var info := Label.new()
 		var marker: String = " [current]" if is_current else (" [focused]" if is_focused else (" [linked]" if is_linked else ""))
-		info.text = _compact_label(_display_map_name(map_id, map_record), 24) + marker + " | " + map_type + " | " + completion_text_fn.call(discoveries.size(), available)
+		var linked_count: int = 0
+		for gate_key in gates.keys():
+			if str(gates[gate_key]) != "":
+				linked_count += 1
+		info.text = _compact_label(_display_map_name(map_id, map_record), 18) + marker + " | " + map_type + " | " + completion_text_fn.call(discoveries.size(), available) + " | g " + str(linked_count) + "/" + str(gate_count) + " | p " + str(pins.size())
 		info.autowrap_mode = TextServer.AUTOWRAP_OFF
 		info.clip_text = true
-		info.add_theme_font_size_override("font_size", 9)
+		info.add_theme_font_size_override("font_size", 10)
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		top_row.add_child(info)
 
@@ -557,28 +586,14 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 		var focus_btn := Button.new()
 		focus_btn.text = "Go"
 		focus_btn.disabled = is_focused
-		focus_btn.custom_minimum_size = Vector2(48, 0)
+		focus_btn.custom_minimum_size = Vector2(40, 0)
 		focus_btn.pressed.connect(_focus_map.bind(map_id))
 		actions.add_child(focus_btn)
 		var name_btn := Button.new()
-		name_btn.text = "Name"
-		name_btn.custom_minimum_size = Vector2(58, 0)
+		name_btn.text = "Nm"
+		name_btn.custom_minimum_size = Vector2(38, 0)
 		name_btn.pressed.connect(_prompt_rename_map.bind(map_id))
 		actions.add_child(name_btn)
-
-		var linked_targets: Array[String] = []
-		for gate_key in gates.keys():
-			var target: String = str(gates[gate_key])
-			if target != "":
-				linked_targets.append(short_id_fn.call(target))
-		if not linked_targets.is_empty():
-			var links := Label.new()
-			links.text = "Links: " + _compact_label(", ".join(linked_targets), 42)
-			links.autowrap_mode = TextServer.AUTOWRAP_OFF
-			links.clip_text = true
-			links.add_theme_font_size_override("font_size", 8)
-			links.add_theme_color_override("font_color", Color(0.72, 0.80, 0.92))
-			content.add_child(links)
 
 
 func _map_sort_key(map_id: String, maps: Dictionary, current_links: Dictionary) -> String:
@@ -586,7 +601,47 @@ func _map_sort_key(map_id: String, maps: Dictionary, current_links: Dictionary) 
 	var is_current: int = 0 if map_id == current_map_id else 1
 	var is_linked: int = 0 if current_links.has(map_id) else 1
 	var map_type: String = str(map_record.get("type", WorldGraph.MAP_NORMAL))
+	if _sort_mode == "completion":
+		var available: int = max(int(map_record.get("available_discoveries", 0)), 1)
+		var found: int = map_record.get("discoveries", {}).size()
+		var completion_rank: int = int(round(float(found) / float(available) * 1000.0))
+		return str(is_current) + "_" + str(is_linked) + "_" + str(9999 - completion_rank).pad_zeros(4) + "_" + map_id
+	if _sort_mode == "name":
+		var display_name: String = _display_map_name(map_id, map_record).to_lower()
+		return str(is_current) + "_" + str(is_linked) + "_" + display_name + "_" + map_id
 	return str(is_current) + "_" + str(is_linked) + "_" + map_type + "_" + map_id
+
+
+func _toggle_connected_only() -> void:
+	_connected_only = not _connected_only
+	show_atlas = true
+	refresh()
+	if is_instance_valid(atlas_layer):
+		atlas_layer.visible = true
+
+
+func _sort_mode_index() -> int:
+	match _sort_mode:
+		"completion":
+			return 1
+		"name":
+			return 2
+		_:
+			return 0
+
+
+func _on_sort_mode_selected(index: int) -> void:
+	match index:
+		1:
+			_sort_mode = "completion"
+		2:
+			_sort_mode = "name"
+		_:
+			_sort_mode = "route"
+	show_atlas = true
+	refresh()
+	if is_instance_valid(atlas_layer):
+		atlas_layer.visible = true
 
 
 func _add_map_section_header(parent: VBoxContainer, text: String) -> void:

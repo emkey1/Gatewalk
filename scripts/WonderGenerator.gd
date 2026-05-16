@@ -29,30 +29,76 @@ static func create_wonder(world_seed: int, map_position: Vector3, wonder_salt: i
 	var px: int = int(round(map_position.x))
 	var pz: int = int(round(map_position.z))
 	var key: int = _mix_seed(world_seed, px, pz, wonder_salt)
+	return create_wonder_from_seed(map_position, key, add_rough_collision)
+
+
+static func describe_wonder(world_seed: int, cell_x: int, cell_z: int, wonder_salt: int = 0) -> Dictionary:
+	var key: int = _mix_seed(world_seed, cell_x, cell_z, wonder_salt)
 	var rng := StableRng.new(key)
-	var archetypes: Array[String] = ["moon_gate", "crystal_spire", "runestone_circle", "floating_shrine", "gate_portal", "world_nexus"]
+	var archetypes: Array[String] = [
+		"moon_gate",
+		"crystal_spire",
+		"runestone_circle",
+		"floating_shrine",
+		"gate_portal",
+		"world_nexus",
+		"sun_dial",
+		"mirror_arch",
+	]
 	var archetype: String = str(rng.pick(archetypes))
+	var variant: int = int(abs(key) % 4)
+	return {
+		"seed": key,
+		"archetype": archetype,
+		"variant": variant,
+		"title": title_for_archetype(archetype, variant),
+	}
+
+
+static func create_wonder_from_seed(map_position: Vector3, wonder_seed: int, add_rough_collision: bool = false) -> Node3D:
+	var key: int = wonder_seed
+	var rng := StableRng.new(key)
+	var archetypes: Array[String] = [
+		"moon_gate",
+		"crystal_spire",
+		"runestone_circle",
+		"floating_shrine",
+		"gate_portal",
+		"world_nexus",
+		"sun_dial",
+		"mirror_arch",
+	]
+	var archetype: String = str(rng.pick(archetypes))
+	var variant: int = int(abs(key) % 4)
 	var palette: Dictionary = _pick_palette(rng)
 
 	var root := Node3D.new()
-	root.name = "Wonder_%s_%d_%d_%d" % [archetype, px, pz, wonder_salt]
+	root.name = "Wonder_%s_%d_v%d" % [archetype, key, variant]
 	root.position = map_position
+	root.set_meta("wonder_seed", key)
+	root.set_meta("wonder_archetype", archetype)
+	root.set_meta("wonder_variant", variant)
+	root.set_meta("wonder_title", title_for_archetype(archetype, variant))
 
 	match archetype:
 		"moon_gate":
-			_build_moon_gate(root, rng, palette)
+			_build_moon_gate(root, rng, palette, variant)
 		"crystal_spire":
-			_build_crystal_spire(root, rng, palette)
+			_build_crystal_spire(root, rng, palette, variant)
 		"runestone_circle":
-			_build_runestone_circle(root, rng, palette)
+			_build_runestone_circle(root, rng, palette, variant)
 		"floating_shrine":
-			_build_floating_shrine(root, rng, palette)
+			_build_floating_shrine(root, rng, palette, variant)
 		"gate_portal":
-			_build_gate_portal(root, rng, palette)
+			_build_gate_portal(root, rng, palette, variant)
 		"world_nexus":
-			_build_world_nexus(root, rng, palette)
+			_build_world_nexus(root, rng, palette, variant)
+		"sun_dial":
+			_build_sun_dial(root, rng, palette, variant)
+		"mirror_arch":
+			_build_mirror_arch(root, rng, palette, variant)
 		_:
-			_build_runestone_circle(root, rng, palette)
+			_build_runestone_circle(root, rng, palette, variant)
 
 	if add_rough_collision:
 		_add_auto_colliders(root)
@@ -60,11 +106,11 @@ static func create_wonder(world_seed: int, map_position: Vector3, wonder_salt: i
 	return root
 
 
-static func _build_moon_gate(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+static func _build_moon_gate(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
 	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
 	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 1.8)
 	var accent_mat: StandardMaterial3D = _mat(palette["accent"], palette["glow"], 0.4)
-	var radius: float = rng.randf_range(4.5, 6.5)
+	var radius: float = rng.randf_range(4.5, 6.5) + float(variant) * 0.35
 	var thickness: float = rng.randf_range(0.35, 0.75)
 
 	_add_mesh(root, "moon_gate_base", _cylinder(radius * 0.9, 0.65, 32), stone_mat, Vector3(0.0, 0.325, 0.0))
@@ -96,14 +142,14 @@ static func _build_moon_gate(root: Node3D, rng: StableRng, palette: Dictionary) 
 	_add_light(root, "moon_gate_light", palette["glow"], Vector3(0.0, radius + 0.6, 0.0), 2.6, radius * 4.0)
 
 
-static func _build_crystal_spire(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+static func _build_crystal_spire(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
 	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
 	var crystal_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 2.4)
 	var accent_mat: StandardMaterial3D = _mat(palette["accent"], palette["glow"], 0.7)
 	var base_radius: float = rng.randf_range(2.6, 4.0)
 	_add_mesh(root, "spire_base", _cylinder(base_radius, 0.8, 32), stone_mat, Vector3(0.0, 0.4, 0.0))
 
-	var spire_height: float = rng.randf_range(10.0, 17.0)
+	var spire_height: float = rng.randf_range(10.0, 17.0) + float(variant) * 1.6
 	var spire_radius: float = rng.randf_range(0.8, 1.5)
 	_add_mesh(root, "central_crystal_spire", _cylinder(spire_radius, spire_height, 7, 0.08), crystal_mat, Vector3(0.0, spire_height * 0.5 + 0.6, 0.0), Vector3(rng.randf_range(-3.0, 3.0), rng.randf_range(0.0, 360.0), rng.randf_range(-3.0, 3.0)))
 
@@ -125,11 +171,11 @@ static func _build_crystal_spire(root: Node3D, rng: StableRng, palette: Dictiona
 	_add_light(root, "spire_light", palette["glow"], Vector3(0.0, spire_height * 0.6, 0.0), 3.2, spire_height * 2.2)
 
 
-static func _build_runestone_circle(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+static func _build_runestone_circle(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
 	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
 	var rune_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 1.5)
 	var altar_mat: StandardMaterial3D = _mat(palette["accent"])
-	var count: int = rng.randi_range(7, 13)
+	var count: int = rng.randi_range(7, 13) + variant
 	var radius: float = rng.randf_range(5.0, 8.5)
 
 	for i in range(count):
@@ -152,14 +198,14 @@ static func _build_runestone_circle(root: Node3D, rng: StableRng, palette: Dicti
 	_add_light(root, "runestone_circle_light", palette["glow"], Vector3(0.0, 3.2, 0.0), 2.0, radius * 3.0)
 
 
-static func _build_floating_shrine(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+static func _build_floating_shrine(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
 	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
 	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 2.0)
 	var accent_mat: StandardMaterial3D = _mat(palette["accent"], palette["glow"], 0.5)
 	var base_radius: float = rng.randf_range(2.2, 3.5)
 	_add_mesh(root, "shrine_ground_base", _cylinder(base_radius, 0.7, 24), stone_mat, Vector3(0.0, 0.35, 0.0))
 
-	var platform_y: float = rng.randf_range(3.0, 4.8)
+	var platform_y: float = rng.randf_range(3.0, 4.8) + float(variant) * 0.35
 	_add_mesh(root, "floating_platform", _cylinder(rng.randf_range(1.8, 2.8), 0.45, 16), accent_mat, Vector3(0.0, platform_y, 0.0), Vector3(rng.randf_range(-2.0, 2.0), rng.randf_range(0.0, 360.0), rng.randf_range(-2.0, 2.0)))
 
 	var ring := TorusMesh.new()
@@ -236,14 +282,14 @@ static func _add_mesh(parent: Node3D, name: String, mesh: Mesh, material: Materi
 	return instance
 
 
-static func _build_gate_portal(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+static func _build_gate_portal(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
 	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
 	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 2.4)
 	var accent_mat: StandardMaterial3D = _mat(palette["accent"])
 
 	_add_mesh(root, "portal_base", _cylinder(3.5, 0.5, 24), stone_mat, Vector3(0.0, 0.25, 0.0))
 
-	var stone_count: int = rng.randi_range(8, 12)
+	var stone_count: int = rng.randi_range(8, 12) + min(variant, 2)
 	for i in range(stone_count):
 		var angle: float = TAU * float(i) / float(stone_count) + rng.randf_range(-0.06, 0.06)
 		var dist: float = 4.2
@@ -268,12 +314,12 @@ static func _build_gate_portal(root: Node3D, rng: StableRng, palette: Dictionary
 	_add_light(root, "portal_light", palette["glow"], Vector3(0.0, 2.8, 0.0), 3.5, 15.0)
 
 
-static func _build_world_nexus(root: Node3D, rng: StableRng, palette: Dictionary) -> void:
+static func _build_world_nexus(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
 	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
 	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 2.8)
 	var accent_mat: StandardMaterial3D = _mat(palette["accent"], palette["glow"], 0.6)
 
-	_add_mesh(root, "nexus_base", _cylinder(7.5, 0.8, 32), stone_mat, Vector3(0.0, 0.4, 0.0))
+	_add_mesh(root, "nexus_base", _cylinder(7.5 + float(variant) * 0.5, 0.8, 32), stone_mat, Vector3(0.0, 0.4, 0.0))
 
 	var bridge_mat: StandardMaterial3D = _mat(palette["stone"], palette["glow"], 0.25)
 	var bridge_count: int = 4
@@ -326,6 +372,61 @@ static func _build_world_nexus(root: Node3D, rng: StableRng, palette: Dictionary
 	var center := _sphere(0.5)
 	_add_mesh(root, "nexus_core", center, glow_mat, Vector3(0.0, 2.2, 0.0))
 	_add_light(root, "nexus_light", palette["glow"], Vector3(0.0, 2.5, 0.0), 4.0, 20.0)
+
+
+static func _build_sun_dial(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
+	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
+	var accent_mat: StandardMaterial3D = _mat(palette["accent"], palette["glow"], 0.45)
+	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 1.1)
+	var radius: float = 3.4 + float(variant) * 0.7
+	_add_mesh(root, "dial_base", _cylinder(radius, 0.55, 28), stone_mat, Vector3(0.0, 0.28, 0.0))
+	var needle_h: float = 3.4 + float(variant) * 0.8
+	_add_mesh(root, "dial_needle", _box(Vector3(0.35, needle_h, 0.35)), accent_mat, Vector3(0.0, needle_h * 0.5 + 0.3, 0.0), Vector3(18.0, rng.randf_range(0.0, 360.0), 0.0))
+	var mark_count: int = 8 + variant * 2
+	for i in range(mark_count):
+		var angle: float = TAU * float(i) / float(mark_count)
+		var p := Vector3(cos(angle) * (radius - 0.45), 0.62, sin(angle) * (radius - 0.45))
+		_add_mesh(root, "dial_mark_" + str(i), _box(Vector3(0.16, 0.2, 0.52)), glow_mat, p, Vector3(0.0, -rad_to_deg(angle), 0.0))
+
+
+static func _build_mirror_arch(root: Node3D, rng: StableRng, palette: Dictionary, variant: int = 0) -> void:
+	var stone_mat: StandardMaterial3D = _mat(palette["stone"])
+	var glow_mat: StandardMaterial3D = _mat(palette["glow"], palette["glow"], 1.9)
+	var mirror_mat: StandardMaterial3D = _mat(Color(0.70, 0.76, 0.86), palette["glow"], 0.25)
+	mirror_mat.metallic = 0.75
+	mirror_mat.roughness = 0.16
+	var width: float = 4.8 + float(variant) * 0.9
+	var height: float = 6.0 + float(variant) * 1.2
+	_add_mesh(root, "arch_left", _box(Vector3(0.9, height, 0.9)), stone_mat, Vector3(-width * 0.5, height * 0.5, 0.0))
+	_add_mesh(root, "arch_right", _box(Vector3(0.9, height, 0.9)), stone_mat, Vector3(width * 0.5, height * 0.5, 0.0))
+	_add_mesh(root, "arch_cap", _box(Vector3(width + 0.9, 0.9, 0.9)), stone_mat, Vector3(0.0, height + 0.45, 0.0))
+	_add_mesh(root, "mirror_plane", _box(Vector3(width - 0.9, height - 1.6, 0.12)), mirror_mat, Vector3(0.0, height * 0.55, -0.12))
+	var shard_count: int = 4 + variant
+	for i in range(shard_count):
+		var angle: float = TAU * float(i) / float(shard_count)
+		_add_mesh(root, "arch_shard_" + str(i), _box(Vector3(0.18, 0.55, 0.12)), glow_mat, Vector3(cos(angle) * (width * 0.35), height * 0.45 + sin(angle) * 0.8, 0.35))
+
+
+static func title_for_archetype(archetype: String, variant: int = 0) -> String:
+	var suffix: String = " Mk " + str(variant + 1)
+	match archetype:
+		"moon_gate":
+			return "Moon Gate" + suffix
+		"crystal_spire":
+			return "Crystal Spire" + suffix
+		"runestone_circle":
+			return "Runestone Circle" + suffix
+		"floating_shrine":
+			return "Floating Shrine" + suffix
+		"gate_portal":
+			return "Gate Portal" + suffix
+		"world_nexus":
+			return "World Nexus" + suffix
+		"sun_dial":
+			return "Sun Dial" + suffix
+		"mirror_arch":
+			return "Mirror Arch" + suffix
+	return "Uncatalogued Wonder" + suffix
 
 
 static func _add_light(parent: Node3D, name: String, color: Color, position: Vector3, energy: float, radius: float) -> OmniLight3D:
