@@ -3,6 +3,7 @@ class_name GateTravelService
 
 const StableRng = preload("res://scripts/core/StableRng.gd")
 const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
+const MAX_ROUTE_MAPS: int = 32
 
 
 static func resolve_gate_transition(
@@ -30,10 +31,6 @@ static func resolve_gate_transition(
 	var gate_rng := StableRng.new(StableRng.mix_string(world_seed, "gate_" + str(gate_index)))
 	var changed: bool = false
 	var is_water_route: bool = false
-
-	var all_current_map_ids: Array = maps.keys()
-	var available: int = int(map_record.get("available_discoveries", 0))
-	var discoveries: Dictionary = map_record.get("discoveries", {})
 
 	# Heal stale/corrupt gate links from older saves or interrupted generation:
 	# if the gate points at a map id that no longer exists, treat it as uninitialized.
@@ -63,7 +60,23 @@ static func resolve_gate_transition(
 			is_cave_route = gate_rng.chance(cave_route_chance)
 			if is_cave_route:
 				target_type = WorldGraph.MAP_CAVE
-		if not from_cave and not is_cave_route and not is_arctic_route and not is_water_route and all_current_map_ids.size() >= 32 and available > 0 and discoveries.size() < available:
+		if _is_route_map_type(target_type) and _route_map_count(maps) >= MAX_ROUTE_MAPS:
+			var reroute_id: String = _pick_existing_route_target(current_map_id, maps, gate_rng)
+			if reroute_id != "":
+				target_map_id = reroute_id
+				gates[str(gate_index)] = target_map_id
+				map_record["gates"] = gates
+				maps[current_map_id] = map_record
+				world["maps"] = maps
+				changed = true
+				return {
+					"ok": true,
+					"inert": false,
+					"changed": changed,
+					"target_map_id": target_map_id,
+					"is_water_route": is_water_route,
+					"world": world,
+				}
 			return {
 				"ok": true,
 				"inert": true,
@@ -89,9 +102,11 @@ static func resolve_gate_transition(
 	# A gate that resolves to the same map appears "dead" to players.
 	# Repair by regenerating a fresh target map link.
 	if target_map_id == current_map_id:
-		var replacement_seed: int = _preview_gate_seed(world_seed, gate_index)
-		var replacement_map_id: String = str(new_map_id_fn.call("map"))
-		maps[replacement_map_id] = WorldGraph.create_map_record(replacement_seed, WorldGraph.MAP_NORMAL).to_dict()
+		var replacement_map_id: String = _pick_existing_route_target(current_map_id, maps, gate_rng)
+		if replacement_map_id == "":
+			var replacement_seed: int = _preview_gate_seed(world_seed, gate_index)
+			replacement_map_id = str(new_map_id_fn.call("map"))
+			maps[replacement_map_id] = WorldGraph.create_map_record(replacement_seed, WorldGraph.MAP_NORMAL).to_dict()
 		gates[str(gate_index)] = replacement_map_id
 		map_record["gates"] = gates
 		maps[current_map_id] = map_record
@@ -266,3 +281,38 @@ static func _preview_gate_seed(world_seed: int, gate_index: int) -> int:
 	if value == 0:
 		value = 12345 + gate_index
 	return value
+
+
+static func _is_route_map_type(map_type: String) -> bool:
+	return map_type == WorldGraph.MAP_NORMAL or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC or map_type == WorldGraph.MAP_CAVE
+
+
+static func _route_map_count(maps: Dictionary) -> int:
+	var count: int = 0
+	for map_id in maps.keys():
+		var raw = maps[map_id]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var t: String = str(raw.get("type", WorldGraph.MAP_NORMAL))
+		if _is_route_map_type(t):
+			count += 1
+	return count
+
+
+static func _pick_existing_route_target(current_map_id: String, maps: Dictionary, gate_rng: StableRng) -> String:
+	var candidates: Array[String] = []
+	for map_id in maps.keys():
+		var mid: String = str(map_id)
+		if mid == current_map_id:
+			continue
+		var raw = maps[mid]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var t: String = str(raw.get("type", WorldGraph.MAP_NORMAL))
+		if _is_route_map_type(t):
+			candidates.append(mid)
+	if candidates.is_empty():
+		return ""
+	candidates.sort()
+	var idx: int = gate_rng.randi_range(0, candidates.size() - 1)
+	return candidates[idx]

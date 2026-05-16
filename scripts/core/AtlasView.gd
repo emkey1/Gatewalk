@@ -6,6 +6,7 @@ var show_atlas: bool = false
 
 var get_worlds_fn: Callable
 var get_world_fn: Callable
+var get_current_universe_fn: Callable
 var seed_color_fn: Callable
 var short_id_fn: Callable
 var completion_text_fn: Callable
@@ -174,15 +175,17 @@ func refresh() -> void:
 	var world_info := Label.new()
 	var world: Dictionary = get_world_fn.call(current_world_id)
 	var maps: Dictionary = world.get("maps", {})
-	var map_count: int = maps.size()
+	var known_map_ids: Dictionary = _known_map_ids(world)
+	var map_count: int = known_map_ids.size()
 	var linked_gates: int = 0
-	for map_key in maps.keys():
-		var raw = maps[map_key]
+	for map_key in known_map_ids.keys():
+		var raw = maps.get(map_key, {})
 		if typeof(raw) != TYPE_DICTIONARY:
 			continue
 		var gates: Dictionary = raw.get("gates", {})
 		for gate_key in gates.keys():
-			if str(gates[gate_key]) != "":
+			var target_id: String = str(gates[gate_key])
+			if target_id != "" and known_map_ids.has(target_id):
 				linked_gates += 1
 	world_info.text = "Atlas: " + str(world.get("name", current_world_id)) + " | maps " + str(map_count) + " | linked gates " + str(linked_gates)
 	world_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -311,11 +314,14 @@ func _build_graph_3d(root: Node3D) -> void:
 		return
 
 	var maps: Dictionary = world.get("maps", {})
+	var known_map_ids: Dictionary = _known_map_ids(world)
 	if maps.is_empty():
 		return
 
 	var map_ids: Array[String] = []
 	for map_key in maps.keys():
+		if not known_map_ids.has(str(map_key)):
+			continue
 		var raw = maps[map_key]
 		if typeof(raw) != TYPE_DICTIONARY:
 			continue
@@ -344,6 +350,8 @@ func _build_graph_3d(root: Node3D) -> void:
 		for gate_key in gates.keys():
 			var gate_index: int = int(str(gate_key))
 			var target_id: String = str(gates[gate_key])
+			if not known_map_ids.has(target_id):
+				continue
 			if not positions.has(target_id):
 				continue
 			var link_key: String = map_id + ":" + str(gate_index) + "->" + target_id
@@ -475,18 +483,22 @@ func _atlas_layout_point(index: int, count: int) -> Vector3:
 
 func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 	var maps: Dictionary = world.get("maps", {})
+	var known_map_ids: Dictionary = _known_map_ids(world)
 	var map_ids: Array[String] = []
 	var current_links: Dictionary = {}
-	var current_map_record: Dictionary = maps.get(current_map_id, {}) if maps.has(current_map_id) else {}
+	var current_map_record: Dictionary = maps.get(current_map_id, {}) if maps.has(current_map_id) and known_map_ids.has(current_map_id) else {}
 	if not current_map_record.is_empty():
 		var current_gates: Dictionary = current_map_record.get("gates", {})
 		for gate_key in current_gates.keys():
 			var target_id: String = str(current_gates[gate_key])
-			if target_id != "":
+			if target_id != "" and known_map_ids.has(target_id):
 				current_links[target_id] = true
 	for map_key in maps.keys():
+		var map_id: String = str(map_key)
+		if not known_map_ids.has(map_id):
+			continue
 		if typeof(maps[map_key]) == TYPE_DICTIONARY:
-			map_ids.append(str(map_key))
+			map_ids.append(map_id)
 	map_ids.sort_custom(func(a: String, b: String) -> bool:
 		return _map_sort_key(a, maps, current_links) < _map_sort_key(b, maps, current_links)
 	)
@@ -571,7 +583,8 @@ func _build_map_list(parent: VBoxContainer, world: Dictionary) -> void:
 		var marker: String = " [current]" if is_current else (" [focused]" if is_focused else (" [linked]" if is_linked else ""))
 		var linked_count: int = 0
 		for gate_key in gates.keys():
-			if str(gates[gate_key]) != "":
+			var target_id: String = str(gates[gate_key])
+			if target_id != "" and known_map_ids.has(target_id):
 				linked_count += 1
 		info.text = _compact_label(_display_map_name(map_id, map_record), 18) + marker + " | " + map_type + " | " + completion_text_fn.call(discoveries.size(), available) + " | g " + str(linked_count) + "/" + str(gate_count) + " | p " + str(pins.size())
 		info.autowrap_mode = TextServer.AUTOWRAP_OFF
@@ -847,11 +860,33 @@ func _map_node_color(map_type: String, is_current: bool) -> Color:
 func _gate_color(map_record: Dictionary, maps: Dictionary, gate_index: int) -> Color:
 	var gates: Dictionary = map_record.get("gates", {})
 	var target_id: String = str(gates.get(str(gate_index), ""))
-	if target_id != "" and maps.has(target_id):
+	var world: Dictionary = get_world_fn.call(current_world_id)
+	var known_map_ids: Dictionary = _known_map_ids(world)
+	if target_id != "" and known_map_ids.has(target_id) and maps.has(target_id):
 		var raw = maps[target_id]
 		if typeof(raw) == TYPE_DICTIONARY:
 			return seed_color_fn.call(int(raw.get("seed", 0)))
 	return Color(0.25, 0.28, 0.32)
+
+
+func _known_map_ids(world: Dictionary) -> Dictionary:
+	var known: Dictionary = {}
+	var maps: Dictionary = world.get("maps", {})
+	if maps.is_empty():
+		return known
+	if get_current_universe_fn.is_valid():
+		var universe: Dictionary = get_current_universe_fn.call()
+		var visited: Array = universe.get("maps_visited", [])
+		for raw_id in visited:
+			var map_id: String = str(raw_id)
+			if maps.has(map_id):
+				known[map_id] = true
+	var root_map_id: String = str(world.get("root_map", ""))
+	if root_map_id != "" and maps.has(root_map_id):
+		known[root_map_id] = true
+	if current_map_id != "" and maps.has(current_map_id):
+		known[current_map_id] = true
+	return known
 
 
 func _add_link(root: Node3D, start_pos: Vector3, end_pos: Vector3, color: Color) -> void:

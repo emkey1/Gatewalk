@@ -151,6 +151,7 @@ func _ready() -> void:
 	atlas_view.name = "AtlasView"
 	atlas_view.get_worlds_fn = _get_worlds
 	atlas_view.get_world_fn = _get_world
+	atlas_view.get_current_universe_fn = _current_universe
 	atlas_view.seed_color_fn = _seed_color
 	atlas_view.short_id_fn = _short_id
 	atlas_view.completion_text_fn = _completion_text
@@ -983,7 +984,8 @@ func _create_world_in_current_universe(world_name: String, seed_label: String = 
 	var world_id: String = _new_id("world")
 	var root_map_id: String = _new_id("map")
 	var label: String = seed_label if seed_label != "" else world_id
-	var world_record: Dictionary = _create_world_record(world_name, root_map_id, _seed_for_new_record(label)).to_dict()
+	var world_seed_value: int = _seed_for_new_record(label)
+	var world_record: Dictionary = _create_precomputed_world_record(world_name, world_id, root_map_id, world_seed_value)
 	var worlds: Dictionary = _get_worlds()
 	worlds[world_id] = world_record
 	_set_worlds(worlds)
@@ -1011,7 +1013,7 @@ func _create_universe_with_default_world(universe_name: String, default_world_na
 	var default_world_id: String = _new_id("world")
 	var root_map_id: String = _new_id("map")
 	var world_seed: int = _seed_for_new_record(default_world_id)
-	var world_record: Dictionary = _create_world_record(default_world_name, root_map_id, world_seed).to_dict()
+	var world_record: Dictionary = _create_precomputed_world_record(default_world_name, default_world_id, root_map_id, world_seed)
 	var worlds: Dictionary = {}
 	worlds[default_world_id] = world_record
 	universe["worlds"] = worlds
@@ -2081,7 +2083,63 @@ func _create_world_record(world_name: String, root_map_id: String, map_seed: int
 
 
 func _create_world_record_dict(world_name: String, root_map_id: String, map_seed: int) -> Dictionary:
-	return _create_world_record(world_name, root_map_id, map_seed).to_dict()
+	return _create_precomputed_world_record(world_name, root_map_id, root_map_id, map_seed)
+
+
+func _create_precomputed_world_record(world_name: String, world_id: String, root_map_id: String, map_seed: int) -> Dictionary:
+	var world_record: Dictionary = _create_world_record(world_name, root_map_id, map_seed).to_dict()
+	var map_ids: Array[String] = [root_map_id]
+	var route_map_count: int = GateTravelService.MAX_ROUTE_MAPS
+	for i in range(1, route_map_count):
+		map_ids.append(_new_id("map"))
+
+	var route_rng := StableRng.new(StableRng.mix_string(StableRng.mix_string(map_seed, "route_types"), world_id))
+	var maps: Dictionary = {}
+	for i in range(map_ids.size()):
+		var map_id: String = map_ids[i]
+		if i == 0:
+			maps[map_id] = _create_map_record(map_seed).to_dict()
+			continue
+		var branch_roll: float = route_rng.randf()
+		var map_type: String = WorldGraph.MAP_NORMAL
+		if branch_roll < WATER_ROUTE_CHANCE:
+			map_type = WorldGraph.MAP_WATER
+		elif branch_roll < WATER_ROUTE_CHANCE + 0.10:
+			map_type = WorldGraph.MAP_ARCTIC
+		elif branch_roll < WATER_ROUTE_CHANCE + 0.10 + 0.18:
+			map_type = WorldGraph.MAP_CAVE
+		var local_seed: int = int((StableRng.mix_string(map_seed, "route_map_seed", i) & 0x7fffffff))
+		if local_seed == 0:
+			local_seed = map_seed + i + 1
+		maps[map_id] = WorldGraph.create_map_record(local_seed, map_type).to_dict()
+
+	var layout: Array[String] = map_ids.duplicate()
+	var layout_rng := StableRng.new(StableRng.mix_string(StableRng.mix_string(map_seed, "route_layout"), world_id))
+	for i in range(layout.size() - 1, 0, -1):
+		var j: int = layout_rng.randi_range(0, i)
+		var tmp: String = layout[i]
+		layout[i] = layout[j]
+		layout[j] = tmp
+
+	var n: int = layout.size()
+	var step: int = 7
+	if n > 4:
+		step = int(max(2, int(n / 4) - 1))
+	for i in range(n):
+		var current_id: String = layout[i]
+		var current_record: Dictionary = maps.get(current_id, {})
+		var gates: Dictionary = current_record.get("gates", {})
+		gates["0"] = layout[(i + 1) % n]
+		gates["1"] = layout[(i - 1 + n) % n]
+		gates["2"] = layout[(i + step) % n]
+		gates["3"] = layout[(i - step + n) % n]
+		current_record["gates"] = gates
+		maps[current_id] = current_record
+
+	world_record["maps"] = maps
+	world_record["root_map"] = root_map_id
+	world_record["current_map"] = root_map_id
+	return world_record
 
 
 func _new_id(prefix: String) -> String:
