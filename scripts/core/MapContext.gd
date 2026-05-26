@@ -92,25 +92,42 @@ func height_at_world(wx: float, wz: float) -> float:
 		return islands + detail_islands - 7.0
 
 	if map_type == WorldGraph.MAP_FLOATING_ISLAND:
+		var half_extent: float = world_half_size() * 0.92
 		var best_height: float = water_level - 34.0
-		for i in range(7):
-			var angle: float = TAU * float(i) / 7.0 + noise.get_noise_2d(float(i) * 17.0 + 400.0, float(i) * 9.0 - 120.0) * 0.55
-			var dist: float = 42.0 + noise.get_noise_2d(float(i) * 23.0 + 1000.0, float(i) * 13.0 - 700.0) * 18.0
+		for i in range(18):
+			var angle: float = TAU * float(i) / 18.0 + noise.get_noise_2d(float(i) * 17.0 + 400.0, float(i) * 9.0 - 120.0) * 0.45
+			var dist: float = half_extent * 0.78 + noise.get_noise_2d(float(i) * 23.0 + 1000.0, float(i) * 13.0 - 700.0) * (half_extent * 0.22)
+			dist = clamp(dist, half_extent * 0.45, half_extent)
 			var cx: float = cos(angle) * dist
 			var cz: float = sin(angle) * dist
-			var radius: float = 17.0 + noise.get_noise_2d(float(i) * 19.0 + 300.0, float(i) * 31.0 - 800.0) * 4.5
-			var top_y: float = 26.0 + noise.get_noise_2d(float(i) * 27.0 + 1400.0, float(i) * 21.0 - 900.0) * 6.0
+			var radius: float = 21.0 + noise.get_noise_2d(float(i) * 19.0 + 300.0, float(i) * 31.0 - 800.0) * 5.2
+			var top_y: float = 25.0 + noise.get_noise_2d(float(i) * 27.0 + 1400.0, float(i) * 21.0 - 900.0) * 8.0
 			var d: float = Vector2(wx - cx, wz - cz).length()
 			if d > radius:
 				continue
 			var rim: float = 1.0 - (d / radius)
-			var island_y: float = top_y - (1.0 - rim) * 2.8 + noise.get_noise_2d(wx * 0.35 + float(i) * 71.0, wz * 0.35 - float(i) * 43.0) * 0.9
+			var island_y: float = top_y - (1.0 - rim) * 2.2 + noise.get_noise_2d(wx * 0.35 + float(i) * 71.0, wz * 0.35 - float(i) * 43.0) * 0.6
 			if island_y > best_height:
 				best_height = island_y
+		for i in range(12):
+			var angle_low: float = TAU * float(i) / 12.0 + 0.35 + noise.get_noise_2d(float(i) * 29.0 + 1800.0, float(i) * 17.0 - 500.0) * 0.5
+			var dist_low: float = half_extent * 0.62 + noise.get_noise_2d(float(i) * 31.0 + 900.0, float(i) * 7.0 - 1400.0) * (half_extent * 0.26)
+			dist_low = clamp(dist_low, half_extent * 0.28, half_extent * 0.92)
+			var cx_low: float = cos(angle_low) * dist_low
+			var cz_low: float = sin(angle_low) * dist_low
+			var radius_low: float = 13.5 + noise.get_noise_2d(float(i) * 13.0 + 500.0, float(i) * 41.0 + 1100.0) * 3.6
+			var top_y_low: float = 4.0 + noise.get_noise_2d(float(i) * 21.0 + 2000.0, float(i) * 15.0 - 600.0) * 3.5
+			var d_low: float = Vector2(wx - cx_low, wz - cz_low).length()
+			if d_low > radius_low:
+				continue
+			var rim_low: float = 1.0 - (d_low / radius_low)
+			var island_low_y: float = top_y_low - (1.0 - rim_low) * 1.8 + noise.get_noise_2d(wx * 0.42 + float(i) * 53.0, wz * 0.42 - float(i) * 37.0) * 0.45
+			if island_low_y > best_height:
+				best_height = island_low_y
 		var center_d: float = Vector2(wx, wz).length()
-		if center_d <= 20.0:
-			var center_rim: float = 1.0 - (center_d / 20.0)
-			best_height = max(best_height, 23.5 - (1.0 - center_rim) * 2.2 + noise.get_noise_2d(wx * 0.30 + 2200.0, wz * 0.30 - 1700.0) * 0.8)
+		if center_d <= 22.0:
+			var center_rim: float = 1.0 - (center_d / 22.0)
+			best_height = max(best_height, 19.0 - (1.0 - center_rim) * 2.0 + noise.get_noise_2d(wx * 0.30 + 2200.0, wz * 0.30 - 1700.0) * 0.55)
 		return best_height
 
 	var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * height_scale

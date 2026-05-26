@@ -18,13 +18,14 @@ static func scatter_rocks(parent: Node3D, world_seed: int, density_level: int, c
 		parent,
 		world_seed,
 		density_level,
+		context.map_type,
 		context.water_level,
 		Callable(context, "height_at_world"),
 		context.world_half_size() * 0.88
 	)
 
 
-static func _scatter_rocks_internal(parent: Node3D, world_seed: int, density_level: int, water_level: float, height_fn: Callable, half: float) -> void:
+static func _scatter_rocks_internal(parent: Node3D, world_seed: int, density_level: int, map_type: String, water_level: float, height_fn: Callable, half: float) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "rocks"))
 	var dmult: float = _density_mult(density_level)
 	var count: int = int(float(ROCK_COUNT_BASE) * dmult)
@@ -37,6 +38,8 @@ static func _scatter_rocks_internal(parent: Node3D, world_seed: int, density_lev
 	var rrings: int = [6, 10, 16][clampi(density_level, 0, 2)]
 	for i in range(count):
 		var pos: Vector3 = _random_land_position(rng, half, water_level, height_fn)
+		if map_type == "floating_island" and not _is_floating_spot_valid(pos, water_level, height_fn, 2.2):
+			continue
 		if pos.distance_to(Vector3.ZERO) < 6.0:
 			continue
 
@@ -79,6 +82,24 @@ static func _random_land_position(rng: StableRng, half: float, water_level: floa
 	var x: float = rng.randf_range(-half, half)
 	var z: float = rng.randf_range(-half, half)
 	return Vector3(x, height_fn.call(x, z), z)
+
+
+static func _is_floating_spot_valid(pos: Vector3, water_level: float, height_fn: Callable, sample_radius: float) -> bool:
+	if pos.y < water_level + 0.35:
+		return false
+	var sample_offsets: Array[Vector2] = [
+		Vector2(sample_radius, 0.0), Vector2(-sample_radius, 0.0),
+		Vector2(0.0, sample_radius), Vector2(0.0, -sample_radius)
+	]
+	var min_h: float = pos.y
+	var max_h: float = pos.y
+	for off in sample_offsets:
+		var sy: float = float(height_fn.call(pos.x + off.x, pos.z + off.y))
+		if sy < water_level + 0.2:
+			return false
+		min_h = min(min_h, sy)
+		max_h = max(max_h, sy)
+	return (max_h - min_h) <= 1.6
 
 
 static func _qf(value: float) -> float:

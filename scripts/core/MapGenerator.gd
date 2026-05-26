@@ -1211,20 +1211,30 @@ func _create_map_nexus_terrain() -> void:
 
 
 func _create_floating_island_terrain() -> void:
+	var half_extent: float = _world_half_size() * 0.92
 	var stone_mat := StandardMaterial3D.new()
 	stone_mat.albedo_color = Color(0.34, 0.38, 0.44)
 	stone_mat.roughness = 0.86
 	var grass_mat := StandardMaterial3D.new()
 	grass_mat.albedo_color = Color(0.32, 0.62, 0.34)
 	grass_mat.roughness = 0.78
+	var waterfall_mat := StandardMaterial3D.new()
+	waterfall_mat.albedo_color = Color(0.55, 0.82, 0.98, 0.52)
+	waterfall_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	waterfall_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	waterfall_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	waterfall_mat.emission_enabled = true
+	waterfall_mat.emission = Color(0.40, 0.72, 0.95)
+	waterfall_mat.emission_energy_multiplier = 0.65
 
-	for i in range(7):
-		var angle: float = TAU * float(i) / 7.0 + noise.get_noise_2d(float(i) * 17.0 + 400.0, float(i) * 9.0 - 120.0) * 0.55
-		var dist: float = 42.0 + noise.get_noise_2d(float(i) * 23.0 + 1000.0, float(i) * 13.0 - 700.0) * 18.0
+	for i in range(18):
+		var angle: float = TAU * float(i) / 18.0 + noise.get_noise_2d(float(i) * 17.0 + 400.0, float(i) * 9.0 - 120.0) * 0.45
+		var dist: float = half_extent * 0.78 + noise.get_noise_2d(float(i) * 23.0 + 1000.0, float(i) * 13.0 - 700.0) * (half_extent * 0.22)
+		dist = clamp(dist, half_extent * 0.45, half_extent)
 		var cx: float = cos(angle) * dist
 		var cz: float = sin(angle) * dist
-		var radius: float = 17.0 + noise.get_noise_2d(float(i) * 19.0 + 300.0, float(i) * 31.0 - 800.0) * 4.5
-		var top_y: float = 26.0 + noise.get_noise_2d(float(i) * 27.0 + 1400.0, float(i) * 21.0 - 900.0) * 6.0
+		var radius: float = 21.0 + noise.get_noise_2d(float(i) * 19.0 + 300.0, float(i) * 31.0 - 800.0) * 5.2
+		var top_y: float = 25.0 + noise.get_noise_2d(float(i) * 27.0 + 1400.0, float(i) * 21.0 - 900.0) * 8.0
 
 		var top := MeshInstance3D.new()
 		top.name = "FloatingIslandTop_" + str(i)
@@ -1242,12 +1252,12 @@ func _create_floating_island_terrain() -> void:
 		under.name = "FloatingIslandUnder_" + str(i)
 		var under_mesh := CylinderMesh.new()
 		under_mesh.top_radius = radius * 0.90
-		under_mesh.bottom_radius = max(radius * 0.22, 2.5)
-		under_mesh.height = 18.0
+		under_mesh.bottom_radius = max(radius * 0.24, 3.0)
+		under_mesh.height = 16.0
 		under_mesh.radial_segments = 24
 		under.mesh = under_mesh
 		under.material_override = stone_mat
-		under.position = Vector3(cx, top_y - 10.0, cz)
+		under.position = Vector3(cx, top_y - 9.0, cz)
 		generated_root.add_child(under)
 
 		var body := StaticBody3D.new()
@@ -1265,36 +1275,104 @@ func _create_floating_island_terrain() -> void:
 
 		var under_col := CollisionShape3D.new()
 		var under_shape := CylinderShape3D.new()
-		under_shape.radius = radius * 0.60
-		under_shape.height = 14.0
+		under_shape.radius = radius * 0.62
+		under_shape.height = 12.0
 		under_col.shape = under_shape
-		under_col.position = Vector3(cx, top_y - 9.0, cz)
+		under_col.position = Vector3(cx, top_y - 8.4, cz)
 		body.add_child(under_col)
 
 		generated_root.add_child(body)
 
+		if i < 3 or noise.get_noise_2d(float(i) * 37.0 + 2200.0, float(i) * 13.0 - 1700.0) > 0.15:
+			var fall_angle: float = angle + noise.get_noise_2d(float(i) * 11.0 + 800.0, float(i) * 5.0 + 1400.0) * 0.6
+			var fx: float = cx + cos(fall_angle) * (radius * 0.82)
+			var fz: float = cz + sin(fall_angle) * (radius * 0.82)
+			var fall_height: float = 16.0 + max(0.0, noise.get_noise_2d(float(i) * 17.0 + 600.0, float(i) * 29.0 + 400.0)) * 10.0
+			var waterfall := MeshInstance3D.new()
+			waterfall.name = "FloatingWaterfall_" + str(i)
+			var fall_mesh := PlaneMesh.new()
+			fall_mesh.size = Vector2(max(2.8, radius * 0.18), fall_height)
+			waterfall.mesh = fall_mesh
+			waterfall.material_override = waterfall_mat
+			waterfall.position = Vector3(fx, top_y - fall_height * 0.5 - 0.1, fz)
+			waterfall.rotation_degrees = Vector3(0.0, -rad_to_deg(fall_angle), 0.0)
+			generated_root.add_child(waterfall)
+
+	for i in range(12):
+		var angle_low: float = TAU * float(i) / 12.0 + 0.35 + noise.get_noise_2d(float(i) * 29.0 + 1800.0, float(i) * 17.0 - 500.0) * 0.5
+		var dist_low: float = half_extent * 0.62 + noise.get_noise_2d(float(i) * 31.0 + 900.0, float(i) * 7.0 - 1400.0) * (half_extent * 0.26)
+		dist_low = clamp(dist_low, half_extent * 0.28, half_extent * 0.92)
+		var cx_low: float = cos(angle_low) * dist_low
+		var cz_low: float = sin(angle_low) * dist_low
+		var radius_low: float = 13.5 + noise.get_noise_2d(float(i) * 13.0 + 500.0, float(i) * 41.0 + 1100.0) * 3.6
+		var top_y_low: float = 4.0 + noise.get_noise_2d(float(i) * 21.0 + 2000.0, float(i) * 15.0 - 600.0) * 3.5
+
+		var top_low := MeshInstance3D.new()
+		top_low.name = "FloatingIslandTop_Low_" + str(i)
+		var top_low_mesh := CylinderMesh.new()
+		top_low_mesh.top_radius = radius_low
+		top_low_mesh.bottom_radius = radius_low * 0.92
+		top_low_mesh.height = 1.8
+		top_low_mesh.radial_segments = 24
+		top_low.mesh = top_low_mesh
+		top_low.material_override = grass_mat
+		top_low.position = Vector3(cx_low, top_y_low - 0.9, cz_low)
+		generated_root.add_child(top_low)
+
+		var under_low := MeshInstance3D.new()
+		under_low.name = "FloatingIslandUnder_Low_" + str(i)
+		var under_low_mesh := CylinderMesh.new()
+		under_low_mesh.top_radius = radius_low * 0.90
+		under_low_mesh.bottom_radius = max(radius_low * 0.30, 2.8)
+		under_low_mesh.height = 9.0
+		under_low_mesh.radial_segments = 20
+		under_low.mesh = under_low_mesh
+		under_low.material_override = stone_mat
+		under_low.position = Vector3(cx_low, top_y_low - 5.2, cz_low)
+		generated_root.add_child(under_low)
+
+		var body_low := StaticBody3D.new()
+		body_low.name = "FloatingIslandBody_Low_" + str(i)
+		body_low.collision_layer = 1
+		body_low.collision_mask = 1
+		var top_low_col := CollisionShape3D.new()
+		var top_low_shape := CylinderShape3D.new()
+		top_low_shape.radius = radius_low
+		top_low_shape.height = 1.8
+		top_low_col.shape = top_low_shape
+		top_low_col.position = Vector3(cx_low, top_y_low - 0.9, cz_low)
+		body_low.add_child(top_low_col)
+		var under_low_col := CollisionShape3D.new()
+		var under_low_shape := CylinderShape3D.new()
+		under_low_shape.radius = radius_low * 0.58
+		under_low_shape.height = 7.4
+		under_low_col.shape = under_low_shape
+		under_low_col.position = Vector3(cx_low, top_y_low - 4.7, cz_low)
+		body_low.add_child(under_low_col)
+		generated_root.add_child(body_low)
+
 	var center_top := MeshInstance3D.new()
 	center_top.name = "FloatingIslandTop_Center"
 	var center_top_mesh := CylinderMesh.new()
-	center_top_mesh.top_radius = 20.0
-	center_top_mesh.bottom_radius = 18.5
+	center_top_mesh.top_radius = 22.0
+	center_top_mesh.bottom_radius = 20.4
 	center_top_mesh.height = 2.2
 	center_top_mesh.radial_segments = 30
 	center_top.mesh = center_top_mesh
 	center_top.material_override = grass_mat
-	center_top.position = Vector3(0.0, 22.4, 0.0)
+	center_top.position = Vector3(0.0, 18.6, 0.0)
 	generated_root.add_child(center_top)
 
 	var center_under := MeshInstance3D.new()
 	center_under.name = "FloatingIslandUnder_Center"
 	var center_under_mesh := CylinderMesh.new()
-	center_under_mesh.top_radius = 18.0
-	center_under_mesh.bottom_radius = 4.2
-	center_under_mesh.height = 16.0
+	center_under_mesh.top_radius = 19.8
+	center_under_mesh.bottom_radius = 3.8
+	center_under_mesh.height = 13.0
 	center_under_mesh.radial_segments = 26
 	center_under.mesh = center_under_mesh
 	center_under.material_override = stone_mat
-	center_under.position = Vector3(0.0, 13.0, 0.0)
+	center_under.position = Vector3(0.0, 11.3, 0.0)
 	generated_root.add_child(center_under)
 
 	var center_body := StaticBody3D.new()
@@ -1303,16 +1381,16 @@ func _create_floating_island_terrain() -> void:
 	center_body.collision_mask = 1
 	var center_top_col := CollisionShape3D.new()
 	var center_top_shape := CylinderShape3D.new()
-	center_top_shape.radius = 20.0
+	center_top_shape.radius = 22.0
 	center_top_shape.height = 2.2
 	center_top_col.shape = center_top_shape
-	center_top_col.position = Vector3(0.0, 22.4, 0.0)
+	center_top_col.position = Vector3(0.0, 18.6, 0.0)
 	center_body.add_child(center_top_col)
 	var center_under_col := CollisionShape3D.new()
 	var center_under_shape := CylinderShape3D.new()
-	center_under_shape.radius = 11.0
-	center_under_shape.height = 12.0
+	center_under_shape.radius = 11.4
+	center_under_shape.height = 9.0
 	center_under_col.shape = center_under_shape
-	center_under_col.position = Vector3(0.0, 13.0, 0.0)
+	center_under_col.position = Vector3(0.0, 11.3, 0.0)
 	center_body.add_child(center_under_col)
 	generated_root.add_child(center_body)

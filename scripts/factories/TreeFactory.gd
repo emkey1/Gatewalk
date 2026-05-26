@@ -41,6 +41,8 @@ static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_lev
 	var leaf_rings: int = [6, 10, 16, 24][clampi(graphics_level, 0, 3)]
 	for i in range(count):
 		var pos: Vector3 = _random_land_position(rng, half, water_level, height_fn)
+		if map_type == "floating_island" and not _is_floating_tree_spot_valid(pos, water_level, height_fn):
+			continue
 		if pos.distance_to(Vector3.ZERO) < 8.0:
 			continue
 
@@ -48,7 +50,10 @@ static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_lev
 
 		var tree := Node3D.new()
 		tree.name = "Tree_" + str(i)
-		tree.position = Vector3(pos.x, pos.y - 0.15, pos.z)
+		var y_offset: float = -0.15
+		if map_type == "floating_island":
+			y_offset = 0.06
+		tree.position = Vector3(pos.x, pos.y + y_offset, pos.z)
 		tree.rotation_degrees.y = rng.randf_range(0.0, 360.0)
 		tree.scale = Vector3.ONE * rng.randf_range(0.8, 1.25)
 
@@ -73,6 +78,24 @@ static func _random_land_position(rng: StableRng, half: float, water_level: floa
 	var x: float = rng.randf_range(-half, half)
 	var z: float = rng.randf_range(-half, half)
 	return Vector3(x, height_fn.call(x, z), z)
+
+
+static func _is_floating_tree_spot_valid(pos: Vector3, water_level: float, height_fn: Callable) -> bool:
+	if pos.y < water_level + 0.35:
+		return false
+	var sample_offsets: Array[Vector2] = [
+		Vector2(1.8, 0.0), Vector2(-1.8, 0.0),
+		Vector2(0.0, 1.8), Vector2(0.0, -1.8)
+	]
+	var min_h: float = pos.y
+	var max_h: float = pos.y
+	for off in sample_offsets:
+		var sy: float = float(height_fn.call(pos.x + off.x, pos.z + off.y))
+		if sy < water_level + 0.20:
+			return false
+		min_h = min(min_h, sy)
+		max_h = max(max_h, sy)
+	return (max_h - min_h) <= 1.4
 
 
 static func _tree_kind_for_position(world_seed: int, pos: Vector3, map_type: String, rng: StableRng) -> String:
