@@ -328,6 +328,21 @@ func _build_graph_3d(root: Node3D) -> void:
 		map_ids.append(str(map_key))
 	map_ids.sort()
 
+	if _connected_only:
+		var current_links: Dictionary = {}
+		if maps.has(current_map_id) and typeof(maps[current_map_id]) == TYPE_DICTIONARY:
+			var current_map_record: Dictionary = maps[current_map_id]
+			var current_gates: Dictionary = current_map_record.get("gates", {})
+			for gate_key in current_gates.keys():
+				var target_id: String = str(current_gates[gate_key])
+				if target_id != "" and known_map_ids.has(target_id):
+					current_links[target_id] = true
+		var filtered: Array[String] = []
+		for map_id in map_ids:
+			if map_id == current_map_id or current_links.has(map_id):
+				filtered.append(map_id)
+		map_ids = filtered
+
 	if map_ids.is_empty():
 		return
 
@@ -881,13 +896,17 @@ func _known_map_ids(world: Dictionary) -> Dictionary:
 		var universe: Dictionary = get_current_universe_fn.call()
 		var visited: Array = universe.get("maps_visited", [])
 		for raw_id in visited:
-			var map_id: String = str(raw_id)
-			if maps.has(map_id):
+			var visit_key: String = str(raw_id)
+			var map_id: String = visit_key
+			var sep: int = visit_key.find(":")
+			if sep >= 0 and sep + 1 < visit_key.length():
+				map_id = visit_key.substr(sep + 1)
+			if maps.has(map_id) and typeof(maps[map_id]) == TYPE_DICTIONARY:
 				known[map_id] = true
 	var root_map_id: String = str(world.get("root_map", ""))
-	if root_map_id != "" and maps.has(root_map_id):
+	if known.is_empty() and root_map_id != "" and maps.has(root_map_id) and typeof(maps[root_map_id]) == TYPE_DICTIONARY:
 		known[root_map_id] = true
-	if current_map_id != "" and maps.has(current_map_id):
+	if current_map_id != "" and maps.has(current_map_id) and typeof(maps[current_map_id]) == TYPE_DICTIONARY:
 		known[current_map_id] = true
 	return known
 

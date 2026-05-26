@@ -59,6 +59,11 @@ func generate(root: Node3D) -> void:
 	elif map_type == WorldGraph.MAP_NEXUS:
 		_create_map_nexus_terrain()
 		_create_world_bounds()
+	elif map_type == WorldGraph.MAP_FLOATING_ISLAND:
+		_create_floating_island_terrain()
+		_create_world_bounds()
+		_create_water()
+		_create_sky_clouds()
 	else:
 		_build_height_values()
 		_create_terrain_mesh()
@@ -616,6 +621,10 @@ func _create_cave_terrain() -> void:
 
 func _create_world_bounds() -> void:
 	var half: float = _world_half_size()
+	if map_type == WorldGraph.MAP_GATE_ROOM:
+		half = 36.0
+	elif map_type == WorldGraph.MAP_NEXUS:
+		half = 44.0
 	var wall_height: float = 80.0
 	var wall_thickness: float = 4.0
 	var wall_center_y: float = 18.0
@@ -1094,28 +1103,216 @@ static func _sphere_point(r: float, theta: float, phi: float) -> Vector3:
 
 func _create_map_nexus_terrain() -> void:
 	var floor_mat := StandardMaterial3D.new()
-	floor_mat.albedo_color = Color(0.10, 0.11, 0.14)
-	floor_mat.roughness = 0.80
+	floor_mat.albedo_color = Color(0.08, 0.11, 0.16)
+	floor_mat.roughness = 0.78
+	var trim_mat := StandardMaterial3D.new()
+	trim_mat.albedo_color = Color(0.18, 0.28, 0.40)
+	trim_mat.roughness = 0.50
+	trim_mat.emission_enabled = true
+	trim_mat.emission = Color(0.10, 0.22, 0.35)
+	trim_mat.emission_energy_multiplier = 0.28
 
 	var floor := MeshInstance3D.new()
 	floor.name = "MapNexusFloor"
 	var floor_mesh := CylinderMesh.new()
-	floor_mesh.top_radius = 48.0
-	floor_mesh.bottom_radius = 48.0
-	floor_mesh.height = 0.6
-	floor_mesh.radial_segments = 40
+	floor_mesh.top_radius = 50.0
+	floor_mesh.bottom_radius = 50.0
+	floor_mesh.height = 0.8
+	floor_mesh.radial_segments = 56
 	floor.mesh = floor_mesh
 	floor.material_override = floor_mat
-	floor.position.y = -0.3
+	floor.position.y = -0.4
 	generated_root.add_child(floor)
 
 	var body := StaticBody3D.new()
 	body.name = "MapNexusFloorBody"
 	var col_shape := CollisionShape3D.new()
 	var col_cyl := CylinderShape3D.new()
-	col_cyl.radius = 48.0
-	col_cyl.height = 0.6
+	col_cyl.radius = 50.0
+	col_cyl.height = 0.8
 	col_shape.shape = col_cyl
-	col_shape.position.y = -0.3
+	col_shape.position.y = -0.4
 	body.add_child(col_shape)
 	generated_root.add_child(body)
+
+	var inner_ring := MeshInstance3D.new()
+	inner_ring.name = "MapNexusInnerRing"
+	var inner_mesh := TorusMesh.new()
+	inner_mesh.outer_radius = 13.0
+	inner_mesh.inner_radius = 11.5
+	inner_ring.mesh = inner_mesh
+	inner_ring.material_override = trim_mat
+	inner_ring.position = Vector3(0.0, 0.3, 0.0)
+	inner_ring.rotation_degrees.x = 90.0
+	generated_root.add_child(inner_ring)
+
+	var outer_ring := MeshInstance3D.new()
+	outer_ring.name = "MapNexusOuterRing"
+	var outer_mesh := TorusMesh.new()
+	outer_mesh.outer_radius = 36.0
+	outer_mesh.inner_radius = 34.2
+	outer_ring.mesh = outer_mesh
+	outer_ring.material_override = trim_mat
+	outer_ring.position = Vector3(0.0, 0.22, 0.0)
+	outer_ring.rotation_degrees.x = 90.0
+	generated_root.add_child(outer_ring)
+
+	var center_plinth := MeshInstance3D.new()
+	center_plinth.name = "MapNexusCenterPlinth"
+	var center_mesh := CylinderMesh.new()
+	center_mesh.top_radius = 6.0
+	center_mesh.bottom_radius = 6.8
+	center_mesh.height = 1.4
+	center_mesh.radial_segments = 24
+	center_plinth.mesh = center_mesh
+	center_plinth.material_override = trim_mat
+	center_plinth.position = Vector3(0.0, 0.7, 0.0)
+	generated_root.add_child(center_plinth)
+	var plinth_body := StaticBody3D.new()
+	plinth_body.name = "MapNexusCenterPlinthBody"
+	var plinth_col := CollisionShape3D.new()
+	var plinth_shape := CylinderShape3D.new()
+	plinth_shape.radius = 6.4
+	plinth_shape.height = 1.4
+	plinth_col.shape = plinth_shape
+	plinth_col.position = center_plinth.position
+	plinth_body.add_child(plinth_col)
+	generated_root.add_child(plinth_body)
+
+	for si in range(4):
+		var angle: float = TAU * float(si) / 4.0
+		var bridge := MeshInstance3D.new()
+		bridge.name = "MapNexusBridge_" + str(si)
+		var bridge_mesh := BoxMesh.new()
+		bridge_mesh.size = Vector3(6.0, 0.45, 19.0)
+		bridge.mesh = bridge_mesh
+		bridge.material_override = floor_mat
+		bridge.position = Vector3(cos(angle) * 22.0, 0.20, sin(angle) * 22.0)
+		bridge.rotation_degrees.y = -rad_to_deg(angle)
+		generated_root.add_child(bridge)
+		var bridge_body := StaticBody3D.new()
+		bridge_body.name = "MapNexusBridgeBody_" + str(si)
+		var bridge_col := CollisionShape3D.new()
+		var bridge_shape := BoxShape3D.new()
+		bridge_shape.size = Vector3(6.0, 0.45, 19.0)
+		bridge_col.shape = bridge_shape
+		bridge_col.position = bridge.position
+		bridge_col.rotation_degrees = bridge.rotation_degrees
+		bridge_body.add_child(bridge_col)
+		generated_root.add_child(bridge_body)
+
+	var ambient := OmniLight3D.new()
+	ambient.name = "MapNexusAmbientLight"
+	ambient.position = Vector3(0.0, 7.0, 0.0)
+	ambient.omni_range = 74.0
+	ambient.light_energy = 2.0
+	ambient.light_color = Color(0.34, 0.56, 0.74)
+	generated_root.add_child(ambient)
+
+
+func _create_floating_island_terrain() -> void:
+	var stone_mat := StandardMaterial3D.new()
+	stone_mat.albedo_color = Color(0.34, 0.38, 0.44)
+	stone_mat.roughness = 0.86
+	var grass_mat := StandardMaterial3D.new()
+	grass_mat.albedo_color = Color(0.32, 0.62, 0.34)
+	grass_mat.roughness = 0.78
+
+	for i in range(7):
+		var angle: float = TAU * float(i) / 7.0 + noise.get_noise_2d(float(i) * 17.0 + 400.0, float(i) * 9.0 - 120.0) * 0.55
+		var dist: float = 42.0 + noise.get_noise_2d(float(i) * 23.0 + 1000.0, float(i) * 13.0 - 700.0) * 18.0
+		var cx: float = cos(angle) * dist
+		var cz: float = sin(angle) * dist
+		var radius: float = 17.0 + noise.get_noise_2d(float(i) * 19.0 + 300.0, float(i) * 31.0 - 800.0) * 4.5
+		var top_y: float = 26.0 + noise.get_noise_2d(float(i) * 27.0 + 1400.0, float(i) * 21.0 - 900.0) * 6.0
+
+		var top := MeshInstance3D.new()
+		top.name = "FloatingIslandTop_" + str(i)
+		var top_mesh := CylinderMesh.new()
+		top_mesh.top_radius = radius
+		top_mesh.bottom_radius = radius * 0.92
+		top_mesh.height = 2.0
+		top_mesh.radial_segments = 28
+		top.mesh = top_mesh
+		top.material_override = grass_mat
+		top.position = Vector3(cx, top_y - 1.0, cz)
+		generated_root.add_child(top)
+
+		var under := MeshInstance3D.new()
+		under.name = "FloatingIslandUnder_" + str(i)
+		var under_mesh := CylinderMesh.new()
+		under_mesh.top_radius = radius * 0.90
+		under_mesh.bottom_radius = max(radius * 0.22, 2.5)
+		under_mesh.height = 18.0
+		under_mesh.radial_segments = 24
+		under.mesh = under_mesh
+		under.material_override = stone_mat
+		under.position = Vector3(cx, top_y - 10.0, cz)
+		generated_root.add_child(under)
+
+		var body := StaticBody3D.new()
+		body.name = "FloatingIslandBody_" + str(i)
+		body.collision_layer = 1
+		body.collision_mask = 1
+
+		var top_col := CollisionShape3D.new()
+		var top_shape := CylinderShape3D.new()
+		top_shape.radius = radius
+		top_shape.height = 2.0
+		top_col.shape = top_shape
+		top_col.position = Vector3(cx, top_y - 1.0, cz)
+		body.add_child(top_col)
+
+		var under_col := CollisionShape3D.new()
+		var under_shape := CylinderShape3D.new()
+		under_shape.radius = radius * 0.60
+		under_shape.height = 14.0
+		under_col.shape = under_shape
+		under_col.position = Vector3(cx, top_y - 9.0, cz)
+		body.add_child(under_col)
+
+		generated_root.add_child(body)
+
+	var center_top := MeshInstance3D.new()
+	center_top.name = "FloatingIslandTop_Center"
+	var center_top_mesh := CylinderMesh.new()
+	center_top_mesh.top_radius = 20.0
+	center_top_mesh.bottom_radius = 18.5
+	center_top_mesh.height = 2.2
+	center_top_mesh.radial_segments = 30
+	center_top.mesh = center_top_mesh
+	center_top.material_override = grass_mat
+	center_top.position = Vector3(0.0, 22.4, 0.0)
+	generated_root.add_child(center_top)
+
+	var center_under := MeshInstance3D.new()
+	center_under.name = "FloatingIslandUnder_Center"
+	var center_under_mesh := CylinderMesh.new()
+	center_under_mesh.top_radius = 18.0
+	center_under_mesh.bottom_radius = 4.2
+	center_under_mesh.height = 16.0
+	center_under_mesh.radial_segments = 26
+	center_under.mesh = center_under_mesh
+	center_under.material_override = stone_mat
+	center_under.position = Vector3(0.0, 13.0, 0.0)
+	generated_root.add_child(center_under)
+
+	var center_body := StaticBody3D.new()
+	center_body.name = "FloatingIslandBody_Center"
+	center_body.collision_layer = 1
+	center_body.collision_mask = 1
+	var center_top_col := CollisionShape3D.new()
+	var center_top_shape := CylinderShape3D.new()
+	center_top_shape.radius = 20.0
+	center_top_shape.height = 2.2
+	center_top_col.shape = center_top_shape
+	center_top_col.position = Vector3(0.0, 22.4, 0.0)
+	center_body.add_child(center_top_col)
+	var center_under_col := CollisionShape3D.new()
+	var center_under_shape := CylinderShape3D.new()
+	center_under_shape.radius = 11.0
+	center_under_shape.height = 12.0
+	center_under_col.shape = center_under_shape
+	center_under_col.position = Vector3(0.0, 13.0, 0.0)
+	center_body.add_child(center_under_col)
+	generated_root.add_child(center_body)

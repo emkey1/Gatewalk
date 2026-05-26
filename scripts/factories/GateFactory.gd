@@ -163,22 +163,41 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 		gate_plane.position = Vector3(0.0, 2.6, 0.04)
 		gate_plane.rotation_degrees.x = 90.0
 		var plane_mat := StandardMaterial3D.new()
-		plane_mat.albedo_color = Color(0.30, 0.56, 0.92, 0.32)
+		var slot_color: Color = _seed_color(1000 + si * 593, 0.35)
+		plane_mat.albedo_color = slot_color
 		plane_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		plane_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		plane_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		plane_mat.emission_enabled = true
-		plane_mat.emission = Color(0.24, 0.60, 1.00)
+		plane_mat.emission = Color(slot_color.r, slot_color.g, slot_color.b)
 		plane_mat.emission_energy_multiplier = 1.2
 		gate_plane.material_override = plane_mat
 		gate_root.add_child(gate_plane)
 
 		var gate_light := OmniLight3D.new()
+		gate_light.name = "GateRoomSlotLight_" + str(si)
 		gate_light.position = Vector3(0.0, 2.6, 0.0)
 		gate_light.omni_range = 13.0
 		gate_light.light_energy = 1.6
-		gate_light.light_color = Color(0.38, 0.58, 0.92)
+		gate_light.light_color = slot_color
 		gate_root.add_child(gate_light)
+
+		var sigil := MeshInstance3D.new()
+		sigil.name = "GateRoomSlotSigil_" + str(si)
+		var sigil_mesh := TorusMesh.new()
+		sigil_mesh.outer_radius = 0.7
+		sigil_mesh.inner_radius = 0.58
+		sigil.mesh = sigil_mesh
+		var sigil_mat := StandardMaterial3D.new()
+		sigil_mat.albedo_color = slot_color
+		sigil_mat.emission_enabled = true
+		sigil_mat.emission = Color(slot_color.r, slot_color.g, slot_color.b)
+		sigil_mat.emission_energy_multiplier = 1.8
+		sigil_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sigil.material_override = sigil_mat
+		sigil.position = Vector3(0.0, 0.14, 0.0)
+		sigil.rotation_degrees.x = 90.0
+		gate_root.add_child(sigil)
 
 		var area := Area3D.new()
 		area.name = "GateRoomSlot_" + str(si)
@@ -260,10 +279,14 @@ static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_ent
 	var gate_mat := StandardMaterial3D.new()
 	gate_mat.albedo_color = Color(0.18, 0.28, 0.40)
 	gate_mat.roughness = 0.68
-	var arch_mesh := BoxMesh.new()
-	arch_mesh.size = Vector3(1.5, 4.0, 1.5)
+	var arch_post_mesh := BoxMesh.new()
+	arch_post_mesh.size = Vector3(1.1, 4.6, 1.2)
+	var lintel_mesh := BoxMesh.new()
+	lintel_mesh.size = Vector3(4.1, 0.9, 1.1)
+	var plane_mesh := PlaneMesh.new()
+	plane_mesh.size = Vector2(3.3, 3.9)
 	var slot_area_box := BoxShape3D.new()
-	slot_area_box.size = Vector3(4.0, 4.0, 4.0)
+	slot_area_box.size = Vector3(5.8, 4.2, 5.8)
 
 	var core_mat := StandardMaterial3D.new()
 	core_mat.albedo_color = Color(0.18, 0.45, 0.60, 0.18)
@@ -288,13 +311,77 @@ static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_ent
 	for si in range(slot_count):
 		var angle: float = TAU * float(si) / float(slot_count)
 		var slot_pos: Vector3 = Vector3(cos(angle) * 38.0, 0.0, sin(angle) * 38.0)
+		var yaw_deg: float = -rad_to_deg(angle) + 90.0
+		var slot_color: Color = _seed_color(2200 + si * 733, 0.40)
 
-		var arch := MeshInstance3D.new()
-		arch.name = "MapNexusGate_" + str(si)
-		arch.mesh = arch_mesh
-		arch.material_override = gate_mat
-		arch.position = slot_pos
-		parent.add_child(arch)
+		var gate_root := Node3D.new()
+		gate_root.name = "MapNexusGate_" + str(si)
+		gate_root.position = slot_pos
+		gate_root.rotation_degrees.y = yaw_deg
+		parent.add_child(gate_root)
+
+		var left_post := MeshInstance3D.new()
+		left_post.mesh = arch_post_mesh
+		left_post.material_override = gate_mat
+		left_post.position = Vector3(-1.45, 2.3, 0.0)
+		gate_root.add_child(left_post)
+
+		var right_post := MeshInstance3D.new()
+		right_post.mesh = arch_post_mesh
+		right_post.material_override = gate_mat
+		right_post.position = Vector3(1.45, 2.3, 0.0)
+		gate_root.add_child(right_post)
+
+		var lintel := MeshInstance3D.new()
+		lintel.mesh = lintel_mesh
+		lintel.material_override = gate_mat
+		lintel.position = Vector3(0.0, 4.6, 0.0)
+		gate_root.add_child(lintel)
+
+		var plane := MeshInstance3D.new()
+		plane.mesh = plane_mesh
+		plane.position = Vector3(0.0, 2.6, 0.04)
+		plane.rotation_degrees.x = 90.0
+		var plane_mat := StandardMaterial3D.new()
+		plane_mat.albedo_color = slot_color
+		plane_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		plane_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		plane_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		plane_mat.emission_enabled = true
+		plane_mat.emission = Color(slot_color.r, slot_color.g, slot_color.b)
+		plane_mat.emission_energy_multiplier = 1.55
+		plane.material_override = plane_mat
+		gate_root.add_child(plane)
+
+		var light := OmniLight3D.new()
+		light.name = "MapNexusSlotLight_" + str(si)
+		light.position = Vector3(0.0, 2.8, 0.0)
+		light.omni_range = 16.0
+		light.light_energy = 1.9
+		light.light_color = slot_color
+		gate_root.add_child(light)
+
+		var gate_body := StaticBody3D.new()
+		gate_body.name = "MapNexusGateBody_" + str(si)
+		var col_left := CollisionShape3D.new()
+		var shape_left := BoxShape3D.new()
+		shape_left.size = Vector3(1.1, 4.6, 1.2)
+		col_left.shape = shape_left
+		col_left.position = Vector3(-1.45, 2.3, 0.0)
+		gate_body.add_child(col_left)
+		var col_right := CollisionShape3D.new()
+		var shape_right := BoxShape3D.new()
+		shape_right.size = Vector3(1.1, 4.6, 1.2)
+		col_right.shape = shape_right
+		col_right.position = Vector3(1.45, 2.3, 0.0)
+		gate_body.add_child(col_right)
+		var col_lintel := CollisionShape3D.new()
+		var shape_lintel := BoxShape3D.new()
+		shape_lintel.size = Vector3(4.1, 0.9, 1.1)
+		col_lintel.shape = shape_lintel
+		col_lintel.position = Vector3(0.0, 4.6, 0.0)
+		gate_body.add_child(col_lintel)
+		gate_root.add_child(gate_body)
 
 		var area := Area3D.new()
 		area.name = "MapNexusSlot_" + str(si)
@@ -366,7 +453,7 @@ static func _gate_area_shape() -> BoxShape3D:
 	if _cached_gate_area_shape != null:
 		return _cached_gate_area_shape
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(3.5, 5.0, 3.5)
+	shape.size = Vector3(1.75, 5.0, 1.75)
 	_cached_gate_area_shape = shape
 	return _cached_gate_area_shape
 

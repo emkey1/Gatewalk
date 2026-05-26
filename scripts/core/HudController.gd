@@ -379,6 +379,12 @@ func update(data: Dictionary) -> void:
 	if next_reward_line != "":
 		goals_lines.append(next_reward_line)
 
+	if hud_position == "left":
+		header_lines = _cap_lines(header_lines, 5)
+		status_lines = _cap_lines(status_lines, 5)
+		controls_lines = _cap_lines(controls_lines, 4)
+		goals_lines = _cap_lines(goals_lines, 4)
+
 	meta_label.text = "\n".join(header_lines)
 	status_label.text = "\n".join(status_lines)
 	controls_label.text = "\n".join(controls_lines)
@@ -450,6 +456,16 @@ func _add_info_block(parent: VBoxContainer, font_size: int = 12) -> Label:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(label)
 	return label
+
+
+func _cap_lines(lines: Array[String], max_lines: int) -> Array[String]:
+	if lines.size() <= max_lines:
+		return lines
+	var out: Array[String] = []
+	for i in range(max_lines):
+		out.append(lines[i])
+	out[max_lines - 1] = out[max_lines - 1] + " ..."
+	return out
 
 
 func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins: Dictionary, delta: float = 0.0, zoom: float = 1.0) -> void:

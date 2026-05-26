@@ -6,6 +6,12 @@ const ENABLE_SFX: bool = false
 
 
 static func setup_music(parent: Node3D, rng: StableRng) -> void:
+	if parent == null:
+		return
+	if parent.get_node_or_null("MusicPlayer") != null:
+		return
+	if parent.get_node_or_null("ProceduralSynthPad") != null:
+		return
 	var dir := DirAccess.open("res://audio/music")
 	if dir == null:
 		setup_procedural_music(parent, rng)
@@ -215,6 +221,10 @@ static func add_gate_audio(gate: Node3D) -> void:
 
 
 static func setup_procedural_music(parent: Node3D, rng: StableRng) -> void:
+	if parent == null:
+		return
+	if parent.get_node_or_null("ProceduralSynthPad") != null:
+		return
 	var base: float = 110.0
 	var shift: int = int(rng.next_u32() % 3)
 	if shift == 1:

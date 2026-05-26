@@ -63,6 +63,8 @@ func biome_value(wx: float, wz: float) -> float:
 
 
 func river_distance(wx: float, wz: float) -> float:
+	if map_type == WorldGraph.MAP_FLOATING_ISLAND:
+		return 999.0
 	var curve: float = sin(wx * 0.025) * 22.0 + noise.get_noise_2d(wx * 0.2 + 3200.0, 410.0) * 16.0
 	return abs(wz - curve)
 
@@ -88,6 +90,28 @@ func height_at_world(wx: float, wz: float) -> float:
 		var islands: float = noise.get_noise_2d(wx * 0.12, wz * 0.12) * 15.0
 		var detail_islands: float = noise.get_noise_2d(wx * 0.4 + 500.0, wz * 0.4 + 1000.0) * 5.0
 		return islands + detail_islands - 7.0
+
+	if map_type == WorldGraph.MAP_FLOATING_ISLAND:
+		var best_height: float = water_level - 34.0
+		for i in range(7):
+			var angle: float = TAU * float(i) / 7.0 + noise.get_noise_2d(float(i) * 17.0 + 400.0, float(i) * 9.0 - 120.0) * 0.55
+			var dist: float = 42.0 + noise.get_noise_2d(float(i) * 23.0 + 1000.0, float(i) * 13.0 - 700.0) * 18.0
+			var cx: float = cos(angle) * dist
+			var cz: float = sin(angle) * dist
+			var radius: float = 17.0 + noise.get_noise_2d(float(i) * 19.0 + 300.0, float(i) * 31.0 - 800.0) * 4.5
+			var top_y: float = 26.0 + noise.get_noise_2d(float(i) * 27.0 + 1400.0, float(i) * 21.0 - 900.0) * 6.0
+			var d: float = Vector2(wx - cx, wz - cz).length()
+			if d > radius:
+				continue
+			var rim: float = 1.0 - (d / radius)
+			var island_y: float = top_y - (1.0 - rim) * 2.8 + noise.get_noise_2d(wx * 0.35 + float(i) * 71.0, wz * 0.35 - float(i) * 43.0) * 0.9
+			if island_y > best_height:
+				best_height = island_y
+		var center_d: float = Vector2(wx, wz).length()
+		if center_d <= 20.0:
+			var center_rim: float = 1.0 - (center_d / 20.0)
+			best_height = max(best_height, 23.5 - (1.0 - center_rim) * 2.2 + noise.get_noise_2d(wx * 0.30 + 2200.0, wz * 0.30 - 1700.0) * 0.8)
+		return best_height
 
 	var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * height_scale
 	var hills: float = noise.get_noise_2d(wx, wz) * 5.5

@@ -14,7 +14,9 @@ static func resolve_gate_transition(
 	new_map_id_fn: Callable,
 	water_route_chance: float = 0.12,
 	arctic_route_chance: float = 0.10,
-	cave_route_chance: float = 0.18
+	floating_route_chance: float = 0.10,
+	cave_route_chance: float = 0.18,
+	nexus_route_chance: float = 0.0
 ) -> Dictionary:
 	var maps: Dictionary = world.get("maps", {})
 	var raw_record = maps.get(current_map_id, {})
@@ -46,7 +48,9 @@ static func resolve_gate_transition(
 		var seed_val: int = _preview_gate_seed(world_seed, gate_index)
 		var target_type: String = WorldGraph.MAP_NORMAL
 		var is_arctic_route: bool = false
+		var is_floating_route: bool = false
 		var is_cave_route: bool = false
+		var is_nexus_route: bool = false
 		var from_cave: bool = map_type == WorldGraph.MAP_CAVE
 		if not from_cave and map_type != WorldGraph.MAP_WATER:
 			is_water_route = gate_rng.chance(water_route_chance)
@@ -57,9 +61,17 @@ static func resolve_gate_transition(
 			if is_arctic_route:
 				target_type = WorldGraph.MAP_ARCTIC
 		if not from_cave and not is_water_route and not is_arctic_route:
+			is_floating_route = gate_rng.chance(floating_route_chance)
+			if is_floating_route:
+				target_type = WorldGraph.MAP_FLOATING_ISLAND
+		if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route:
 			is_cave_route = gate_rng.chance(cave_route_chance)
 			if is_cave_route:
 				target_type = WorldGraph.MAP_CAVE
+		if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route and not is_cave_route and map_type == WorldGraph.MAP_NORMAL:
+			is_nexus_route = gate_rng.chance(nexus_route_chance)
+			if is_nexus_route:
+				target_type = WorldGraph.MAP_NEXUS
 		if _is_route_map_type(target_type) and _route_map_count(maps) >= MAX_ROUTE_MAPS:
 			var reroute_id: String = _pick_existing_route_target(current_map_id, maps, gate_rng)
 			if reroute_id != "":
@@ -217,20 +229,16 @@ static func resolve_nexus_slot(
 			"current_map_record": current_map_record,
 		}
 
-	if slot_index != 0:
-		return {"ok": true, "skip": true, "changed": false}
-
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "nexus_gate_" + str(slot_index)))
-	var world_keys: Array = universe_worlds.keys()
-	if world_keys.size() <= 1:
+	var candidate_world_ids: Array[String] = []
+	for world_key in universe_worlds.keys():
+		var wid: String = str(world_key)
+		if wid != current_world_id:
+			candidate_world_ids.append(wid)
+	if candidate_world_ids.is_empty():
 		return {"ok": true, "skip": true, "changed": false}
-
-	var random_world_id: String = str(world_keys[rng.randi_range(0, world_keys.size() - 1)])
-	var attempts: int = 0
-	while random_world_id == current_world_id and attempts < 10:
-		random_world_id = str(world_keys[rng.randi_range(0, world_keys.size() - 1)])
-		attempts += 1
-	target_world_id = random_world_id
+	candidate_world_ids.sort()
+	target_world_id = candidate_world_ids[rng.randi_range(0, candidate_world_ids.size() - 1)]
 	var target_world: Dictionary = universe_worlds[target_world_id]
 	var root_map_id: String = str(target_world.get("root_map", ""))
 	if root_map_id == "":
@@ -284,7 +292,7 @@ static func _preview_gate_seed(world_seed: int, gate_index: int) -> int:
 
 
 static func _is_route_map_type(map_type: String) -> bool:
-	return map_type == WorldGraph.MAP_NORMAL or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC or map_type == WorldGraph.MAP_CAVE
+	return map_type == WorldGraph.MAP_NORMAL or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC or map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_CAVE
 
 
 static func _route_map_count(maps: Dictionary) -> int:
