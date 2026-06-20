@@ -76,7 +76,7 @@ static func _scatter_fish_internal(parent: Node3D, world_seed: int, height_fn: C
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "fish"))
 
 	var placed := 0
-	var target: int = 3
+	var target: int = 12
 	var attempts := 0
 	while placed < target and attempts < target * 15:
 		attempts += 1

@@ -26,6 +26,13 @@ func _ready() -> void:
 	fish_mat.vertex_color_use_as_albedo = true
 	fish_mat.roughness = 0.4
 	fish_mat.metallic = 0.15
+	# Per-school species tint (well-spread hue from the seed, no rng draw) plus a faint
+	# self-glow so the school stays visible in the dim, murky water underwater.
+	var hue: float = fmod(float(rng_seed) * 0.61803398875, 1.0)
+	var tint := Color.from_hsv(hue, 0.35, 1.0)
+	fish_mat.albedo_color = tint
+	fish_mat.emission_enabled = true
+	fish_mat.emission = tint * 0.18
 	for i in fish_count:
 		var fish := Node3D.new()
 		add_child(fish)
@@ -38,7 +45,7 @@ func _ready() -> void:
 		mi.mesh = mesh
 		mi.material_override = fish_mat
 		fish.add_child(mi)
-		var s := rng.randf_range(0.6, 1.2)
+		var s := rng.randf_range(0.85, 1.5)
 		mi.scale = Vector3(s, s, s)
 
 
@@ -123,9 +130,10 @@ static func _create_fish_mesh_detailed() -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	var body_c := Color(0.30, 0.35, 0.42)
-	var belly_c := Color(0.32, 0.42, 0.50)
-	var fin_c := Color(0.25, 0.30, 0.38)
+	# Light, silvery base so the per-school tint shows and fish stay legible underwater.
+	var body_c := Color(0.62, 0.66, 0.74)
+	var belly_c := Color(0.90, 0.92, 0.95)
+	var fin_c := Color(0.52, 0.58, 0.68)
 
 	var segs: int = 10
 	var prof: Array[Vector2] = [
