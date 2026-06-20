@@ -46,32 +46,15 @@ static func resolve_gate_transition(
 
 	if target_map_id == "":
 		var seed_val: int = _preview_gate_seed(world_seed, gate_index)
-		var target_type: String = WorldGraph.MAP_NORMAL
-		var is_arctic_route: bool = false
-		var is_floating_route: bool = false
-		var is_cave_route: bool = false
-		var is_nexus_route: bool = false
-		var from_cave: bool = map_type == WorldGraph.MAP_CAVE
-		if not from_cave and map_type != WorldGraph.MAP_WATER:
-			is_water_route = gate_rng.chance(water_route_chance)
-			if is_water_route:
-				target_type = WorldGraph.MAP_WATER
-		if not from_cave and not is_water_route:
-			is_arctic_route = gate_rng.chance(arctic_route_chance)
-			if is_arctic_route:
-				target_type = WorldGraph.MAP_ARCTIC
-		if not from_cave and not is_water_route and not is_arctic_route:
-			is_floating_route = gate_rng.chance(floating_route_chance)
-			if is_floating_route:
-				target_type = WorldGraph.MAP_FLOATING_ISLAND
-		if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route:
-			is_cave_route = gate_rng.chance(cave_route_chance)
-			if is_cave_route:
-				target_type = WorldGraph.MAP_CAVE
-		if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route and not is_cave_route and map_type == WorldGraph.MAP_NORMAL:
-			is_nexus_route = gate_rng.chance(nexus_route_chance)
-			if is_nexus_route:
-				target_type = WorldGraph.MAP_NEXUS
+		# Roll the destination type through the shared helper so Gate Sight's
+		# predict_gate_target_type() previews the exact same outcome. The helper
+		# consumes gate_rng identically to the old inline code, leaving its state
+		# intact for the reroute paths below.
+		var target_type: String = _roll_route_target_type(
+			gate_rng, map_type, water_route_chance, arctic_route_chance,
+			floating_route_chance, cave_route_chance, nexus_route_chance,
+		)
+		is_water_route = target_type == WorldGraph.MAP_WATER
 		if _is_route_map_type(target_type) and _route_map_count(maps) >= MAX_ROUTE_MAPS:
 			var reroute_id: String = _pick_existing_route_target(current_map_id, maps, gate_rng)
 			if reroute_id != "":
@@ -147,6 +130,41 @@ static func gate_target_seed(world_seed: int, current_map_id: String, world: Dic
 		var target_record: Dictionary = maps[target_map_id]
 		return int(target_record.get("seed", _preview_gate_seed(world_seed, gate_index)))
 	return _preview_gate_seed(world_seed, gate_index)
+
+
+# Side-effect-free preview of the world type behind a gate, used by Gate Sight.
+# For an already-charted gate it reports the linked map's real type; otherwise it
+# rolls the same route logic resolve_gate_transition() uses (pass the same chances
+# the caller passes to resolve so the preview matches reality). Note: in a fully
+# saturated world (>= MAX_ROUTE_MAPS) resolve may reroute to an existing map, which
+# this prediction does not model.
+static func predict_gate_target_type(
+	world_seed: int,
+	current_map_id: String,
+	gate_index: int,
+	world: Dictionary,
+	water_route_chance: float = 0.12,
+	arctic_route_chance: float = 0.10,
+	floating_route_chance: float = 0.10,
+	cave_route_chance: float = 0.18,
+	nexus_route_chance: float = 0.0
+) -> String:
+	var maps: Dictionary = world.get("maps", {})
+	var map_type: String = WorldGraph.MAP_NORMAL
+	var raw_record = maps.get(current_map_id, null)
+	if typeof(raw_record) == TYPE_DICTIONARY:
+		map_type = str(raw_record.get("type", WorldGraph.MAP_NORMAL))
+		var gates: Dictionary = raw_record.get("gates", {})
+		var target_map_id: String = str(gates.get(str(gate_index), ""))
+		if target_map_id != "" and maps.has(target_map_id):
+			var target_record = maps[target_map_id]
+			if typeof(target_record) == TYPE_DICTIONARY:
+				return str(target_record.get("type", WorldGraph.MAP_NORMAL))
+	var gate_rng := StableRng.new(StableRng.mix_string(world_seed, "gate_" + str(gate_index)))
+	return _roll_route_target_type(
+		gate_rng, map_type, water_route_chance, arctic_route_chance,
+		floating_route_chance, cave_route_chance, nexus_route_chance,
+	)
 
 
 static func resolve_gate_room_slot(
@@ -289,6 +307,47 @@ static func _preview_gate_seed(world_seed: int, gate_index: int) -> int:
 	if value == 0:
 		value = 12345 + gate_index
 	return value
+
+
+# Deterministic route-type roll shared by resolve_gate_transition() (which passes
+# its live gate_rng so the later reroute draws stay aligned) and the pure
+# predict_gate_target_type() (which passes a fresh same-seed rng). Consumes gate_rng
+# exactly: water, then arctic, then floating, then cave, then nexus, each guarded.
+static func _roll_route_target_type(
+	gate_rng: StableRng,
+	map_type: String,
+	water_route_chance: float,
+	arctic_route_chance: float,
+	floating_route_chance: float,
+	cave_route_chance: float,
+	nexus_route_chance: float
+) -> String:
+	var target_type: String = WorldGraph.MAP_NORMAL
+	var is_water_route: bool = false
+	var is_arctic_route: bool = false
+	var is_floating_route: bool = false
+	var is_cave_route: bool = false
+	var from_cave: bool = map_type == WorldGraph.MAP_CAVE
+	if not from_cave and map_type != WorldGraph.MAP_WATER:
+		is_water_route = gate_rng.chance(water_route_chance)
+		if is_water_route:
+			target_type = WorldGraph.MAP_WATER
+	if not from_cave and not is_water_route:
+		is_arctic_route = gate_rng.chance(arctic_route_chance)
+		if is_arctic_route:
+			target_type = WorldGraph.MAP_ARCTIC
+	if not from_cave and not is_water_route and not is_arctic_route:
+		is_floating_route = gate_rng.chance(floating_route_chance)
+		if is_floating_route:
+			target_type = WorldGraph.MAP_FLOATING_ISLAND
+	if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route:
+		is_cave_route = gate_rng.chance(cave_route_chance)
+		if is_cave_route:
+			target_type = WorldGraph.MAP_CAVE
+	if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route and not is_cave_route and map_type == WorldGraph.MAP_NORMAL:
+		if gate_rng.chance(nexus_route_chance):
+			target_type = WorldGraph.MAP_NEXUS
+	return target_type
 
 
 static func _is_route_map_type(map_type: String) -> bool:

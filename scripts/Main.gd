@@ -3088,6 +3088,9 @@ func _update_hud(delta: float = 0.0) -> void:
 				warning_text = "Freezing — warm up near a gate or wonder"
 			elif warmth <= max_warmth * 0.5 and warning_text == "":
 				warning_text = "Getting cold — head for a gate or wonder"
+		var gate_hint: String = _gate_sight_hint()
+		if gate_hint != "":
+			warning_text = (warning_text + " | " + gate_hint) if warning_text != "" else gate_hint
 	if show_gate_debug_hud and not _is_current_map_gate_room() and not _is_current_map_map_nexus() and _gate_debug_line != "":
 		if warning_text != "":
 			warning_text += " | "
@@ -3578,6 +3581,41 @@ func _kit_hud_line() -> String:
 	if summary == "":
 		return "Kit: base gear — earn discoveries to upgrade."
 	return "Kit: " + summary
+
+
+func _gate_is_charted(gate_index: int) -> bool:
+	if current_world_id == "":
+		return false
+	var world: Dictionary = _get_world(current_world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var mr: Dictionary = maps.get(current_map_id, {})
+	var gates: Dictionary = mr.get("gates", {})
+	var tid: String = str(gates.get(str(gate_index), ""))
+	return tid != "" and maps.has(tid)
+
+
+# Destination world type for a gate. Passes predict the SAME route chances Main
+# feeds resolve_gate_transition() (see _force_gate_transition), so the preview
+# matches what activation will actually produce.
+func _gate_destination_type(gate_index: int) -> String:
+	var world: Dictionary = _get_world(current_world_id)
+	return GateTravelService.predict_gate_target_type(
+		world_seed, current_map_id, gate_index, world,
+		WATER_ROUTE_CHANCE, 0.10, 0.18, NEXUS_ROUTE_CHANCE,
+	)
+
+
+# Gate Sight: when standing near a gate, name where it leads. Already-charted gates
+# always show their type; unknown routes reveal it only once Gate Sight is unlocked.
+func _gate_sight_hint() -> String:
+	if _last_gate_index_in_range < 0:
+		return ""
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return ""
+	var gate_num: int = _last_gate_index_in_range + 1
+	if _gate_is_charted(_last_gate_index_in_range) or bool(_progression_capabilities().get("gate_sight", false)):
+		return "Gate " + str(gate_num) + " → " + _map_type_label(_gate_destination_type(_last_gate_index_in_range))
+	return "Gate " + str(gate_num) + " → uncharted (unlock Gate Sight to read it)"
 
 
 func _progression_capabilities() -> Dictionary:

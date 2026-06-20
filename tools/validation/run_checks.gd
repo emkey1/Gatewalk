@@ -28,6 +28,7 @@ func _init() -> void:
 	_run_progression_checks(failures)
 	_run_water_cache_terrain_checks(failures)
 	_run_stable_rng_checks(failures)
+	_run_gate_sight_preview_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -758,6 +759,33 @@ func _signature_diff_summary(a: String, b: String) -> String:
 	var sample_a: String = only_a[0] if not only_a.is_empty() else "<none>"
 	var sample_b: String = only_b[0] if not only_b.is_empty() else "<none>"
 	return "delta_a=%d delta_b=%d sample_a=%s sample_b=%s" % [only_a.size(), only_b.size(), sample_a, sample_b]
+
+
+func _run_gate_sight_preview_checks(failures: Array[String]) -> void:
+	# Gate Sight's predict_gate_target_type() must equal the type that
+	# resolve_gate_transition() actually creates, using the same route chances Main
+	# passes (water=0.12, arctic=0.10, floating=0.18, cave=0.06). Depends on the
+	# StableRng determinism fix; would have failed ~60% before it.
+	var mismatches: int = 0
+	for seed_value in range(0, 48):
+		for gate_index in range(4):
+			var base_world := {
+				"maps": {"m0": {"seed": seed_value, "type": WorldGraph.MAP_NORMAL, "gates": {}, "discoveries": {}}},
+				"root_map": "m0",
+			}
+			var predicted: String = GateTravelService.predict_gate_target_type(
+				seed_value, "m0", gate_index, base_world.duplicate(true), 0.12, 0.10, 0.18, 0.06)
+			_validation_id_counter = 0
+			var result: Dictionary = GateTravelService.resolve_gate_transition(
+				seed_value, "m0", gate_index, base_world.duplicate(true),
+				Callable(self, "_validation_new_map_id"), 0.12, 0.10, 0.18, 0.06)
+			var maps: Dictionary = result.get("world", {}).get("maps", {})
+			var tid: String = str(result.get("target_map_id", ""))
+			var actual: String = str(maps[tid].get("type", "?")) if maps.has(tid) else "inert"
+			if predicted != actual:
+				mismatches += 1
+	if mismatches > 0:
+		failures.append("Gate Sight preview disagreed with resolve on %d/192 gate routes." % mismatches)
 
 
 func _run_stable_rng_checks(failures: Array[String]) -> void:
