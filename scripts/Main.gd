@@ -10,6 +10,7 @@ const TreeFactory = preload("res://scripts/factories/TreeFactory.gd")
 const RockFactory = preload("res://scripts/factories/RockFactory.gd")
 const CrystalFactory = preload("res://scripts/factories/CrystalFactory.gd")
 const RuinFactory = preload("res://scripts/factories/RuinFactory.gd")
+const LandmarkFactory = preload("res://scripts/factories/LandmarkFactory.gd")
 const FlowerFactory = preload("res://scripts/factories/FlowerFactory.gd")
 const CreatureFactory = preload("res://scripts/factories/CreatureFactory.gd")
 const WeatherFactory = preload("res://scripts/factories/WeatherFactory.gd")
@@ -3995,6 +3996,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			await get_tree().process_frame
 		elif _is_current_map_arctic():
 			_spawn_wonders()
+			_scatter_landmarks()
 			await get_tree().process_frame
 			_scatter_arctic_trees()
 			await get_tree().process_frame
@@ -4017,6 +4019,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			await get_tree().process_frame
 		elif _is_current_map_floating_island():
 			_spawn_wonders()
+			_scatter_landmarks()
 			await get_tree().process_frame
 			_scatter_trees()
 			await get_tree().process_frame
@@ -4028,6 +4031,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			await get_tree().process_frame
 		else:
 			_spawn_wonders()
+			_scatter_landmarks()
 			await get_tree().process_frame
 			_scatter_trees()
 			await get_tree().process_frame
@@ -4358,6 +4362,9 @@ func _wonder_exclusions() -> Array:
 	if map_context != null and not _is_current_map_gate_room() and not _is_current_map_map_nexus():
 		for gate_pos in GateFactory.predict_gate_positions(map_context):
 			out.append(Vector3(gate_pos.x, 0.0, gate_pos.z))
+	# Landmarks are scattered before trees, so their recorded centers keep trees clear.
+	for lp in _landmark_positions:
+		out.append(Vector3(lp.x, 0.0, lp.z))
 	return out
 
 
@@ -4374,6 +4381,11 @@ func _scatter_crystals() -> void:
 func _scatter_ruins() -> void:
 	_begin_generation_channel("ruins")
 	RuinFactory.scatter_ruins(generated_root, world_seed, density_level, map_context)
+
+
+func _scatter_landmarks() -> void:
+	_begin_generation_channel("landmarks")
+	_landmark_positions = LandmarkFactory.scatter_landmarks(generated_root, world_seed, density_level, map_context)
 
 
 func _scatter_flowers() -> void:
@@ -4465,6 +4477,7 @@ func _scatter_moon_glass_craters() -> void:
 
 
 var _wonder_positions: Array = []
+var _landmark_positions: Array = []
 
 
 func _gate_positions_to_wonders() -> void:
