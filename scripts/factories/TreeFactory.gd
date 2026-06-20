@@ -14,7 +14,7 @@ static func clear_cache() -> void:
 	_mesh_cache.clear()
 
 
-static func scatter_trees(parent: Node3D, world_seed: int, density_level: int, graphics_level: int, context: MapContext, density_scale: float = 1.0) -> void:
+static func scatter_trees(parent: Node3D, world_seed: int, density_level: int, graphics_level: int, context: MapContext, density_scale: float = 1.0, exclusions: Array = []) -> void:
 	_scatter_trees_internal(
 		parent,
 		world_seed,
@@ -24,11 +24,13 @@ static func scatter_trees(parent: Node3D, world_seed: int, density_level: int, g
 		density_scale,
 		context.water_level,
 		Callable(context, "height_at_world"),
-		context.world_half_size() * 0.88
+		context.world_half_size() * 0.88,
+		exclusions
 	)
 
 
-static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_level: int, graphics_level: int, map_type: String, density_scale: float, water_level: float, height_fn: Callable, half: float) -> void:
+# exclusions: world-space Vector3 centers (e.g. wonders) that trees keep clear of.
+static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_level: int, graphics_level: int, map_type: String, density_scale: float, water_level: float, height_fn: Callable, half: float, exclusions: Array = []) -> void:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "trees"))
 	var dmult: float = _density_mult(density_level)
 	var count: int = int(float(TREE_COUNT_BASE) * dmult * clamp(density_scale, 0.02, 2.0))
@@ -56,6 +58,8 @@ static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_lev
 		if map_type == "floating_island" and not _is_floating_tree_spot_valid(pos, water_level, height_fn):
 			continue
 		if pos.distance_to(Vector3.ZERO) < 8.0:
+			continue
+		if _near_exclusion(pos, exclusions, 11.0):
 			continue
 
 		var kind: String = _tree_kind_for_position(world_seed, pos, map_type, rng)
@@ -115,6 +119,19 @@ static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_lev
 			cs.shape = shape
 			cs.position = trunk_origins[ci]
 			body.add_child(cs)
+
+
+static func _near_exclusion(pos: Vector3, exclusions: Array, radius: float) -> bool:
+	if exclusions.is_empty():
+		return false
+	var r2: float = radius * radius
+	for e in exclusions:
+		var ev: Vector3 = e
+		var dx: float = ev.x - pos.x
+		var dz: float = ev.z - pos.z
+		if dx * dx + dz * dz < r2:
+			return true
+	return false
 
 
 static func _density_mult(level: int) -> float:

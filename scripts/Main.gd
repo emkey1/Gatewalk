@@ -3885,13 +3885,14 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_moon_platforms()
 			await get_tree().process_frame
 		elif _is_current_map_arctic():
+			_spawn_wonders()
+			await get_tree().process_frame
 			_scatter_arctic_trees()
 			await get_tree().process_frame
 			_scatter_rocks()
 			_scatter_crystals()
 			await get_tree().process_frame
 			_scatter_ruins()
-			_spawn_wonders()
 			await get_tree().process_frame
 		elif _is_current_map_water():
 			_scatter_bird_flocks()
@@ -3906,6 +3907,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_spawn_wonders()
 			await get_tree().process_frame
 		elif _is_current_map_floating_island():
+			_spawn_wonders()
+			await get_tree().process_frame
 			_scatter_trees()
 			await get_tree().process_frame
 			_scatter_rocks()
@@ -3913,9 +3916,10 @@ func _load_map(world_id: String, map_id: String) -> void:
 			await get_tree().process_frame
 			_scatter_ruins()
 			_scatter_bird_flocks()
-			_spawn_wonders()
 			await get_tree().process_frame
 		else:
+			_spawn_wonders()
+			await get_tree().process_frame
 			_scatter_trees()
 			await get_tree().process_frame
 			_scatter_rocks()
@@ -3924,8 +3928,6 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_ruins()
 			_scatter_flowers()
 			_scatter_bird_flocks()
-			await get_tree().process_frame
-			_spawn_wonders()
 			await get_tree().process_frame
 		_begin_generation_channel("gates")
 		var target_seeds: Array[int] = []
@@ -4226,12 +4228,21 @@ func _world_half_size() -> float:
 
 func _scatter_trees() -> void:
 	_begin_generation_channel("trees")
-	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, map_context)
+	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, map_context, 1.0, _wonder_exclusions())
 
 
 func _scatter_arctic_trees() -> void:
 	_begin_generation_channel("trees")
-	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, map_context, 0.12)
+	TreeFactory.scatter_trees(generated_root, world_seed, density_level, graphics_level, map_context, 0.12, _wonder_exclusions())
+
+
+# World-space centers of already-spawned wonders, so trees can be kept clear of them.
+# (Requires _spawn_wonders to run before tree scatter — see _load_map ordering.)
+func _wonder_exclusions() -> Array:
+	var out: Array = []
+	for w in _wonder_positions:
+		out.append(Vector3(float(w.get("x", 0.0)), 0.0, float(w.get("z", 0.0))))
+	return out
 
 
 func _scatter_rocks() -> void:
@@ -4448,7 +4459,20 @@ func _can_place_wonder_at(wonder_pos: Vector3, half: float) -> bool:
 		return false
 	if _river_distance(wonder_pos.x, wonder_pos.z) < river_min:
 		return false
+	# Slope is fine: the base is grounded to its lowest footprint point at spawn
+	# (_wonder_grounded_y), so it sits planted instead of hovering.
 	return true
+
+
+# Lowest terrain under a wonder's ~7m base footprint, minus a small embed, so the
+# wide flat base sits planted into the ground instead of hovering over the downhill
+# side of a slope.
+func _wonder_grounded_y(pos: Vector3) -> float:
+	var lo: float = pos.y
+	for i in range(8):
+		var a: float = TAU * float(i) / 8.0
+		lo = minf(lo, _height_at_world(pos.x + cos(a) * 7.0, pos.z + sin(a) * 7.0))
+	return lo - 0.4
 
 
 func _spawn_wonder_instance(wonder_pos: Vector3, cell_x: int, cell_z: int) -> bool:
@@ -4460,7 +4484,8 @@ func _spawn_wonder_instance(wonder_pos: Vector3, cell_x: int, cell_z: int) -> bo
 	var wonder_seed: int = int(wonder_info.get("seed", 0))
 	var archetype: String = str(wonder_info.get("archetype", "wonder"))
 	var variant: int = int(wonder_info.get("variant", 0))
-	var wonder: Node3D = WonderGenerator.create_wonder_from_seed(wonder_pos, wonder_seed, true)
+	var grounded_pos: Vector3 = Vector3(wonder_pos.x, _wonder_grounded_y(wonder_pos), wonder_pos.z)
+	var wonder: Node3D = WonderGenerator.create_wonder_from_seed(grounded_pos, wonder_seed, true)
 	var title: String = str(wonder.get_meta("wonder_title", WonderGenerator.title_for_archetype(archetype, variant)))
 	var wonder_kind: String = "wonder"
 	_wonder_positions.append({
