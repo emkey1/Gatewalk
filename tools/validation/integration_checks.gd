@@ -57,7 +57,28 @@ func _run_checks(failures: Array[String]) -> void:
 	if player_count != 1:
 		failures.append("expected exactly 1 player after transitions, found %d (leak)" % player_count)
 
+	# (4) The world menu builds and closes. find_child keeps this stable across the
+	# MenuController extraction (wherever the layer ends up parented).
+	main.call("_show_main_menu")
+	await _await_frames(2)
+	var menu := main.find_child("WorldMenuLayer", true, false)
+	if menu == null:
+		failures.append("world menu did not build")
+	elif _count_class(menu, "Button") < 6:
+		failures.append("world menu built with too few buttons (%d)" % _count_class(menu, "Button"))
+	main.call("_close_menu")
+	await _await_frames(2)
+	if main.find_child("WorldMenuLayer", true, false) != null:
+		failures.append("world menu did not close")
+
 	main.free()
+
+
+func _count_class(node: Node, klass: String) -> int:
+	var total: int = 1 if node.is_class(klass) else 0
+	for child in node.get_children():
+		total += _count_class(child, klass)
+	return total
 
 
 func _do_gate_transition(main: Node, failures: Array[String], label: String) -> bool:
