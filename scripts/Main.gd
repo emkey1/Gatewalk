@@ -131,6 +131,15 @@ const MAP_SURVEY_LICHEN_REWARD: int = 1
 const ARCTIC_SHELTER_RADIUS: float = 15.0
 const CAVE_DARK_LIMIT_MSEC: int = 8000
 
+# First-run field tips — each shown once per universe (tips_seen), the rest of the
+# teaching is carried by the per-map objective and warning lines.
+const FIELD_TIPS := {
+	"welcome": "Welcome, cartographer. [WASD] move · mouse look · [Shift] sprint · [Space] jump. Walk into a world gate to cross to a new map. Chart wonders, ruins, and gates — every discovery upgrades your Cartographer's Kit.",
+	"gate": "A world gate. Step into the shimmer to travel through it. [Tab] opens your Atlas; [P] drops a survey pin.",
+	"kit": "First discovery logged. Every wonder, ruin, and gate you chart upgrades your kit — breath, lantern, sprint, warmth, pins, and more.",
+	"moon_lichen": "Moon shrines: grab a glowing lichen with [C], hurl it at a shrine with [T] to charge it, then collect the orb it reveals. Nine shrines in all.",
+}
+
 
 func _ready() -> void:
 	print("GATEWALK PATCHED MAIN: trees restored safely")
@@ -3136,6 +3145,7 @@ func _update_hud(delta: float = 0.0) -> void:
 		var gate_hint: String = _gate_sight_hint()
 		if gate_hint != "":
 			warning_text = (warning_text + " | " + gate_hint) if warning_text != "" else gate_hint
+			_show_field_tip("gate")
 	if show_gate_debug_hud and not _is_current_map_gate_room() and not _is_current_map_map_nexus() and _gate_debug_line != "":
 		if warning_text != "":
 			warning_text += " | "
@@ -3628,6 +3638,22 @@ func _kit_hud_line() -> String:
 	return "Kit: " + summary
 
 
+# Show a first-run tip once per universe. Seen ids persist in universe.tips_seen
+# (the save schema is permissive, so no migration is needed).
+func _show_field_tip(tip_id: String) -> void:
+	if not FIELD_TIPS.has(tip_id):
+		return
+	var universe: Dictionary = _current_universe()
+	var seen: Array = universe.get("tips_seen", [])
+	if seen.has(tip_id):
+		return
+	seen.append(tip_id)
+	universe["tips_seen"] = seen
+	_set_current_universe(universe)
+	_save_world_data()
+	_push_status_banner(str(FIELD_TIPS[tip_id]), 7000)
+
+
 func _gate_is_charted(gate_index: int) -> bool:
 	if current_world_id == "":
 		return false
@@ -3677,6 +3703,7 @@ func _apply_progression_to_player(player: CharacterBody3D) -> void:
 # player, toasts once, and persists the announced set. Capabilities themselves are
 # derived from the discovery count, so the announced list is the only state stored.
 func _on_discovery_recorded() -> void:
+	_show_field_tip("kit")
 	var total: int = _progression_total()
 	var universe: Dictionary = _current_universe()
 	var announced: Array = universe.get("announced_upgrades", [])
@@ -3855,6 +3882,11 @@ func _load_map(world_id: String, map_id: String) -> void:
 		discovery_tracker.award_achievement("arctic_explorer")
 	if _is_current_map_cave() and discovery_tracker != null:
 		discovery_tracker.award_achievement("cavern_explorer")
+
+	if _is_current_map_moon():
+		_show_field_tip("moon_lichen")
+	elif not _is_current_map_gate_room() and not _is_current_map_map_nexus():
+		_show_field_tip("welcome")
 
 
 func _clear_generated_map() -> void:
