@@ -8,7 +8,7 @@ const MapContext = preload("res://scripts/core/MapContext.gd")
 # Each landmark is seeded individually (so no two are quite alike) and grounded to
 # the lowest terrain under its footprint, so it sits on slopes instead of floating.
 
-const LANDMARK_COUNT_BASE: int = 6
+const LANDMARK_COUNT_BASE: int = 9
 
 const KIND_MONOLITH: int = 0
 const KIND_ARCH: int = 1
@@ -52,7 +52,7 @@ static func _scatter_internal(parent: Node3D, world_seed: int, density_level: in
 		# Dry, open ground: above water, away from spawn, clear of the river.
 		if surf < water_level + 1.0:
 			continue
-		if Vector2(x, z).length() < 40.0:
+		if Vector2(x, z).length() < 24.0:
 			continue
 		if float(river_fn.call(x, z)) < 8.0:
 			continue

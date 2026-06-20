@@ -11,6 +11,8 @@ const RockFactory = preload("res://scripts/factories/RockFactory.gd")
 const CrystalFactory = preload("res://scripts/factories/CrystalFactory.gd")
 const RuinFactory = preload("res://scripts/factories/RuinFactory.gd")
 const LandmarkFactory = preload("res://scripts/factories/LandmarkFactory.gd")
+const RoadFactory = preload("res://scripts/factories/RoadFactory.gd")
+const BridgeFactory = preload("res://scripts/factories/BridgeFactory.gd")
 const FlowerFactory = preload("res://scripts/factories/FlowerFactory.gd")
 const CreatureFactory = preload("res://scripts/factories/CreatureFactory.gd")
 const WeatherFactory = preload("res://scripts/factories/WeatherFactory.gd")
@@ -4004,6 +4006,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_crystals()
 			await get_tree().process_frame
 			_scatter_ruins()
+			_scatter_roads()
 			await get_tree().process_frame
 		elif _is_current_map_water():
 			_scatter_bird_flocks()
@@ -4032,6 +4035,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		else:
 			_spawn_wonders()
 			_scatter_landmarks()
+			_scatter_bridges()
 			await get_tree().process_frame
 			_scatter_trees()
 			await get_tree().process_frame
@@ -4039,6 +4043,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_crystals()
 			await get_tree().process_frame
 			_scatter_ruins()
+			_scatter_roads()
 			_scatter_flowers()
 			_scatter_bird_flocks()
 			await get_tree().process_frame
@@ -4362,9 +4367,11 @@ func _wonder_exclusions() -> Array:
 	if map_context != null and not _is_current_map_gate_room() and not _is_current_map_map_nexus():
 		for gate_pos in GateFactory.predict_gate_positions(map_context):
 			out.append(Vector3(gate_pos.x, 0.0, gate_pos.z))
-	# Landmarks are scattered before trees, so their recorded centers keep trees clear.
+	# Landmarks and bridges are scattered before trees, so their recorded centers keep trees clear.
 	for lp in _landmark_positions:
 		out.append(Vector3(lp.x, 0.0, lp.z))
+	for bp in _bridge_positions:
+		out.append(Vector3(bp.x, 0.0, bp.z))
 	return out
 
 
@@ -4386,6 +4393,16 @@ func _scatter_ruins() -> void:
 func _scatter_landmarks() -> void:
 	_begin_generation_channel("landmarks")
 	_landmark_positions = LandmarkFactory.scatter_landmarks(generated_root, world_seed, density_level, map_context)
+
+
+func _scatter_roads() -> void:
+	_begin_generation_channel("roads")
+	RoadFactory.scatter_roads(generated_root, world_seed, density_level, map_context)
+
+
+func _scatter_bridges() -> void:
+	_begin_generation_channel("bridges")
+	_bridge_positions = BridgeFactory.scatter_bridges(generated_root, world_seed, density_level, map_context)
 
 
 func _scatter_flowers() -> void:
@@ -4478,6 +4495,7 @@ func _scatter_moon_glass_craters() -> void:
 
 var _wonder_positions: Array = []
 var _landmark_positions: Array = []
+var _bridge_positions: Array = []
 
 
 func _gate_positions_to_wonders() -> void:
