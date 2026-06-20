@@ -115,6 +115,8 @@ var _moon_cutscene_active: bool = false
 var _cutscene_active: bool = false
 var _cycle_time: float = 0.0
 var _map_loaded_at_msec: int = 0
+var _arctic_shelter_check_msec: int = 0
+var _arctic_recover_cooldown_until_msec: int = 0
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
 var discovery_tracker: DiscoveryTracker
@@ -123,6 +125,7 @@ const CYCLE_HOURS_PER_SECOND: float = 0.01
 const CYCLE_LENGTH: float = 24.0 / CYCLE_HOURS_PER_SECOND
 const DEFAULT_START_HOUR: float = 7.5
 const MAP_SURVEY_LICHEN_REWARD: int = 1
+const ARCTIC_SHELTER_RADIUS: float = 15.0
 
 
 func _ready() -> void:
@@ -237,6 +240,7 @@ func _process(_delta: float) -> void:
 			_cycle_time = fmod(_cycle_time, CYCLE_LENGTH)
 		_update_day_night_cycle()
 	_update_underwater_state()
+	_update_arctic_exposure()
 	_recover_fallen_player()
 	_enforce_world_bounds()
 	_update_hud(_delta)
@@ -2871,6 +2875,51 @@ func _update_underwater_state() -> void:
 	)
 
 
+# Arctic exposure pressure. Warmth ticks down in Player every frame; here Main
+# (which knows the map type and landmark layout) drives the sheltered flag and the
+# gentle, fully recoverable cold blackout. No effect off arctic maps.
+func _update_arctic_exposure() -> void:
+	if not _is_current_map_arctic():
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null or player.get("warmth_enabled") == null:
+		return
+	var now: int = Time.get_ticks_msec()
+	# Throttle the landmark scan (warmth itself ticks every frame in Player).
+	if now >= _arctic_shelter_check_msec:
+		_arctic_shelter_check_msec = now + 250
+		player.set("sheltered", _near_warm_landmark(player.global_position))
+	if float(player.get("warmth")) <= 0.0 and now >= _arctic_recover_cooldown_until_msec:
+		_arctic_recover_cooldown_until_msec = now + 2500
+		_recover_frozen_player(player)
+
+
+# Gates and wonders radiate warmth — routing between them is how you survive the
+# cold. Reads the already-maintained _wonder_positions list (a handful of entries).
+func _near_warm_landmark(from: Vector3) -> bool:
+	var radius_sq: float = ARCTIC_SHELTER_RADIUS * ARCTIC_SHELTER_RADIUS
+	for entry in _wonder_positions:
+		var kind: String = str(entry.get("kind", ""))
+		if kind != "gate" and kind != "wonder":
+			continue
+		var dx: float = float(entry.get("x", 0.0)) - from.x
+		var dz: float = float(entry.get("z", 0.0)) - from.z
+		if dx * dx + dz * dz <= radius_sq:
+			return true
+	return false
+
+
+func _recover_frozen_player(player: CharacterBody3D) -> void:
+	if player == null:
+		return
+	player.global_position = _sanitize_player_position(_find_spawn_position())
+	player.velocity = Vector3.ZERO
+	player.set("warmth", float(player.get("max_warmth")))
+	player.set("sheltered", true)
+	last_discovery_text = "You nearly froze — recovered at a safe ridge. Warm up near gates and wonders."
+	_push_status_banner(last_discovery_text, 4200)
+
+
 func _update_day_night_cycle() -> void:
 	if sun_light == null or world_environment == null:
 		return
@@ -2988,6 +3037,9 @@ func _update_hud(delta: float = 0.0) -> void:
 	var warning_text: String = ""
 	var stamina: float = -1.0
 	var breath: float = -1.0
+	var warmth: float = -1.0
+	var max_warmth: float = -1.0
+	var warmth_enabled: bool = false
 	if player != null:
 		var half: float = _world_half_size()
 		var distance_to_edge: float = half - max(abs(player.global_position.x), abs(player.global_position.z))
@@ -2998,6 +3050,14 @@ func _update_hud(delta: float = 0.0) -> void:
 			warning_text = "Edge barrier nearby"
 		stamina = float(player.get("sprint_stamina")) if player.get("sprint_stamina") != null else -1.0
 		breath = float(player.get("breath")) if player.get("breath") != null else -1.0
+		if player.get("warmth_enabled") != null and bool(player.get("warmth_enabled")):
+			warmth_enabled = true
+			warmth = float(player.get("warmth"))
+			max_warmth = float(player.get("max_warmth"))
+			if warmth <= max_warmth * 0.25:
+				warning_text = "Freezing — warm up near a gate or wonder"
+			elif warmth <= max_warmth * 0.5 and warning_text == "":
+				warning_text = "Getting cold — head for a gate or wonder"
 	if show_gate_debug_hud and not _is_current_map_gate_room() and not _is_current_map_map_nexus() and _gate_debug_line != "":
 		if warning_text != "":
 			warning_text += " | "
@@ -3081,6 +3141,9 @@ func _update_hud(delta: float = 0.0) -> void:
 		"gate_room_source_map": gate_room_source_map,
 		"stamina": stamina,
 		"breath": breath,
+		"warmth": warmth,
+		"max_warmth": max_warmth,
+		"warmth_enabled": warmth_enabled,
 		"player_node": player,
 		"world_half_size": _world_half_size(),
 		"minimap_zoom": 1.15 if _is_current_map_moon() else 1.0,
@@ -4622,6 +4685,7 @@ func _spawn_player() -> void:
 		player.set("gravity_multiplier", 1.0)
 		player.set("jump_multiplier", 1.0)
 		player.set("water_level", -100000.0)
+		player.set("warmth_enabled", true)
 	else:
 		player.set("gravity_multiplier", 1.0)
 		player.set("jump_multiplier", 1.0)

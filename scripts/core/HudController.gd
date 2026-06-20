@@ -13,6 +13,8 @@ var controls_label: Label
 var goals_label: Label
 var stamina_bar: ProgressBar
 var breath_bar: ProgressBar
+var warmth_bar: ProgressBar
+var warmth_label: Label
 var minimap_panel: PanelContainer
 var minimap_marker_layer: Control
 var music_label: Label
@@ -22,6 +24,8 @@ var fps_label: Label
 var underwater_layer: CanvasLayer
 var underwater_overlay: ColorRect
 var is_underwater: bool = false
+var cold_layer: CanvasLayer
+var cold_overlay: ColorRect
 var hud_position: String = "left"
 var _ui_parent: Node
 
@@ -75,6 +79,7 @@ func setup(parent: Node) -> void:
 	hud_layer.add_child(fps_label)
 
 	_setup_underwater_overlay(parent)
+	_setup_cold_overlay(parent)
 
 
 func set_hud_position(position: String) -> void:
@@ -232,6 +237,22 @@ func _create_vitals_panel(font_size: int) -> PanelContainer:
 	breath_bar.custom_minimum_size = Vector2(0.0, 12.0)
 	breath_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitals_stack.add_child(breath_bar)
+
+	warmth_label = Label.new()
+	warmth_label.text = "Warmth"
+	warmth_label.add_theme_font_size_override("font_size", font_size)
+	warmth_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	warmth_label.visible = false
+	vitals_stack.add_child(warmth_label)
+	warmth_bar = ProgressBar.new()
+	warmth_bar.min_value = 0.0
+	warmth_bar.max_value = 50.0
+	warmth_bar.value = 50.0
+	warmth_bar.show_percentage = false
+	warmth_bar.custom_minimum_size = Vector2(0.0, 12.0)
+	warmth_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	warmth_bar.visible = false
+	vitals_stack.add_child(warmth_bar)
 	return vitals_panel
 
 
@@ -293,6 +314,22 @@ func _setup_underwater_overlay(parent: Node) -> void:
 	underwater_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	underwater_overlay.visible = false
 	underwater_layer.add_child(underwater_overlay)
+
+
+func _setup_cold_overlay(parent: Node) -> void:
+	cold_layer = CanvasLayer.new()
+	cold_layer.name = "ColdLayer"
+	cold_layer.layer = 19
+	parent.add_child(cold_layer)
+
+	cold_overlay = ColorRect.new()
+	cold_overlay.name = "ColdOverlay"
+	cold_overlay.anchor_right = 1.0
+	cold_overlay.anchor_bottom = 1.0
+	cold_overlay.color = Color(0.62, 0.78, 0.96, 0.0)
+	cold_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cold_overlay.visible = false
+	cold_layer.add_child(cold_overlay)
 
 
 func update(data: Dictionary) -> void:
@@ -406,6 +443,26 @@ func update(data: Dictionary) -> void:
 	if breath_bar != null and breath >= 0.0:
 		breath_bar.value = breath
 		breath_bar.visible = breath < 60.0
+
+	var warmth_enabled: bool = bool(data.get("warmth_enabled", false))
+	var warmth: float = float(data.get("warmth", -1.0))
+	var max_warmth: float = float(data.get("max_warmth", 50.0))
+	if warmth_label != null:
+		warmth_label.visible = warmth_enabled
+	if warmth_bar != null:
+		warmth_bar.visible = warmth_enabled
+		if warmth_enabled and warmth >= 0.0:
+			warmth_bar.max_value = max(max_warmth, 1.0)
+			warmth_bar.value = warmth
+	# Cold screen tint ramps in as warmth drops below half, peaking near zero.
+	if cold_overlay != null:
+		var cold_alpha: float = 0.0
+		if warmth_enabled and warmth >= 0.0 and max_warmth > 0.0:
+			var fraction: float = clamp(warmth / max_warmth, 0.0, 1.0)
+			if fraction < 0.5:
+				cold_alpha = (0.5 - fraction) / 0.5 * 0.42
+		cold_overlay.color.a = cold_alpha
+		cold_overlay.visible = cold_alpha > 0.001
 
 	var player: Node3D = data.get("player_node", null) as Node3D
 	var world_half_size: float = float(data.get("world_half_size", 0.0))

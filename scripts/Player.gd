@@ -15,6 +15,14 @@ const FLASHLIGHT_MAX_CHARGE: float = 30.0
 const FLASHLIGHT_RECHARGE_RATE: float = 2.0
 const FLASHLIGHT_ENABLE_THRESHOLD: float = 8.0
 
+# Arctic exposure. Warmth drains while out in the open and recovers near shelter
+# (warm landmarks like gates and wonders). Only active when warmth_enabled (arctic).
+const MAX_WARMTH: float = 50.0
+const WARMTH_DRAIN_PER_SEC: float = 1.0
+const WARMTH_REGEN_PER_SEC: float = 5.0
+const WARMTH_LOW_FRACTION: float = 0.25
+const WARMTH_COLD_SPEED_SCALE: float = 0.6
+
 const WALKABLE_SLOPE_DEGREES: float = 72.0
 
 var camera: Camera3D
@@ -39,6 +47,11 @@ var max_breath: float = MAX_BREATH
 var max_flashlight_charge: float = FLASHLIGHT_MAX_CHARGE
 var flashlight_base_range: float = 40.0
 var flashlight_range_bonus: float = 0.0
+var max_warmth: float = MAX_WARMTH
+var warmth: float = MAX_WARMTH
+var warmth_drain_per_sec: float = WARMTH_DRAIN_PER_SEC
+var warmth_enabled: bool = false   # set true by Main on arctic maps
+var sheltered: bool = false        # set by Main when near a warm landmark
 var _jump_hold_remaining: float = 0.0
 var _jump_hold_boost_per_sec: float = 0.0
 
@@ -127,6 +140,14 @@ func _physics_process(delta: float) -> void:
 	else:
 		breath = min(breath + delta * 2.0, max_breath)
 
+	if warmth_enabled:
+		if sheltered:
+			warmth = min(warmth + delta * WARMTH_REGEN_PER_SEC, max_warmth)
+		else:
+			warmth = max(warmth - delta * warmth_drain_per_sec, 0.0)
+		if warmth <= max_warmth * WARMTH_LOW_FRACTION:
+			speed *= WARMTH_COLD_SPEED_SCALE
+
 	velocity.x = direction.x * speed
 	velocity.z = direction.z * speed
 
@@ -197,8 +218,11 @@ func apply_capabilities(caps: Dictionary) -> void:
 	sprint_regen_per_sec = float(caps.get("sprint_regen_per_sec", 1.0 / 3.0))
 	max_flashlight_charge = float(caps.get("max_flashlight_charge", FLASHLIGHT_MAX_CHARGE))
 	flashlight_range_bonus = float(caps.get("flashlight_range_bonus", 0.0))
+	max_warmth = float(caps.get("max_warmth", MAX_WARMTH))
+	warmth_drain_per_sec = float(caps.get("warmth_drain_per_sec", WARMTH_DRAIN_PER_SEC))
 	if flashlight != null:
 		flashlight.spot_range = flashlight_base_range + flashlight_range_bonus
 	breath = max_breath
 	sprint_stamina = max_sprint_stamina
 	flashlight_charge = max_flashlight_charge
+	warmth = max_warmth

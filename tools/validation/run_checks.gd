@@ -767,6 +767,8 @@ func _run_progression_checks(failures: Array[String]) -> void:
 		failures.append("Progression base pin_cap expected 6, got %d." % int(base.get("pin_cap", 0)))
 	if bool(base.get("gate_sight", true)):
 		failures.append("Progression base gate_sight should be false.")
+	if not is_equal_approx(float(base.get("max_warmth", 0.0)), 50.0):
+		failures.append("Progression base max_warmth expected 50, got %s." % str(base.get("max_warmth")))
 	if ProgressionService.kit_summary(0) != "":
 		failures.append("Progression kit summary should be empty before the first unlock.")
 
@@ -787,10 +789,13 @@ func _run_progression_checks(failures: Array[String]) -> void:
 	var prev: Dictionary = ProgressionService.capabilities(0)
 	for total in range(1, 170):
 		var caps: Dictionary = ProgressionService.capabilities(total)
-		for key in ["max_breath", "max_sprint_stamina", "max_flashlight_charge", "pin_cap", "survey_radius"]:
+		for key in ["max_breath", "max_sprint_stamina", "max_flashlight_charge", "pin_cap", "survey_radius", "max_warmth"]:
 			if float(caps.get(key, 0.0)) < float(prev.get(key, 0.0)):
 				failures.append("Progression capability '%s' regressed at total %d." % [key, total])
 				break
+		# Warmth drain should only ever improve (decrease) with more upgrades.
+		if float(caps.get("warmth_drain_per_sec", 9.0)) > float(prev.get("warmth_drain_per_sec", 9.0)):
+			failures.append("Progression warmth_drain_per_sec got worse at total %d." % total)
 		prev = caps
 
 	# next_upgrade points at the first unearned tier, then empties out.
@@ -823,7 +828,13 @@ func _run_progression_checks(failures: Array[String]) -> void:
 		failures.append("Player.apply_capabilities did not adopt max_flashlight_charge ceiling.")
 	if not is_equal_approx(float(player.get("max_sprint_stamina")), float(full_caps["max_sprint_stamina"])):
 		failures.append("Player.apply_capabilities did not adopt max_sprint_stamina ceiling.")
+	if not is_equal_approx(float(player.get("max_warmth")), float(full_caps["max_warmth"])):
+		failures.append("Player.apply_capabilities did not adopt max_warmth ceiling.")
+	if not is_equal_approx(float(player.get("warmth_drain_per_sec")), float(full_caps["warmth_drain_per_sec"])):
+		failures.append("Player.apply_capabilities did not adopt warmth_drain_per_sec.")
 	# Pools should be topped up to the new ceiling so an earned upgrade is felt immediately.
 	if not is_equal_approx(float(player.get("breath")), float(full_caps["max_breath"])):
 		failures.append("Player.apply_capabilities did not top up breath to the new ceiling.")
+	if not is_equal_approx(float(player.get("warmth")), float(full_caps["max_warmth"])):
+		failures.append("Player.apply_capabilities did not top up warmth to the new ceiling.")
 	player.free()

@@ -23,6 +23,8 @@ const BASE_CAPS := {
 	"pin_cap": 6,
 	"survey_radius": 0.0,           # bonus discovery auto-detect / minimap reveal radius
 	"gate_sight": false,            # reveal the map type behind a gate before entering
+	"max_warmth": 50.0,             # Player.MAX_WARMTH (arctic exposure pool)
+	"warmth_drain_per_sec": 1.0,    # Player.WARMTH_DRAIN_PER_SEC (lower is better)
 }
 
 # Ordered by threshold (ascending). Keep it sorted — next_upgrade relies on order.
@@ -39,6 +41,9 @@ const UPGRADE_DEFS: Array = [
 	{"id": "pins_1", "track": "pins", "tier": 1, "name": "Pathfinder's Pins I", "short": "Pins I",
 		"desc": "Carry more survey pins (cap 9).",
 		"threshold": 15, "effect": {"pin_cap": 9}},
+	{"id": "insulation_1", "track": "insulation", "tier": 1, "name": "Insulation I", "short": "Insulation I",
+		"desc": "Layered survival gear — endure arctic cold far longer.",
+		"threshold": 18, "effect": {"max_warmth": 80.0, "warmth_drain_per_sec": 0.8}},
 	{"id": "survey_1", "track": "survey", "tier": 1, "name": "Far Survey I", "short": "Survey I",
 		"desc": "Wider survey reach — spot discoveries from farther away.",
 		"threshold": 21, "effect": {"survey_radius": 8.0}},
@@ -51,6 +56,9 @@ const UPGRADE_DEFS: Array = [
 	{"id": "strider_2", "track": "strider", "tier": 2, "name": "Strider II", "short": "Strider II",
 		"desc": "Marathon legs — long sprints across open ground.",
 		"threshold": 45, "effect": {"max_sprint_stamina": 30.0, "sprint_regen_per_sec": 0.6}},
+	{"id": "insulation_2", "track": "insulation", "tier": 2, "name": "Insulation II", "short": "Insulation II",
+		"desc": "Expedition thermals — shrug off the deepest cold.",
+		"threshold": 50, "effect": {"max_warmth": 120.0, "warmth_drain_per_sec": 0.6}},
 	{"id": "gate_sight", "track": "gate_sight", "tier": 1, "name": "Gate Sight", "short": "Gate Sight",
 		"desc": "Read a gate's shimmer — know the world type before you cross.",
 		"threshold": 55, "effect": {"gate_sight": true}},
