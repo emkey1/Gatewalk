@@ -29,6 +29,7 @@ func _init() -> void:
 	_run_water_cache_terrain_checks(failures)
 	_run_stable_rng_checks(failures)
 	_run_gate_sight_preview_checks(failures)
+	_run_rock_multimesh_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -759,6 +760,41 @@ func _signature_diff_summary(a: String, b: String) -> String:
 	var sample_a: String = only_a[0] if not only_a.is_empty() else "<none>"
 	var sample_b: String = only_b[0] if not only_b.is_empty() else "<none>"
 	return "delta_a=%d delta_b=%d sample_a=%s sample_b=%s" % [only_a.size(), only_b.size(), sample_a, sample_b]
+
+
+func _run_rock_multimesh_checks(failures: Array[String]) -> void:
+	# Rocks render via a single MultiMesh (one draw call) with a matching StaticBody of
+	# sphere colliders. Verify structure + that the seed still produces an identical,
+	# deterministic layout after the MultiMesh conversion.
+	var ctx: MapContext = MapContext.new({"world_seed": 5151, "map_type": WorldGraph.MAP_NORMAL})
+	RockFactory.clear_cache()
+	var root_a: Node3D = Node3D.new()
+	RockFactory.scatter_rocks(root_a, 5151, DENSITY_LEVEL, ctx)
+	var mmi_a: MultiMeshInstance3D = root_a.get_node_or_null("Rocks/RockMesh") as MultiMeshInstance3D
+	if mmi_a == null or mmi_a.multimesh == null:
+		failures.append("RockFactory did not produce a Rocks/RockMesh MultiMeshInstance3D.")
+		root_a.free()
+		return
+	var count_a: int = mmi_a.multimesh.instance_count
+	if count_a <= 0:
+		failures.append("RockFactory MultiMesh produced no instances.")
+	var body_a: Node = root_a.get_node_or_null("Rocks/RockColliders")
+	if body_a == null or body_a.get_child_count() != count_a:
+		failures.append("RockFactory collider count does not match rock instance count.")
+
+	var root_b: Node3D = Node3D.new()
+	RockFactory.scatter_rocks(root_b, 5151, DENSITY_LEVEL, ctx)
+	var mmi_b: MultiMeshInstance3D = root_b.get_node_or_null("Rocks/RockMesh") as MultiMeshInstance3D
+	if mmi_b != null and mmi_b.multimesh != null:
+		if mmi_b.multimesh.instance_count != count_a:
+			failures.append("RockFactory instance count is non-deterministic.")
+		else:
+			for i in range(count_a):
+				if not mmi_a.multimesh.get_instance_transform(i).is_equal_approx(mmi_b.multimesh.get_instance_transform(i)):
+					failures.append("RockFactory instance transform %d is non-deterministic." % i)
+					break
+	root_a.free()
+	root_b.free()
 
 
 func _run_gate_sight_preview_checks(failures: Array[String]) -> void:
