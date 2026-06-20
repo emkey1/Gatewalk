@@ -4956,8 +4956,14 @@ func _create_visible_sun() -> void:
 
 
 func _spawn_player() -> void:
-	var existing_player: CharacterBody3D = get_node_or_null("Player")
+	# Free the previous player via the authoritative _player_ref. (Using only the
+	# "Player" node path leaked nodes: a prior respawn's queue_free + same-frame
+	# add_child name-collides and renames the live player, so the path lookup misses
+	# it on the next respawn.) Rename the retiring node so the new one cleanly takes
+	# "Player" instead of getting an auto-suffixed name.
+	var existing_player: CharacterBody3D = _player_ref if is_instance_valid(_player_ref) else get_node_or_null("Player")
 	if existing_player != null:
+		existing_player.name = "PlayerRetiring"
 		existing_player.queue_free()
 	_player_ref = null
 
