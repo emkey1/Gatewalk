@@ -16,4 +16,5 @@ static func add_moon_gate_trigger(parent: Node3D, on_body_entered: Callable) -> 
 	shape_node.shape = shape
 	area.add_child(shape_node)
 	parent.add_child(area)
-	area.body_entered.connect(on_body_entered, CONNECT_DEFERRED)
+	# Activation is driven by Main's MoonGateTrigger proximity polling, not this
+	# Area3D signal (the poll reads this node's position — keep the Area3D).

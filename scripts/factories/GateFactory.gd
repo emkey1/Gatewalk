@@ -193,7 +193,8 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 		area_shape.shape = slot_area_box
 		area.add_child(area_shape)
 		area.position = slot_pos
-		area.body_entered.connect(on_body_entered.bind(si), CONNECT_DEFERRED)
+		# Activation is driven by Main's proximity polling, not this Area3D signal
+		# (single detection path — see the gate-detection Tier-3 cleanup).
 		parent.add_child(area)
 
 
@@ -256,7 +257,8 @@ static func scatter_gate_room_return_portal(parent: Node3D, on_body_entered: Cal
 	area_shape.shape = shape
 	area.add_child(area_shape)
 	area.position = portal.position
-	area.body_entered.connect(on_body_entered, CONNECT_DEFERRED)
+	# Activation is driven by Main's proximity polling, not this Area3D signal
+	# (single detection path — see the gate-detection Tier-3 cleanup).
 	parent.add_child(area)
 
 
@@ -377,7 +379,8 @@ static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_ent
 		area_shape.shape = slot_area_box
 		area.add_child(area_shape)
 		area.position = slot_pos
-		area.body_entered.connect(on_body_entered.bind(si), CONNECT_DEFERRED)
+		# Activation is driven by Main's proximity polling, not this Area3D signal
+		# (single detection path — see the gate-detection Tier-3 cleanup).
 		parent.add_child(area)
 
 
