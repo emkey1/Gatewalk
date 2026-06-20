@@ -118,6 +118,8 @@ var _map_loaded_at_msec: int = 0
 var _arctic_shelter_check_msec: int = 0
 var _arctic_recover_cooldown_until_msec: int = 0
 var _water_recover_cooldown_until_msec: int = 0
+var _cave_dark_since_msec: int = 0
+var _cave_recover_cooldown_until_msec: int = 0
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
 var discovery_tracker: DiscoveryTracker
@@ -127,6 +129,7 @@ const CYCLE_LENGTH: float = 24.0 / CYCLE_HOURS_PER_SECOND
 const DEFAULT_START_HOUR: float = 7.5
 const MAP_SURVEY_LICHEN_REWARD: int = 1
 const ARCTIC_SHELTER_RADIUS: float = 15.0
+const CAVE_DARK_LIMIT_MSEC: int = 8000
 
 
 func _ready() -> void:
@@ -243,6 +246,7 @@ func _process(_delta: float) -> void:
 	_update_underwater_state()
 	_update_arctic_exposure()
 	_update_drowning()
+	_update_cave_darkness()
 	_recover_fallen_player()
 	_enforce_world_bounds()
 	_update_hud(_delta)
@@ -2950,6 +2954,40 @@ func _recover_drowned_player(player: CharacterBody3D) -> void:
 	_push_status_banner(last_discovery_text, 4200)
 
 
+# Cave darkness pressure. The flashlight recharges by moving, so a fully-dead lamp
+# only persists if you stall in the dark; after a sustained spell, a gentle
+# recoverable retreat to the entrance. The Lantern kit track (more charge, longer
+# range) is what keeps this from happening — the cave's coupling to the kit.
+func _update_cave_darkness() -> void:
+	if not _is_current_map_cave():
+		_cave_dark_since_msec = 0
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null or player.get("flashlight_charge") == null:
+		_cave_dark_since_msec = 0
+		return
+	if float(player.get("flashlight_charge")) > 0.01:
+		_cave_dark_since_msec = 0
+		return
+	var now: int = Time.get_ticks_msec()
+	if _cave_dark_since_msec == 0:
+		_cave_dark_since_msec = now
+	elif now - _cave_dark_since_msec >= CAVE_DARK_LIMIT_MSEC and now >= _cave_recover_cooldown_until_msec:
+		_cave_recover_cooldown_until_msec = now + 2500
+		_cave_dark_since_msec = 0
+		_recover_lost_player(player)
+
+
+func _recover_lost_player(player: CharacterBody3D) -> void:
+	if player == null:
+		return
+	player.global_position = _sanitize_player_position(_find_spawn_position())
+	player.velocity = Vector3.ZERO
+	player.set("flashlight_charge", float(player.get("max_flashlight_charge")))
+	last_discovery_text = "Lost in the dark — you retrace your steps to the entrance. Upgrade Lantern to range farther."
+	_push_status_banner(last_discovery_text, 4200)
+
+
 func _update_day_night_cycle() -> void:
 	if sun_light == null or world_environment == null:
 		return
@@ -3088,6 +3126,13 @@ func _update_hud(delta: float = 0.0) -> void:
 				warning_text = "Freezing — warm up near a gate or wonder"
 			elif warmth <= max_warmth * 0.5 and warning_text == "":
 				warning_text = "Getting cold — head for a gate or wonder"
+		if _is_current_map_cave() and player.get("flashlight_charge") != null:
+			var f_charge: float = float(player.get("flashlight_charge"))
+			var f_max: float = float(player.get("max_flashlight_charge")) if player.get("max_flashlight_charge") != null else 30.0
+			if f_charge <= 0.01:
+				warning_text = "In the dark — keep moving to recharge your lantern"
+			elif f_charge <= f_max * 0.25 and warning_text == "":
+				warning_text = "Lantern low — keep moving to recharge"
 		var gate_hint: String = _gate_sight_hint()
 		if gate_hint != "":
 			warning_text = (warning_text + " | " + gate_hint) if warning_text != "" else gate_hint
