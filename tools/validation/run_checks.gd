@@ -31,6 +31,7 @@ func _init() -> void:
 	_run_gate_sight_preview_checks(failures)
 	_run_rock_multimesh_checks(failures)
 	_run_flower_multimesh_checks(failures)
+	_run_crystal_multimesh_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -794,6 +795,37 @@ func _run_rock_multimesh_checks(failures: Array[String]) -> void:
 				if not mmi_a.multimesh.get_instance_transform(i).is_equal_approx(mmi_b.multimesh.get_instance_transform(i)):
 					failures.append("RockFactory instance transform %d is non-deterministic." % i)
 					break
+	root_a.free()
+	root_b.free()
+
+
+func _run_crystal_multimesh_checks(failures: Array[String]) -> void:
+	var ctx: MapContext = MapContext.new({"world_seed": 7777, "map_type": WorldGraph.MAP_NORMAL})
+	CrystalFactory.clear_cache()
+	var root_a: Node3D = Node3D.new()
+	CrystalFactory.scatter_crystals(root_a, 7777, DENSITY_LEVEL, ctx)
+	var mmi_a: MultiMeshInstance3D = root_a.get_node_or_null("Crystals/CrystalMesh") as MultiMeshInstance3D
+	if mmi_a == null or mmi_a.multimesh == null:
+		failures.append("CrystalFactory did not produce a Crystals/CrystalMesh MultiMeshInstance3D.")
+		root_a.free()
+		return
+	var count_a: int = mmi_a.multimesh.instance_count
+	if count_a <= 0:
+		failures.append("CrystalFactory MultiMesh produced no instances.")
+	var body_a: Node = root_a.get_node_or_null("Crystals/CrystalColliders")
+	if body_a == null or body_a.get_child_count() != count_a:
+		failures.append("CrystalFactory collider count does not match crystal instance count.")
+
+	var root_b: Node3D = Node3D.new()
+	CrystalFactory.scatter_crystals(root_b, 7777, DENSITY_LEVEL, ctx)
+	var mmi_b: MultiMeshInstance3D = root_b.get_node_or_null("Crystals/CrystalMesh") as MultiMeshInstance3D
+	if mmi_b != null and mmi_b.multimesh != null and mmi_b.multimesh.instance_count == count_a:
+		for i in range(count_a):
+			if not mmi_a.multimesh.get_instance_transform(i).is_equal_approx(mmi_b.multimesh.get_instance_transform(i)):
+				failures.append("CrystalFactory instance transform %d is non-deterministic." % i)
+				break
+	else:
+		failures.append("CrystalFactory instance count is non-deterministic.")
 	root_a.free()
 	root_b.free()
 

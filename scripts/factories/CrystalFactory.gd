@@ -2,7 +2,13 @@ extends RefCounted
 class_name CrystalFactory
 
 const MapContext = preload("res://scripts/core/MapContext.gd")
+const MultiMeshScatter = preload("res://scripts/factories/MultiMeshScatter.gd")
 const CRYSTAL_COUNT_BASE: int = 42
+# Representative taper for the shared MultiMesh mesh. Per-crystal bottom_radius is
+# baked into the horizontal scale; the top/bottom ratio is fixed (a tiny visual
+# approximation — imperceptible on glowing spike clusters).
+const REF_BOTTOM_RADIUS: float = 0.32
+const REF_TOP_RADIUS: float = 0.07
 
 static var _mesh_cache: Dictionary = {}
 static var _material_cache: Dictionary = {}
@@ -29,10 +35,12 @@ static func _scatter_crystals_internal(parent: Node3D, world_seed: int, density_
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "crystals"))
 	var dmult: float = _density_mult(density_level)
 	var count: int = int(float(CRYSTAL_COUNT_BASE) * dmult)
+	var cseg: int = [6, 10, 16][clampi(density_level, 0, 2)]
 
-	var root := Node3D.new()
-	root.name = "Crystals"
-	parent.add_child(root)
+	var transforms: Array[Transform3D] = []
+	var collider_origins: Array[Vector3] = []
+	var collider_radii: Array[float] = []
+	var collider_heights: Array[float] = []
 
 	for i in range(count):
 		var pos: Vector3 = _random_land_position(rng, half, height_fn)
@@ -41,28 +49,49 @@ static func _scatter_crystals_internal(parent: Node3D, world_seed: int, density_
 		if pos.distance_to(Vector3.ZERO) < 15.0:
 			continue
 
-		var cluster := Node3D.new()
-		cluster.name = "CrystalCluster_" + str(i)
-		cluster.position = pos
-		cluster.rotation_degrees.y = rng.randf_range(0.0, 360.0)
-
-		var mat := _get_crystal_material()
-
-		var cseg: int = [6, 10, 16][clampi(density_level, 0, 2)]
+		var cluster_basis := Basis.from_euler(Vector3(0.0, deg_to_rad(rng.randf_range(0.0, 360.0)), 0.0))
 		var crystal_count: int = rng.randi_range(3, 6)
 		for j in range(crystal_count):
-			var crystal := MeshInstance3D.new()
-			var top_radius: float = rng.randf_range(0.04, 0.10)
+			# Draw order preserved from the original per-node version for determinism.
+			var _top_radius: float = rng.randf_range(0.04, 0.10)
 			var bottom_radius: float = rng.randf_range(0.22, 0.42)
 			var height: float = rng.randf_range(1.0, 2.4)
-			var mesh := _get_cylinder_mesh(top_radius, bottom_radius, height, cseg)
-			crystal.mesh = mesh
-			crystal.material_override = mat
-			crystal.position = Vector3(rng.randf_range(-1.0, 1.0), mesh.height * 0.5, rng.randf_range(-1.0, 1.0))
-			crystal.rotation_degrees = Vector3(rng.randf_range(-8.0, 8.0), rng.randf_range(0.0, 360.0), rng.randf_range(-8.0, 8.0))
-			cluster.add_child(crystal)
+			var lx: float = rng.randf_range(-1.0, 1.0)
+			var lz: float = rng.randf_range(-1.0, 1.0)
+			var rx: float = rng.randf_range(-8.0, 8.0)
+			var ry: float = rng.randf_range(0.0, 360.0)
+			var rz: float = rng.randf_range(-8.0, 8.0)
 
-		root.add_child(cluster)
+			var hscale: float = bottom_radius / REF_BOTTOM_RADIUS
+			var crystal_rot := Basis.from_euler(Vector3(deg_to_rad(rx), deg_to_rad(ry), deg_to_rad(rz)))
+			var basis := cluster_basis * crystal_rot.scaled(Vector3(hscale, height, hscale))
+			var origin: Vector3 = pos + cluster_basis * Vector3(lx, height * 0.5, lz)
+			transforms.append(Transform3D(basis, origin))
+			collider_origins.append(origin)
+			collider_radii.append(bottom_radius)
+			collider_heights.append(height)
+
+	var root := Node3D.new()
+	root.name = "Crystals"
+	parent.add_child(root)
+	if transforms.is_empty():
+		return
+
+	MultiMeshScatter.build(root, "CrystalMesh", _get_unit_crystal_mesh(cseg), _get_crystal_material(), transforms)
+
+	var body := StaticBody3D.new()
+	body.name = "CrystalColliders"
+	body.collision_layer = 1
+	body.collision_mask = 1
+	root.add_child(body)
+	for i in range(collider_origins.size()):
+		var cs := CollisionShape3D.new()
+		var shape := CylinderShape3D.new()
+		shape.radius = collider_radii[i]
+		shape.height = collider_heights[i]
+		cs.shape = shape
+		cs.position = collider_origins[i]
+		body.add_child(cs)
 
 
 static func _density_mult(level: int) -> float:
@@ -102,18 +131,14 @@ static func _is_floating_spot_valid(pos: Vector3, water_level: float, height_fn:
 	return (max_h - min_h) <= 1.5
 
 
-static func _qf(value: float) -> float:
-	return round(value * 1000.0) / 1000.0
-
-
-static func _get_cylinder_mesh(top_radius: float, bottom_radius: float, height: float, radial_segments: int) -> CylinderMesh:
-	var key: String = "cyl|%s|%s|%s|%d" % [_qf(top_radius), _qf(bottom_radius), _qf(height), radial_segments]
+static func _get_unit_crystal_mesh(radial_segments: int) -> CylinderMesh:
+	var key: String = "unit_crystal|%d" % radial_segments
 	if _mesh_cache.has(key):
 		return _mesh_cache[key] as CylinderMesh
 	var mesh := CylinderMesh.new()
-	mesh.top_radius = top_radius
-	mesh.bottom_radius = bottom_radius
-	mesh.height = height
+	mesh.top_radius = REF_TOP_RADIUS
+	mesh.bottom_radius = REF_BOTTOM_RADIUS
+	mesh.height = 1.0
 	mesh.radial_segments = radial_segments
 	_mesh_cache[key] = mesh
 	return mesh
