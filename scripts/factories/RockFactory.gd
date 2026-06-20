@@ -58,13 +58,22 @@ static func _scatter_rocks_internal(parent: Node3D, world_seed: int, density_lev
 
 		# A unit sphere (radius 1, height 2) scaled to (radius, height/2, radius) and
 		# the per-rock visual scale reproduces the old SphereMesh(radius, height) * scale.
-		var scale_v := Vector3(rock_radius * sx, rock_height * 0.5 * sy, rock_radius * sz)
+		var h_half: float = rock_height * 0.5 * sy
+		var r_h: float = maxf(rock_radius * sx, rock_radius * sz)
+		# Ground to the lowest terrain under the rock's footprint (so it never floats on
+		# a slope), then sink it ~25% of its height for a planted, embedded look.
+		var low_y: float = pos.y
+		low_y = minf(low_y, float(height_fn.call(pos.x + r_h, pos.z)))
+		low_y = minf(low_y, float(height_fn.call(pos.x - r_h, pos.z)))
+		low_y = minf(low_y, float(height_fn.call(pos.x, pos.z + r_h)))
+		low_y = minf(low_y, float(height_fn.call(pos.x, pos.z - r_h)))
+		var scale_v := Vector3(rock_radius * sx, h_half, rock_radius * sz)
 		var basis := Basis.from_euler(Vector3(deg_to_rad(rx), deg_to_rad(ry), deg_to_rad(rz))).scaled(scale_v)
-		var origin := Vector3(pos.x, pos.y + rock_height * 0.25, pos.z)
+		var origin := Vector3(pos.x, low_y + h_half * 0.5, pos.z)
 		transforms.append(Transform3D(basis, origin))
 		colors.append(Color(gray, gray, gray))
 		collider_positions.append(origin)
-		collider_radii.append(maxf(rock_radius * sx, rock_radius * sz))
+		collider_radii.append(r_h)
 
 	var root := Node3D.new()
 	root.name = "Rocks"
