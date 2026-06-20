@@ -622,16 +622,22 @@ func _run_persisted_universe_isolation_checks(failures: Array[String]) -> void:
 
 
 func _run_tree_factory_checks(failures: Array[String]) -> void:
+	var norm_err: String = TreeFactory.verify_normalization()
+	if norm_err != "":
+		failures.append("TreeFactory normalization: " + norm_err)
 	var stats_a: Dictionary = _build_tree_stats(SEED_A)
 	var stats_b: Dictionary = _build_tree_stats(SEED_A)
-	if int(stats_a.get("nodes", 0)) <= 0 or int(stats_b.get("nodes", 0)) <= 0:
-		failures.append("TreeFactory produced empty output.")
+	if int(stats_a.get("instances", 0)) <= 0:
+		failures.append("TreeFactory produced no MultiMesh instances.")
 		return
-	_assert_stat_delta_within(failures, "TreeFactory node count", stats_a, stats_b, "nodes", 256)
-	_assert_stat_delta_within(failures, "TreeFactory tree root count", stats_a, stats_b, "tree_nodes", 4)
-	_assert_stat_delta_within(failures, "TreeFactory mesh count", stats_a, stats_b, "mesh_nodes", 256)
-	_assert_stat_delta_within(failures, "TreeFactory cylinder mesh count", stats_a, stats_b, "cylinder_meshes", 128)
-	_assert_stat_delta_within(failures, "TreeFactory sphere mesh count", stats_a, stats_b, "sphere_meshes", 128)
+	if int(stats_a.get("multimesh_nodes", 0)) <= 0:
+		failures.append("TreeFactory produced no MultiMeshInstance3D nodes.")
+	if int(stats_a.get("instances", 0)) != int(stats_b.get("instances", 0)):
+		failures.append("TreeFactory instance count is non-deterministic (%d vs %d)." % [int(stats_a.get("instances", 0)), int(stats_b.get("instances", 0))])
+	if str(stats_a.get("sig", "")) != str(stats_b.get("sig", "")):
+		failures.append("TreeFactory instance transforms are non-deterministic.")
+	if int(stats_a.get("colliders", 0)) <= 0:
+		failures.append("TreeFactory produced no trunk colliders.")
 
 
 func _build_tree_stats(seed_value: int) -> Dictionary:
@@ -643,32 +649,30 @@ func _build_tree_stats(seed_value: int) -> Dictionary:
 	root.name = "TreeValidationRoot"
 	TreeFactory.scatter_trees(root, seed_value, DENSITY_LEVEL, GRAPHICS_LEVEL, context)
 	var stats := {
-		"nodes": 0,
-		"tree_nodes": 0,
-		"mesh_nodes": 0,
-		"cylinder_meshes": 0,
-		"sphere_meshes": 0,
+		"multimesh_nodes": 0,
+		"instances": 0,
+		"colliders": 0,
 	}
-	_collect_tree_stats(root, stats)
+	var sig := PackedStringArray()
+	_collect_tree_stats(root, stats, sig)
+	stats["sig"] = "|".join(sig).md5_text()
 	root.free()
 	return stats
 
 
-func _collect_tree_stats(node: Node, stats: Dictionary) -> void:
-	stats["nodes"] = int(stats.get("nodes", 0)) + 1
-	if node is Node3D and str(node.name).begins_with("Tree_"):
-		stats["tree_nodes"] = int(stats.get("tree_nodes", 0)) + 1
-	if node is MeshInstance3D:
-		stats["mesh_nodes"] = int(stats.get("mesh_nodes", 0)) + 1
-		var mesh_instance: MeshInstance3D = node as MeshInstance3D
-		if mesh_instance.mesh != null:
-			var mesh_class: String = mesh_instance.mesh.get_class()
-			if mesh_class == "CylinderMesh":
-				stats["cylinder_meshes"] = int(stats.get("cylinder_meshes", 0)) + 1
-			elif mesh_class == "SphereMesh":
-				stats["sphere_meshes"] = int(stats.get("sphere_meshes", 0)) + 1
+func _collect_tree_stats(node: Node, stats: Dictionary, sig: PackedStringArray) -> void:
+	if node is MultiMeshInstance3D:
+		var mmi: MultiMeshInstance3D = node as MultiMeshInstance3D
+		if mmi.multimesh != null:
+			stats["multimesh_nodes"] = int(stats.get("multimesh_nodes", 0)) + 1
+			var instance_count: int = mmi.multimesh.instance_count
+			stats["instances"] = int(stats.get("instances", 0)) + instance_count
+			for i in range(instance_count):
+				sig.append(_vector_key(mmi.multimesh.get_instance_transform(i).origin))
+	if node is CollisionShape3D:
+		stats["colliders"] = int(stats.get("colliders", 0)) + 1
 	for child in node.get_children():
-		_collect_tree_stats(child, stats)
+		_collect_tree_stats(child, stats, sig)
 
 
 func _assert_stat_delta_within(failures: Array[String], label: String, a: Dictionary, b: Dictionary, key: String, tolerance: int) -> void:

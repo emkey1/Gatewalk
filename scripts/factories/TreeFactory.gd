@@ -2,6 +2,7 @@ extends RefCounted
 class_name TreeFactory
 
 const MapContext = preload("res://scripts/core/MapContext.gd")
+const MultiMeshScatter = preload("res://scripts/factories/MultiMeshScatter.gd")
 const TREE_COUNT_BASE: int = 720
 
 static var _material_cache: Dictionary = {}
@@ -39,6 +40,17 @@ static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_lev
 	var trunk_seg: int = [8, 14, 22, 32][clampi(graphics_level, 0, 3)]
 	var leaf_seg: int = [12, 18, 28, 40][clampi(graphics_level, 0, 3)]
 	var leaf_rings: int = [6, 10, 16, 24][clampi(graphics_level, 0, 3)]
+
+	# Each tree is still built with the exact original logic (identical RNG draws and
+	# part transforms) into a throwaway node we measure and discard. Every part is
+	# folded into a per-shape MultiMesh (unit mesh + baked scale + per-instance color),
+	# collapsing ~720 trees x ~12 parts (~8600 MeshInstance3D) into a handful of draw
+	# calls. Trunk-only colliders replace the old whole-canopy auto-collision.
+	var buckets: Dictionary = {}
+	var trunk_origins: Array[Vector3] = []
+	var trunk_radii: Array[float] = []
+	var trunk_heights: Array[float] = []
+
 	for i in range(count):
 		var pos: Vector3 = _random_land_position(rng, half, water_level, height_fn)
 		if map_type == "floating_island" and not _is_floating_tree_spot_valid(pos, water_level, height_fn):
@@ -48,17 +60,61 @@ static func _scatter_trees_internal(parent: Node3D, world_seed: int, density_lev
 
 		var kind: String = _tree_kind_for_position(world_seed, pos, map_type, rng)
 
-		var tree := Node3D.new()
-		tree.name = "Tree_" + str(i)
+		var temp := Node3D.new()
 		var y_offset: float = -0.15
 		if map_type == "floating_island":
 			y_offset = 0.06
-		tree.position = Vector3(pos.x, pos.y + y_offset, pos.z)
-		tree.rotation_degrees.y = rng.randf_range(0.0, 360.0)
-		tree.scale = Vector3.ONE * rng.randf_range(0.8, 1.25)
+		temp.position = Vector3(pos.x, pos.y + y_offset, pos.z)
+		temp.rotation_degrees.y = rng.randf_range(0.0, 360.0)
+		temp.scale = Vector3.ONE * rng.randf_range(0.8, 1.25)
+		_build_tree_visual(temp, kind, trunk_seg, leaf_seg, leaf_rings, density_level, graphics_level, rng, world_seed, pos, map_type)
 
-		root.add_child(tree)
-		_build_tree_visual(tree, kind, trunk_seg, leaf_seg, leaf_rings, density_level, graphics_level, rng, world_seed, pos, map_type)
+		var tree_scale: float = temp.scale.x
+		for child in temp.get_children():
+			var mi := child as MeshInstance3D
+			if mi == null or mi.mesh == null:
+				continue
+			var info: Dictionary = _classify_part(mi.mesh)
+			if info.is_empty():
+				continue
+			var part_xform: Transform3D = temp.transform * mi.transform
+			var color: Color = Color(0.4, 0.3, 0.2)
+			var smat := mi.material_override as StandardMaterial3D
+			if smat != null:
+				color = smat.albedo_color
+			var bkey: String = info["key"]
+			if not buckets.has(bkey):
+				buckets[bkey] = {"mesh": info["mesh"], "transforms": ([] as Array[Transform3D]), "colors": ([] as Array[Color])}
+			(buckets[bkey]["transforms"] as Array[Transform3D]).append(part_xform * Transform3D(Basis().scaled(info["norm_scale"]), Vector3.ZERO))
+			(buckets[bkey]["colors"] as Array[Color]).append(color)
+			if bkey.begins_with("trunk"):
+				var cm := mi.mesh as CylinderMesh
+				trunk_origins.append(part_xform.origin)
+				trunk_radii.append(cm.bottom_radius * tree_scale)
+				trunk_heights.append(cm.height * tree_scale)
+		temp.free()
+
+	for bkey in buckets.keys():
+		var bucket: Dictionary = buckets[bkey]
+		var xforms: Array[Transform3D] = bucket["transforms"]
+		if xforms.is_empty():
+			continue
+		MultiMeshScatter.build(root, "TreeParts_" + str(bkey), bucket["mesh"], MultiMeshScatter.instance_color_material(0.78), xforms, bucket["colors"])
+
+	if not trunk_origins.is_empty():
+		var body := StaticBody3D.new()
+		body.name = "TreeColliders"
+		body.collision_layer = 1
+		body.collision_mask = 1
+		root.add_child(body)
+		for ci in range(trunk_origins.size()):
+			var cs := CollisionShape3D.new()
+			var shape := CylinderShape3D.new()
+			shape.radius = maxf(trunk_radii[ci], 0.12)
+			shape.height = trunk_heights[ci]
+			cs.shape = shape
+			cs.position = trunk_origins[ci]
+			body.add_child(cs)
 
 
 static func _density_mult(level: int) -> float:
@@ -320,3 +376,58 @@ static func _get_sphere_mesh(radius: float, height: float, radial_segments: int,
 	mesh.rings = rings
 	_mesh_cache[key] = mesh
 	return mesh
+
+
+# Map a sized tree-part mesh to a shared unit mesh + the scale that reproduces it,
+# bucketed so each (shape, segment count) gets one MultiMesh. Trunk and branch share
+# a fixed taper (only height varies); cones have top_radius 0; spheres scale freely.
+static func _classify_part(mesh: Mesh) -> Dictionary:
+	if mesh is CylinderMesh:
+		var cm := mesh as CylinderMesh
+		if cm.top_radius <= 0.001:
+			return {"key": "cone_%d" % cm.radial_segments, "norm_scale": Vector3(cm.bottom_radius, cm.height, cm.bottom_radius), "mesh": _unit_cone(cm.radial_segments)}
+		if cm.top_radius < 0.12:
+			return {"key": "branch_%d" % cm.radial_segments, "norm_scale": Vector3(1.0, cm.height, 1.0), "mesh": _unit_branch(cm.radial_segments)}
+		return {"key": "trunk_%d" % cm.radial_segments, "norm_scale": Vector3(1.0, cm.height, 1.0), "mesh": _unit_trunk(cm.radial_segments)}
+	if mesh is SphereMesh:
+		var sm := mesh as SphereMesh
+		return {"key": "leaf_%d_%d" % [sm.radial_segments, sm.rings], "norm_scale": Vector3(sm.radius, sm.height * 0.5, sm.radius), "mesh": _unit_sphere(sm.radial_segments, sm.rings)}
+	return {}
+
+
+static func _unit_trunk(seg: int) -> CylinderMesh:
+	return _get_cylinder_mesh(0.18, 0.30, 1.0, seg)
+
+
+static func _unit_branch(seg: int) -> CylinderMesh:
+	return _get_cylinder_mesh(0.04, 0.10, 1.0, seg)
+
+
+static func _unit_cone(seg: int) -> CylinderMesh:
+	return _get_cylinder_mesh(0.0, 1.0, 1.0, seg)
+
+
+static func _unit_sphere(seg: int, rings: int) -> SphereMesh:
+	return _get_sphere_mesh(1.0, 2.0, seg, rings)
+
+
+# Self-check: a unit mesh scaled by norm_scale must occupy the same local AABB as the
+# original sized mesh — i.e. the MultiMesh render is geometrically identical. Returns
+# "" on success, else an error string. Exercised by the validation harness.
+static func verify_normalization() -> String:
+	var samples: Array[Mesh] = [
+		_get_cylinder_mesh(0.18, 0.30, 3.2, 12),
+		_get_cylinder_mesh(0.04, 0.10, 1.3, 8),
+		_get_cylinder_mesh(0.0, 1.2, 1.4, 12),
+		_get_sphere_mesh(1.1, 1.6, 10, 8),
+	]
+	for sized in samples:
+		var info: Dictionary = _classify_part(sized)
+		if info.is_empty():
+			return "unclassified mesh: " + sized.get_class()
+		var unit: Mesh = info["mesh"]
+		var scaled_unit_aabb: AABB = Transform3D(Basis().scaled(info["norm_scale"]), Vector3.ZERO) * unit.get_aabb()
+		var sized_aabb: AABB = sized.get_aabb()
+		if not scaled_unit_aabb.position.is_equal_approx(sized_aabb.position) or not scaled_unit_aabb.size.is_equal_approx(sized_aabb.size):
+			return "AABB mismatch for %s: sized=%s unit*scale=%s" % [str(info["key"]), str(sized_aabb), str(scaled_unit_aabb)]
+	return ""
