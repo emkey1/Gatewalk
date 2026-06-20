@@ -3037,7 +3037,7 @@ func _update_bioscan() -> void:
 	var range_sq: float = scan_range * scan_range
 	for child in generated_root.get_children():
 		var name_str: String = str(child.name)
-		if not (name_str.begins_with("BirdFlock") or name_str.begins_with("FishSchool")):
+		if not (name_str.begins_with("BirdFlock") or name_str.begins_with("FishSchool") or name_str.begins_with("CritterHerd")):
 			continue
 		var flock: Node3D = child as Node3D
 		if flock == null or flock.get("catalog_id") == null:
@@ -4007,6 +4007,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			await get_tree().process_frame
 			_scatter_ruins()
 			_scatter_roads()
+			_scatter_critter_herds()
 			await get_tree().process_frame
 		elif _is_current_map_water():
 			_scatter_bird_flocks()
@@ -4031,6 +4032,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			await get_tree().process_frame
 			_scatter_ruins()
 			_scatter_bird_flocks()
+			_scatter_critter_herds()
 			await get_tree().process_frame
 		else:
 			_spawn_wonders()
@@ -4046,6 +4048,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_roads()
 			_scatter_flowers()
 			_scatter_bird_flocks()
+			_scatter_critter_herds()
 			await get_tree().process_frame
 		_begin_generation_channel("gates")
 		var target_seeds: Array[int] = []
@@ -4418,6 +4421,11 @@ func _scatter_bird_flocks() -> void:
 func _scatter_fish_schools() -> void:
 	_begin_generation_channel("fish")
 	CreatureFactory.scatter_fish(generated_root, world_seed, map_context)
+
+
+func _scatter_critter_herds() -> void:
+	_begin_generation_channel("critters")
+	CreatureFactory.scatter_critters(generated_root, world_seed, map_context)
 
 
 func _scatter_underwater_plants() -> void:

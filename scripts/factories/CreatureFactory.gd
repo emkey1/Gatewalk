@@ -15,6 +15,9 @@ const BIRD_NOUNS: Array[String] = [
 const FISH_NOUNS: Array[String] = [
 	"Finling", "Darter", "Gill", "Ripple", "Shoaler", "Eelet", "Glimmer", "Fluke", "Spine", "Tide",
 ]
+const LAND_NOUNS: Array[String] = [
+	"Strider", "Grazer", "Lope", "Trotter", "Hopper", "Roamer", "Plodder", "Tusk", "Bramblehide", "Bounder",
+]
 
 
 static func creature_species_name(species_seed: int, is_bird: bool) -> String:
@@ -22,6 +25,13 @@ static func creature_species_name(species_seed: int, is_bird: bool) -> String:
 	var adjective: String = BIO_ADJECTIVES[rng.randi_range(0, BIO_ADJECTIVES.size() - 1)]
 	var nouns: Array[String] = BIRD_NOUNS if is_bird else FISH_NOUNS
 	var noun: String = nouns[rng.randi_range(0, nouns.size() - 1)]
+	return adjective + " " + noun
+
+
+static func land_species_name(species_seed: int) -> String:
+	var rng := StableRng.new(species_seed)
+	var adjective: String = BIO_ADJECTIVES[rng.randi_range(0, BIO_ADJECTIVES.size() - 1)]
+	var noun: String = LAND_NOUNS[rng.randi_range(0, LAND_NOUNS.size() - 1)]
 	return adjective + " " + noun
 
 static func scatter_birds(parent: Node3D, world_seed: int, context: MapContext) -> void:
@@ -99,4 +109,42 @@ static func _scatter_fish_internal(parent: Node3D, world_seed: int, height_fn: C
 		school.set("species_name", creature_species_name(fish_seed, false))
 		school.set("catalog_id", "bio_fish_" + str(placed))
 		parent.add_child(school)
+		placed += 1
+
+
+static func scatter_critters(parent: Node3D, world_seed: int, context: MapContext) -> void:
+	_scatter_critters_internal(
+		parent,
+		world_seed,
+		Callable(context, "height_at_world"),
+		context.world_half_size() * 0.85,
+		context.water_level
+	)
+
+
+static func _scatter_critters_internal(parent: Node3D, world_seed: int, height_fn: Callable, half: float, water_level: float) -> void:
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "critters"))
+
+	var placed := 0
+	var attempts := 0
+	while placed < 5 and attempts < 70:
+		attempts += 1
+		var x: float = rng.randf_range(-half, half)
+		var z: float = rng.randf_range(-half, half)
+		var y: float = height_fn.call(x, z)
+		if y < water_level + 0.5:
+			continue  # keep herds on dry land
+		if Vector2(x, z).length() < 25.0:
+			continue
+
+		var herd := preload("res://scripts/CritterHerd.gd").new()
+		herd.name = "CritterHerd_" + str(placed)
+		herd.position = Vector3(x, y, z)
+		var herd_seed: int = rng.next_u32()
+		herd.set("rng_seed", herd_seed)
+		herd.set("critter_count", rng.randi_range(3, 6))
+		herd.set("species_name", land_species_name(herd_seed))
+		herd.set("catalog_id", "bio_land_" + str(placed))
+		herd.set("height_fn", height_fn)
+		parent.add_child(herd)
 		placed += 1
