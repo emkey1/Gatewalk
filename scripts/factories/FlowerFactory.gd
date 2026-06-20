@@ -2,7 +2,12 @@ extends RefCounted
 class_name FlowerFactory
 
 const MapContext = preload("res://scripts/core/MapContext.gd")
+const MultiMeshScatter = preload("res://scripts/factories/MultiMeshScatter.gd")
 const FLOWER_COUNT_BASE: int = 520
+
+const PALETTE: Array[Color] = [
+	Color(0.95, 0.78, 0.18), Color(0.8, 0.25, 0.75), Color(0.95, 0.35, 0.25), Color(0.85, 0.9, 1.0)
+]
 
 static var _mesh_cache: Dictionary = {}
 static var _material_cache: Dictionary = {}
@@ -11,6 +16,7 @@ static var _material_cache: Dictionary = {}
 static func clear_cache() -> void:
 	_mesh_cache.clear()
 	_material_cache.clear()
+
 
 static func scatter_flowers(parent: Node3D, world_seed: int, density_level: int, context: MapContext) -> void:
 	_scatter_flowers_internal(
@@ -28,44 +34,46 @@ static func _scatter_flowers_internal(parent: Node3D, world_seed: int, density_l
 	var dmult: float = _density_mult(density_level)
 	var count: int = int(float(FLOWER_COUNT_BASE) * dmult)
 
-	var root := Node3D.new()
-	root.name = "Flowers"
-	parent.add_child(root)
+	# One MultiMesh for all stems (shared green) and one for all blossoms (per-instance
+	# palette color), replacing ~5000 individual MeshInstance3D nodes.
+	var stem_transforms: Array[Transform3D] = []
+	var blossom_transforms: Array[Transform3D] = []
+	var blossom_colors: Array[Color] = []
 
 	for i in range(count):
 		var pos: Vector3 = _random_land_position(rng, half, water_level, height_fn)
 		if pos.distance_to(Vector3.ZERO) < 7.0 or pos.y > 9.0:
 			continue
 
-		var flower := Node3D.new()
-		flower.name = "WildflowerPatch_" + str(i)
-		flower.position = pos
-		flower.rotation_degrees.y = rng.randf_range(0.0, 360.0)
-
-		var palette: Array[Color] = [Color(0.95, 0.78, 0.18), Color(0.8, 0.25, 0.75), Color(0.95, 0.35, 0.25), Color(0.85, 0.9, 1.0)]
-		var stem_mat := _get_flower_material(Color(0.12, 0.35, 0.09))
-		var blossom_mat := _get_flower_material(palette[rng.randi_range(0, palette.size() - 1)])
-
+		# Draw order preserved from the original per-node version for determinism.
+		var rot_y: float = rng.randf_range(0.0, 360.0)
+		var patch_basis := Basis.from_euler(Vector3(0.0, deg_to_rad(rot_y), 0.0))
+		var blossom_color: Color = PALETTE[rng.randi_range(0, PALETTE.size() - 1)]
 		var stem_count: int = rng.randi_range(3, 7)
 		for j in range(stem_count):
-			var stem := MeshInstance3D.new()
 			var stem_height: float = rng.randf_range(0.25, 0.55)
-			var stem_mesh := _get_cylinder_mesh(0.025, 0.035, stem_height, 8)
-			stem.mesh = stem_mesh
-			stem.material_override = stem_mat
-			stem.position = Vector3(rng.randf_range(-0.35, 0.35), stem_height * 0.5, rng.randf_range(-0.35, 0.35))
-
-			var blossom := MeshInstance3D.new()
+			var lx: float = rng.randf_range(-0.35, 0.35)
+			var lz: float = rng.randf_range(-0.35, 0.35)
 			var blossom_radius: float = rng.randf_range(0.07, 0.13)
-			var blossom_mesh := _get_sphere_mesh(blossom_radius, blossom_radius * 0.6, 8, 6)
-			blossom.mesh = blossom_mesh
-			blossom.material_override = blossom_mat
-			blossom.position = stem.position + Vector3(0.0, stem_height * 0.55, 0.0)
 
-			flower.add_child(stem)
-			flower.add_child(blossom)
+			var stem_local := Vector3(lx, stem_height * 0.5, lz)
+			var stem_origin: Vector3 = pos + patch_basis * stem_local
+			stem_transforms.append(Transform3D(patch_basis.scaled(Vector3(1.0, stem_height, 1.0)), stem_origin))
 
-		root.add_child(flower)
+			var blossom_local := stem_local + Vector3(0.0, stem_height * 0.55, 0.0)
+			var blossom_origin: Vector3 = pos + patch_basis * blossom_local
+			var blossom_basis := patch_basis.scaled(Vector3(blossom_radius, blossom_radius * 0.3, blossom_radius))
+			blossom_transforms.append(Transform3D(blossom_basis, blossom_origin))
+			blossom_colors.append(blossom_color)
+
+	var root := Node3D.new()
+	root.name = "Flowers"
+	parent.add_child(root)
+	if stem_transforms.is_empty():
+		return
+
+	MultiMeshScatter.build(root, "FlowerStems", _get_unit_stem_mesh(), _get_flower_material(Color(0.12, 0.35, 0.09)), stem_transforms)
+	MultiMeshScatter.build(root, "FlowerBlossoms", _get_unit_blossom_mesh(), MultiMeshScatter.instance_color_material(0.6), blossom_transforms, blossom_colors)
 
 
 static func _density_mult(level: int) -> float:
@@ -87,12 +95,8 @@ static func _random_land_position(rng: StableRng, half: float, water_level: floa
 	return Vector3(x, height_fn.call(x, z), z)
 
 
-static func _qf(value: float) -> float:
-	return round(value * 1000.0) / 1000.0
-
-
 static func _color_key(color: Color) -> String:
-	return "%s,%s,%s,%s" % [_qf(color.r), _qf(color.g), _qf(color.b), _qf(color.a)]
+	return "%d,%d,%d" % [int(round(color.r * 1000.0)), int(round(color.g * 1000.0)), int(round(color.b * 1000.0))]
 
 
 static func _get_flower_material(color: Color) -> StandardMaterial3D:
@@ -105,27 +109,27 @@ static func _get_flower_material(color: Color) -> StandardMaterial3D:
 	return mat
 
 
-static func _get_cylinder_mesh(top_radius: float, bottom_radius: float, height: float, radial_segments: int) -> CylinderMesh:
-	var key: String = "cyl|%s|%s|%s|%d" % [_qf(top_radius), _qf(bottom_radius), _qf(height), radial_segments]
-	if _mesh_cache.has(key):
-		return _mesh_cache[key] as CylinderMesh
+static func _get_unit_stem_mesh() -> CylinderMesh:
+	const KEY := "unit_stem"
+	if _mesh_cache.has(KEY):
+		return _mesh_cache[KEY] as CylinderMesh
 	var mesh := CylinderMesh.new()
-	mesh.top_radius = top_radius
-	mesh.bottom_radius = bottom_radius
-	mesh.height = height
-	mesh.radial_segments = radial_segments
-	_mesh_cache[key] = mesh
+	mesh.top_radius = 0.025
+	mesh.bottom_radius = 0.035
+	mesh.height = 1.0
+	mesh.radial_segments = 8
+	_mesh_cache[KEY] = mesh
 	return mesh
 
 
-static func _get_sphere_mesh(radius: float, height: float, radial_segments: int, rings: int) -> SphereMesh:
-	var key: String = "sph|%s|%s|%d|%d" % [_qf(radius), _qf(height), radial_segments, rings]
-	if _mesh_cache.has(key):
-		return _mesh_cache[key] as SphereMesh
+static func _get_unit_blossom_mesh() -> SphereMesh:
+	const KEY := "unit_blossom"
+	if _mesh_cache.has(KEY):
+		return _mesh_cache[KEY] as SphereMesh
 	var mesh := SphereMesh.new()
-	mesh.radius = radius
-	mesh.height = height
-	mesh.radial_segments = radial_segments
-	mesh.rings = rings
-	_mesh_cache[key] = mesh
+	mesh.radius = 1.0
+	mesh.height = 2.0
+	mesh.radial_segments = 8
+	mesh.rings = 6
+	_mesh_cache[KEY] = mesh
 	return mesh

@@ -30,6 +30,7 @@ func _init() -> void:
 	_run_stable_rng_checks(failures)
 	_run_gate_sight_preview_checks(failures)
 	_run_rock_multimesh_checks(failures)
+	_run_flower_multimesh_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -793,6 +794,38 @@ func _run_rock_multimesh_checks(failures: Array[String]) -> void:
 				if not mmi_a.multimesh.get_instance_transform(i).is_equal_approx(mmi_b.multimesh.get_instance_transform(i)):
 					failures.append("RockFactory instance transform %d is non-deterministic." % i)
 					break
+	root_a.free()
+	root_b.free()
+
+
+func _run_flower_multimesh_checks(failures: Array[String]) -> void:
+	# Flowers render as two MultiMeshes (stems + blossoms, one blossom per stem).
+	var ctx: MapContext = MapContext.new({"world_seed": 6262, "map_type": WorldGraph.MAP_NORMAL})
+	FlowerFactory.clear_cache()
+	var root_a: Node3D = Node3D.new()
+	FlowerFactory.scatter_flowers(root_a, 6262, DENSITY_LEVEL, ctx)
+	var stems_a: MultiMeshInstance3D = root_a.get_node_or_null("Flowers/FlowerStems") as MultiMeshInstance3D
+	var blossoms_a: MultiMeshInstance3D = root_a.get_node_or_null("Flowers/FlowerBlossoms") as MultiMeshInstance3D
+	if stems_a == null or stems_a.multimesh == null or blossoms_a == null or blossoms_a.multimesh == null:
+		failures.append("FlowerFactory did not produce FlowerStems/FlowerBlossoms MultiMeshInstance3D.")
+		root_a.free()
+		return
+	var stem_count: int = stems_a.multimesh.instance_count
+	if stem_count <= 0:
+		failures.append("FlowerFactory produced no stem instances.")
+	if stem_count != blossoms_a.multimesh.instance_count:
+		failures.append("FlowerFactory stem/blossom counts differ (%d vs %d)." % [stem_count, blossoms_a.multimesh.instance_count])
+
+	var root_b: Node3D = Node3D.new()
+	FlowerFactory.scatter_flowers(root_b, 6262, DENSITY_LEVEL, ctx)
+	var stems_b: MultiMeshInstance3D = root_b.get_node_or_null("Flowers/FlowerStems") as MultiMeshInstance3D
+	if stems_b != null and stems_b.multimesh != null and stems_b.multimesh.instance_count == stem_count:
+		for i in range(stem_count):
+			if not stems_a.multimesh.get_instance_transform(i).is_equal_approx(stems_b.multimesh.get_instance_transform(i)):
+				failures.append("FlowerFactory stem transform %d is non-deterministic." % i)
+				break
+	else:
+		failures.append("FlowerFactory stem count is non-deterministic.")
 	root_a.free()
 	root_b.free()
 
