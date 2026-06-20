@@ -463,6 +463,18 @@ static func _seed_color(seed_value: int, alpha: float = 1.0) -> Color:
 	return Color.from_hsv(hue, 0.72, 1.0, alpha)
 
 
+# The 4 deterministic gate positions for a map, grounded to the terrain. Exposed so
+# tree scatter can keep clear of gates (which are otherwise built after the trees).
+static func predict_gate_positions(context: MapContext) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	var height_fn := Callable(context, "height_at_world")
+	var river_fn := Callable(context, "river_distance")
+	var max_dist: float = context.world_half_size() * 0.72
+	for dir: Vector3 in GATE_DIRECTIONS:
+		out.append(_find_gate_position(dir, height_fn, river_fn, context.water_level, max_dist))
+	return out
+
+
 static func _find_gate_position(
 	direction: Vector3, height_fn: Callable, river_distance_fn: Callable,
 	water_level: float, max_distance: float
@@ -471,10 +483,20 @@ static func _find_gate_position(
 		var distance: float = max_distance - float(step) * 12.0
 		var x: float = direction.x * distance
 		var z: float = direction.z * distance
-		var pos: Vector3 = Vector3(x, height_fn.call(x, z) + 0.65, z)
-		if pos.y > water_level + 0.5 and river_distance_fn.call(x, z) > 9.0:
-			return pos
+		var center_y: float = float(height_fn.call(x, z))
+		if center_y > water_level - 0.15 and river_distance_fn.call(x, z) > 9.0:
+			return Vector3(x, _gate_ground_y(x, z, direction, center_y, height_fn), z)
 
 	var fallback_x: float = direction.x * max_distance
 	var fallback_z: float = direction.z * max_distance
-	return Vector3(fallback_x, height_fn.call(fallback_x, fallback_z) + 0.65, fallback_z)
+	return Vector3(fallback_x, _gate_ground_y(fallback_x, fallback_z, direction, float(height_fn.call(fallback_x, fallback_z)), height_fn), fallback_z)
+
+
+# Ground the gate to the lower of its two post positions (posts sit ~1.1m apart on the
+# axis perpendicular to the facing) with a slight embed, so both posts touch the ground
+# without burying the gate the way a wide-ring sample would on a hump.
+static func _gate_ground_y(x: float, z: float, direction: Vector3, center_y: float, height_fn: Callable) -> float:
+	var perp := Vector3(-direction.z, 0.0, direction.x)
+	var post_a: float = float(height_fn.call(x + perp.x * 1.1, z + perp.z * 1.1))
+	var post_b: float = float(height_fn.call(x - perp.x * 1.1, z - perp.z * 1.1))
+	return minf(center_y, minf(post_a, post_b)) - 0.2

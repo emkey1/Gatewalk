@@ -4339,6 +4339,11 @@ func _wonder_exclusions() -> Array:
 	var out: Array = []
 	for w in _wonder_positions:
 		out.append(Vector3(float(w.get("x", 0.0)), 0.0, float(w.get("z", 0.0))))
+	# Gates are built after the scatter, so predict their (deterministic) positions
+	# to keep trees clear of them too.
+	if map_context != null and not _is_current_map_gate_room() and not _is_current_map_map_nexus():
+		for gate_pos in GateFactory.predict_gate_positions(map_context):
+			out.append(Vector3(gate_pos.x, 0.0, gate_pos.z))
 	return out
 
 
