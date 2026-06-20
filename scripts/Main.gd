@@ -1292,7 +1292,9 @@ func _set_environment_property(property_name: String, value: Variant) -> void:
 func _configure_sun_shadows() -> void:
 	if sun_light == null:
 		return
-	var enable: bool = graphics_level >= 2
+	# Caves are enclosed and flashlight-lit; the dim top-down sun's shadows only
+	# produce hard wedges in the wall corners, so never cast shadows there.
+	var enable: bool = graphics_level >= 2 and not _is_current_map_cave()
 	sun_light.shadow_enabled = enable
 	if enable:
 		sun_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
