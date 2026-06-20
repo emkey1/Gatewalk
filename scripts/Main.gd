@@ -120,6 +120,9 @@ var _arctic_recover_cooldown_until_msec: int = 0
 var _water_recover_cooldown_until_msec: int = 0
 var _cave_dark_since_msec: int = 0
 var _cave_recover_cooldown_until_msec: int = 0
+var _map_loading: bool = false
+var _loading_layer: CanvasLayer
+var _loading_label: Label
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
 var discovery_tracker: DiscoveryTracker
@@ -244,6 +247,8 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _map_loading:
+		return
 	_poll_gate_use_input()
 	_poll_hub_use_input()
 	_update_gate_room_ambience(_delta)
@@ -321,6 +326,8 @@ func _update_gate_room_ambience(_delta: float) -> void:
 
 
 func _physics_process(_delta: float) -> void:
+	if _map_loading:
+		return
 	_poll_primary_gate_activation()
 	_poll_wonder_proximity_fallback()
 	_poll_moon_gate_proximity_fallback()
@@ -3728,7 +3735,46 @@ func _on_discovery_recorded() -> void:
 	print("Kit upgrade unlocked: ", ", ".join(names))
 
 
+func _ensure_loading_overlay() -> void:
+	if is_instance_valid(_loading_layer):
+		return
+	_loading_layer = CanvasLayer.new()
+	_loading_layer.name = "LoadingLayer"
+	_loading_layer.layer = 100
+	add_child(_loading_layer)
+	var bg := ColorRect.new()
+	bg.anchor_right = 1.0
+	bg.anchor_bottom = 1.0
+	bg.color = Color(0.02, 0.03, 0.06, 1.0)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	_loading_layer.add_child(bg)
+	_loading_label = Label.new()
+	_loading_label.anchor_right = 1.0
+	_loading_label.anchor_bottom = 1.0
+	_loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_loading_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_loading_label.add_theme_font_size_override("font_size", 28)
+	_loading_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.add_child(_loading_label)
+	_loading_layer.visible = false
+
+
+func _show_loading_overlay(text: String) -> void:
+	_ensure_loading_overlay()
+	if _loading_label != null:
+		_loading_label.text = text
+	_loading_layer.visible = true
+
+
+func _hide_loading_overlay() -> void:
+	if is_instance_valid(_loading_layer):
+		_loading_layer.visible = false
+
+
 func _load_map(world_id: String, map_id: String) -> void:
+	if _map_loading:
+		return
+	_map_loading = true
 	_persist_active_player_state()
 	_gate_transition_in_progress = false
 	_gate_overlap_active.clear()
@@ -3781,6 +3827,10 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_setup_noise(map_type)
 	_begin_generation_channel("map")
 	current_map_available_discoveries = 0
+	# Spread the heavy build across frames behind a loading overlay so gate travel
+	# no longer freezes the main thread. The await lets the overlay paint first.
+	_show_loading_overlay("Charting " + _map_type_label(map_type) + " …")
+	await get_tree().process_frame
 	_clear_generated_map()
 	generated_root = Node3D.new()
 	generated_root.name = "GeneratedMap"
@@ -3798,8 +3848,14 @@ func _load_map(world_id: String, map_id: String) -> void:
 		"map_context": map_context,
 	})
 	gen.generate(generated_root)
+	await get_tree().process_frame
 
 	_spawn_player()
+	# Freeze the player during the rest of the build so it can't drift through the
+	# half-decorated, overlay-hidden world while scatter spreads over frames.
+	if is_instance_valid(_player_ref):
+		_player_ref.set_physics_process(false)
+	await get_tree().process_frame
 
 	if _is_current_map_gate_room():
 		GateFactory.scatter_gate_room_gates(generated_root, 4, _on_gate_room_gate_body_entered)
@@ -3807,6 +3863,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 	elif _is_current_map_cave():
 		GateFactory.scatter_cave_items(generated_root, world_seed)
 		_spawn_wonders()
+		await get_tree().process_frame
 		_begin_generation_channel("gates")
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
@@ -3823,36 +3880,51 @@ func _load_map(world_id: String, map_id: String) -> void:
 		if _is_current_map_moon():
 			AudioManager.setup_moon_audio(generated_root)
 			_scatter_moon_lichen()
+			await get_tree().process_frame
 			_scatter_moon_glass_craters()
 			_scatter_moon_platforms()
+			await get_tree().process_frame
 		elif _is_current_map_arctic():
 			_scatter_arctic_trees()
+			await get_tree().process_frame
 			_scatter_rocks()
 			_scatter_crystals()
+			await get_tree().process_frame
 			_scatter_ruins()
 			_spawn_wonders()
+			await get_tree().process_frame
 		elif _is_current_map_water():
 			_scatter_bird_flocks()
 			_scatter_rocks()
 			_scatter_crystals()
+			await get_tree().process_frame
 			_scatter_ruins()
 			_scatter_underwater_plants()
 			_scatter_fish_schools()
+			await get_tree().process_frame
 			_scatter_sunken_caches()
 			_spawn_wonders()
+			await get_tree().process_frame
 		elif _is_current_map_floating_island():
 			_scatter_trees()
+			await get_tree().process_frame
 			_scatter_rocks()
 			_scatter_crystals()
+			await get_tree().process_frame
 			_scatter_ruins()
 			_spawn_wonders()
+			await get_tree().process_frame
 		else:
 			_scatter_trees()
+			await get_tree().process_frame
 			_scatter_rocks()
 			_scatter_crystals()
+			await get_tree().process_frame
 			_scatter_ruins()
 			_scatter_flowers()
+			await get_tree().process_frame
 			_spawn_wonders()
+			await get_tree().process_frame
 		_begin_generation_channel("gates")
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
@@ -3864,6 +3936,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		_ensure_player_not_on_gate_spawn()
 	_post_load_map_sanity(map_type)
 	_store_current_map_available_discoveries()
+	await get_tree().process_frame
 
 	if _is_current_map_gate_room() or _is_current_map_map_nexus():
 		pass
@@ -3887,6 +3960,11 @@ func _load_map(world_id: String, map_id: String) -> void:
 		_show_field_tip("moon_lichen")
 	elif not _is_current_map_gate_room() and not _is_current_map_map_nexus():
 		_show_field_tip("welcome")
+
+	if is_instance_valid(_player_ref):
+		_player_ref.set_physics_process(true)
+	_map_loading = false
+	_hide_loading_overlay()
 
 
 func _clear_generated_map() -> void:
