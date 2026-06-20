@@ -26,6 +26,7 @@ const MapContext = preload("res://scripts/core/MapContext.gd")
 const MapRecordClass = preload("res://scripts/core/MapRecord.gd")
 const WorldRecordClass = preload("res://scripts/core/WorldRecord.gd")
 const DiscoveryRecordClass = preload("res://scripts/core/DiscoveryRecord.gd")
+const ProgressionService = preload("res://scripts/core/ProgressionService.gd")
 
 
 const GRID_SIZE: int = 224
@@ -155,6 +156,7 @@ func _ready() -> void:
 	discovery_tracker.get_map_record = _get_map_record
 	discovery_tracker.on_orb_discovered = _check_moon_shrine_completion
 	discovery_tracker.on_message = _on_discovery_message
+	discovery_tracker.on_discovery_recorded = _on_discovery_recorded
 
 	atlas_view = AtlasView.new()
 	atlas_view.name = "AtlasView"
@@ -2647,6 +2649,11 @@ func _place_cartography_pin() -> void:
 	var maps: Dictionary = world.get("maps", {})
 	var map_record: Dictionary = maps.get(current_map_id, {})
 	var pins: Dictionary = map_record.get("pins", {})
+	var pin_cap: int = int(_progression_capabilities().get("pin_cap", 6))
+	if pins.size() >= pin_cap:
+		last_discovery_text = "Pin satchel full (" + str(pins.size()) + "/" + str(pin_cap) + ") — earn Pathfinder's Pins to carry more."
+		_push_status_banner(last_discovery_text, 3000)
+		return
 	var pin_index: int = pins.size() + 1
 	while pins.has("pin_" + str(pin_index)):
 		pin_index += 1
@@ -3054,6 +3061,7 @@ func _update_hud(delta: float = 0.0) -> void:
 			"music_text": music_text,
 		"discovery_line": discovery_line,
 		"objective_line": objective_line,
+		"kit_line": _kit_hud_line(),
 		"progression_line": progression_line,
 		"next_reward_line": next_reward_line,
 		"recent_discoveries": recent_discoveries,
@@ -3289,28 +3297,13 @@ func _on_next_music_pressed() -> void:
 		last_discovery_text = "Now Playing: no playlist loaded."
 
 
-func _progression_hint(map_record: Dictionary) -> String:
-	var discoveries: Dictionary = map_record.get("discoveries", {})
-	var found: int = discoveries.size()
-	var world_map_count: int = discovery_tracker.current_world_map_count() if discovery_tracker != null else 0
-	var universe: Dictionary = _current_universe()
-	var achievements: Dictionary = universe.get("achievements", {})
-	var achieved: int = achievements.size()
-	var total_discoveries: int = 0
-	var surveyed_in_world: int = _surveyed_map_count_in_world(current_world_id)
-	if discovery_tracker != null:
-		total_discoveries = discovery_tracker.total_discoveries_in_universe()
-	if found < 3:
-		return "Progress: Early survey - secure 3 discoveries on this map."
-	if total_discoveries < 25:
-		return "Progress: Surveyor I - reach 25 total discoveries (" + str(total_discoveries) + "/25)."
-	if surveyed_in_world < 3:
-		return "Progress: Atlas Restorer I - fully survey 3 maps in this world (" + str(surveyed_in_world) + "/3)."
-	if world_map_count < 3:
-		return "Progress: Cartographer I - chart 3 maps in this world."
-	if achieved < 5:
-		return "Progress: Expeditioner - unlock 5 achievements."
-	return "Progress: Deep expedition - pursue moon shrines and world saturation routes."
+func _progression_hint(_map_record: Dictionary) -> String:
+	var total_discoveries: int = _progression_total()
+	var nxt: Dictionary = ProgressionService.next_upgrade(total_discoveries)
+	if nxt.is_empty():
+		return "Kit complete: full Cartographer's Kit earned (" + str(total_discoveries) + " discoveries)."
+	var threshold: int = int(nxt.get("threshold", 0))
+	return "Next upgrade: " + str(nxt.get("name", "?")) + " at " + str(threshold) + " (" + str(total_discoveries) + "/" + str(threshold) + ") — " + str(nxt.get("desc", ""))
 
 
 func _surveyed_map_count_in_world(world_id: String) -> int:
@@ -3475,6 +3468,55 @@ func _moon_seed(world: Dictionary) -> int:
 func _on_discovery_body_entered(body: Node3D, discovery_id: String, title: String, kind: String, discovery_position: Vector3) -> void:
 	if body.name == "Player" and discovery_tracker != null:
 		discovery_tracker.record_discovery(discovery_id, title, kind, discovery_position)
+
+
+func _progression_total() -> int:
+	return discovery_tracker.total_discoveries_in_universe() if discovery_tracker != null else 0
+
+
+func _kit_hud_line() -> String:
+	var summary: String = ProgressionService.kit_summary(_progression_total())
+	if summary == "":
+		return "Kit: base gear — earn discoveries to upgrade."
+	return "Kit: " + summary
+
+
+func _progression_capabilities() -> Dictionary:
+	return ProgressionService.capabilities(_progression_total())
+
+
+func _apply_progression_to_player(player: CharacterBody3D) -> void:
+	if player != null and player.has_method(&"apply_capabilities"):
+		player.apply_capabilities(_progression_capabilities())
+
+
+# Called after every newly-recorded discovery. Detects Cartographer's Kit upgrades
+# crossed since the last announcement, applies the higher ceilings to the live
+# player, toasts once, and persists the announced set. Capabilities themselves are
+# derived from the discovery count, so the announced list is the only state stored.
+func _on_discovery_recorded() -> void:
+	var total: int = _progression_total()
+	var universe: Dictionary = _current_universe()
+	var announced: Array = universe.get("announced_upgrades", [])
+	var newly: Array[String] = []
+	for id in ProgressionService.unlocked_ids(total):
+		if not announced.has(id):
+			newly.append(str(id))
+	if newly.is_empty():
+		return
+	for id in newly:
+		announced.append(id)
+	universe["announced_upgrades"] = announced
+	_set_current_universe(universe)
+	_save_world_data()
+	_apply_progression_to_player(_get_player())
+	var names: Array[String] = []
+	for id in newly:
+		names.append(str(ProgressionService.upgrade_by_id(id).get("name", id)))
+	var label: String = "Kit upgrade: " + ", ".join(names) + "!"
+	last_discovery_text = label
+	_push_status_banner(label, 4600)
+	print("Kit upgrade unlocked: ", ", ".join(names))
 
 
 func _load_map(world_id: String, map_id: String) -> void:
@@ -4589,6 +4631,7 @@ func _spawn_player() -> void:
 	if _is_current_map_cave():
 		AudioManager.setup_cave_player_audio(player)
 	player.lichen_count = lichen_count
+	_apply_progression_to_player(player)
 	_restore_player_save_state(player)
 	_ensure_player_above_surface(player)
 

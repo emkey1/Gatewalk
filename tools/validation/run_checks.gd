@@ -6,6 +6,7 @@ const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
 const GateTravelService = preload("res://scripts/core/GateTravelService.gd")
 const MapContext = preload("res://scripts/core/MapContext.gd")
 const TreeFactory = preload("res://scripts/factories/TreeFactory.gd")
+const ProgressionService = preload("res://scripts/core/ProgressionService.gd")
 
 const GRAPHICS_LEVEL := 0
 const DENSITY_LEVEL := 2
@@ -24,6 +25,7 @@ func _init() -> void:
 	_run_persisted_universe_isolation_checks(failures)
 	_run_seed_allocator_isolation_checks(failures)
 	_run_tree_factory_checks(failures)
+	_run_progression_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -754,3 +756,74 @@ func _signature_diff_summary(a: String, b: String) -> String:
 	var sample_a: String = only_a[0] if not only_a.is_empty() else "<none>"
 	var sample_b: String = only_b[0] if not only_b.is_empty() else "<none>"
 	return "delta_a=%d delta_b=%d sample_a=%s sample_b=%s" % [only_a.size(), only_b.size(), sample_a, sample_b]
+
+
+func _run_progression_checks(failures: Array[String]) -> void:
+	# Base kit at zero discoveries mirrors Player constants.
+	var base: Dictionary = ProgressionService.capabilities(0)
+	if not is_equal_approx(float(base.get("max_breath", 0.0)), 60.0):
+		failures.append("Progression base max_breath expected 60, got %s." % str(base.get("max_breath")))
+	if int(base.get("pin_cap", 0)) != 6:
+		failures.append("Progression base pin_cap expected 6, got %d." % int(base.get("pin_cap", 0)))
+	if bool(base.get("gate_sight", true)):
+		failures.append("Progression base gate_sight should be false.")
+	if ProgressionService.kit_summary(0) != "":
+		failures.append("Progression kit summary should be empty before the first unlock.")
+
+	# Each defined upgrade's effect must be present in capabilities exactly at its threshold.
+	for def in ProgressionService.UPGRADE_DEFS:
+		var threshold: int = int(def.get("threshold", 0))
+		var caps_at: Dictionary = ProgressionService.capabilities(threshold)
+		var effect: Dictionary = def.get("effect", {})
+		for key in effect.keys():
+			if str(caps_at.get(key)) != str(effect[key]):
+				failures.append("Upgrade '%s' effect %s not applied at threshold %d (got %s)." % [
+					str(def.get("id")), key, threshold, str(caps_at.get(key))])
+		# Just below the threshold the upgrade must not yet be unlocked.
+		if threshold > 0 and ProgressionService.unlocked_ids(threshold - 1).has(str(def.get("id"))):
+			failures.append("Upgrade '%s' unlocked one discovery early." % str(def.get("id")))
+
+	# Capability ceilings are monotonic in the discovery count (never regress).
+	var prev: Dictionary = ProgressionService.capabilities(0)
+	for total in range(1, 170):
+		var caps: Dictionary = ProgressionService.capabilities(total)
+		for key in ["max_breath", "max_sprint_stamina", "max_flashlight_charge", "pin_cap", "survey_radius"]:
+			if float(caps.get(key, 0.0)) < float(prev.get(key, 0.0)):
+				failures.append("Progression capability '%s' regressed at total %d." % [key, total])
+				break
+		prev = caps
+
+	# next_upgrade points at the first unearned tier, then empties out.
+	if str(ProgressionService.next_upgrade(0).get("id", "")) != "strider_1":
+		failures.append("Progression next_upgrade(0) expected 'strider_1'.")
+	if not ProgressionService.next_upgrade(100000).is_empty():
+		failures.append("Progression next_upgrade should be empty once everything is unlocked.")
+
+	# newly_unlocked reports tiers crossed by a delta, including multiple at once.
+	var n1: Array = ProgressionService.newly_unlocked(2, 3)
+	if n1.size() != 1 or str(n1[0].get("id", "")) != "strider_1":
+		failures.append("Progression newly_unlocked(2,3) expected exactly strider_1.")
+	var n2_ids: Array = []
+	for d in ProgressionService.newly_unlocked(5, 10):
+		n2_ids.append(str(d.get("id", "")))
+	if not (n2_ids.has("lungs_1") and n2_ids.has("lantern_1")):
+		failures.append("Progression newly_unlocked(5,10) should include lungs_1 and lantern_1.")
+
+	# The ProgressionService capability keys must match what Player.apply_capabilities consumes.
+	var player_scene: PackedScene = load("res://scenes/player.tscn")
+	if player_scene == null:
+		failures.append("Progression check could not load player scene.")
+		return
+	var player: Node = player_scene.instantiate()
+	var full_caps: Dictionary = ProgressionService.capabilities(200)
+	player.apply_capabilities(full_caps)
+	if not is_equal_approx(float(player.get("max_breath")), float(full_caps["max_breath"])):
+		failures.append("Player.apply_capabilities did not adopt max_breath ceiling.")
+	if not is_equal_approx(float(player.get("max_flashlight_charge")), float(full_caps["max_flashlight_charge"])):
+		failures.append("Player.apply_capabilities did not adopt max_flashlight_charge ceiling.")
+	if not is_equal_approx(float(player.get("max_sprint_stamina")), float(full_caps["max_sprint_stamina"])):
+		failures.append("Player.apply_capabilities did not adopt max_sprint_stamina ceiling.")
+	# Pools should be topped up to the new ceiling so an earned upgrade is felt immediately.
+	if not is_equal_approx(float(player.get("breath")), float(full_caps["max_breath"])):
+		failures.append("Player.apply_capabilities did not top up breath to the new ceiling.")
+	player.free()

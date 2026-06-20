@@ -310,6 +310,7 @@ func update(data: Dictionary) -> void:
 	var music_text: String = str(data.get("music_text", ""))
 	var discovery_line: String = str(data.get("discovery_line", "Seek gates, ruins, and wonders."))
 	var objective_line: String = str(data.get("objective_line", ""))
+	var kit_line: String = str(data.get("kit_line", ""))
 	var progression_line: String = str(data.get("progression_line", ""))
 	var next_reward_line: String = str(data.get("next_reward_line", ""))
 	var recent_discoveries: Array = data.get("recent_discoveries", [])
@@ -374,6 +375,8 @@ func update(data: Dictionary) -> void:
 		goals_lines.append("Recent: " + ", ".join(recent_discoveries))
 	if objective_line != "":
 		goals_lines.append(objective_line)
+	if kit_line != "":
+		goals_lines.append(kit_line)
 	if progression_line != "":
 		goals_lines.append(progression_line)
 	if next_reward_line != "":

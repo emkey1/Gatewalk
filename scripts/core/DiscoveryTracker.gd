@@ -17,6 +17,9 @@ var last_discovery_text: String = ""
 
 var on_orb_discovered: Callable
 var on_message: Callable
+# Fires once per newly-recorded discovery (after dedupe), at the single choke point
+# below. Main uses it to re-evaluate Cartographer's Kit unlocks.
+var on_discovery_recorded: Callable
 
 const ACHIEVEMENT_DEFS := {
 	"first_wonder": {"name": "First Discovery", "desc": "Find your first wonder on any map"},
@@ -72,6 +75,8 @@ func record_discovery(discovery_id: String, title: String, kind: String, discove
 	if kind == "orb":
 		if on_orb_discovered.is_valid():
 			on_orb_discovered.call()
+	if on_discovery_recorded.is_valid():
+		on_discovery_recorded.call()
 
 
 func award_achievement(id: String) -> void:

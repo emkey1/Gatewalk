@@ -29,6 +29,16 @@ var flashlight_on: bool = false
 var flashlight_charge: float = FLASHLIGHT_MAX_CHARGE
 var flashlight: SpotLight3D
 var flashlight_requested_on: bool = false
+
+# Tunable capability ceilings. Default to the base consts; ProgressionService
+# raises them through apply_capabilities() as the player earns Cartographer's Kit
+# upgrades. Physics reads these vars (not the consts) so upgrades take effect live.
+var max_sprint_stamina: float = MAX_SPRINT_STAMINA
+var sprint_regen_per_sec: float = 1.0 / 3.0
+var max_breath: float = MAX_BREATH
+var max_flashlight_charge: float = FLASHLIGHT_MAX_CHARGE
+var flashlight_base_range: float = 40.0
+var flashlight_range_bonus: float = 0.0
 var _jump_hold_remaining: float = 0.0
 var _jump_hold_boost_per_sec: float = 0.0
 
@@ -110,12 +120,12 @@ func _physics_process(delta: float) -> void:
 		speed = SPRINT_SPEED
 		sprint_stamina = max(sprint_stamina - delta, 0.0)
 	else:
-		sprint_stamina = min(sprint_stamina + delta / 3.0, MAX_SPRINT_STAMINA)
+		sprint_stamina = min(sprint_stamina + delta * sprint_regen_per_sec, max_sprint_stamina)
 	if underwater:
 		speed *= 0.55
 		breath = max(breath - delta, 0.0)
 	else:
-		breath = min(breath + delta * 2.0, MAX_BREATH)
+		breath = min(breath + delta * 2.0, max_breath)
 
 	velocity.x = direction.x * speed
 	velocity.z = direction.z * speed
@@ -163,12 +173,12 @@ func _physics_process(delta: float) -> void:
 	if flashlight_on:
 		if moving:
 			# Motion charging should beat active drain to avoid "moving but still emptying" behavior.
-			flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE * 1.25, FLASHLIGHT_MAX_CHARGE)
+			flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE * 1.25, max_flashlight_charge)
 		else:
 			flashlight_charge -= delta
 	else:
 		if moving:
-			flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE, FLASHLIGHT_MAX_CHARGE)
+			flashlight_charge = min(flashlight_charge + delta * FLASHLIGHT_RECHARGE_RATE, max_flashlight_charge)
 	if flashlight_charge <= 0.0:
 		flashlight_charge = 0.0
 		flashlight_on = false
@@ -176,3 +186,19 @@ func _physics_process(delta: float) -> void:
 	if flashlight_requested_on and not flashlight_on and flashlight_charge >= FLASHLIGHT_ENABLE_THRESHOLD:
 		flashlight_on = true
 		flashlight.light_energy = 10.5
+
+
+# Raise capability ceilings from a ProgressionService capabilities dict and top up
+# the live pools so a freshly earned upgrade is felt immediately. At spawn this runs
+# before save-state restore, which re-applies any persisted mid-session values.
+func apply_capabilities(caps: Dictionary) -> void:
+	max_breath = float(caps.get("max_breath", MAX_BREATH))
+	max_sprint_stamina = float(caps.get("max_sprint_stamina", MAX_SPRINT_STAMINA))
+	sprint_regen_per_sec = float(caps.get("sprint_regen_per_sec", 1.0 / 3.0))
+	max_flashlight_charge = float(caps.get("max_flashlight_charge", FLASHLIGHT_MAX_CHARGE))
+	flashlight_range_bonus = float(caps.get("flashlight_range_bonus", 0.0))
+	if flashlight != null:
+		flashlight.spot_range = flashlight_base_range + flashlight_range_bonus
+	breath = max_breath
+	sprint_stamina = max_sprint_stamina
+	flashlight_charge = max_flashlight_charge
