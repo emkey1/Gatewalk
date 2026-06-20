@@ -6,6 +6,8 @@ const StableRng = preload("res://scripts/core/StableRng.gd")
 var bird_count: int = 10
 var mesh_quality: int = 0  # kept for spawn-API compatibility; unused
 var rng_seed: int = 1
+var species_name: String = ""
+var catalog_id: String = ""
 
 var _bird_nodes: Array[Node3D] = []
 var _left_wings: Array[MeshInstance3D] = []

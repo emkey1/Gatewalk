@@ -3,6 +3,27 @@ class_name CreatureFactory
 
 const MapContext = preload("res://scripts/core/MapContext.gd")
 
+# Procedural species names for the bioscan catalog (No Man's Sky-style fauna logging).
+const BIO_ADJECTIVES: Array[String] = [
+	"Azure", "Crimson", "Pale", "Dusk", "Gilded", "Hollow", "Verdant", "Ashen",
+	"Cobalt", "Amber", "Frosted", "Umber", "Opal", "Sable", "Ivory", "Russet",
+	"Glass", "Storm", "Ember", "Mist", "Lunar", "Bramble", "Quartz", "Tidal",
+]
+const BIRD_NOUNS: Array[String] = [
+	"Skimmer", "Glider", "Wing", "Drifter", "Lark", "Kite", "Soarer", "Veil", "Plume", "Crest",
+]
+const FISH_NOUNS: Array[String] = [
+	"Finling", "Darter", "Gill", "Ripple", "Shoaler", "Eelet", "Glimmer", "Fluke", "Spine", "Tide",
+]
+
+
+static func creature_species_name(species_seed: int, is_bird: bool) -> String:
+	var rng := StableRng.new(species_seed)
+	var adjective: String = BIO_ADJECTIVES[rng.randi_range(0, BIO_ADJECTIVES.size() - 1)]
+	var nouns: Array[String] = BIRD_NOUNS if is_bird else FISH_NOUNS
+	var noun: String = nouns[rng.randi_range(0, nouns.size() - 1)]
+	return adjective + " " + noun
+
 static func scatter_birds(parent: Node3D, world_seed: int, context: MapContext) -> void:
 	_scatter_birds_internal(
 		parent,
@@ -32,8 +53,11 @@ static func _scatter_birds_internal(parent: Node3D, world_seed: int, height_fn: 
 		# Fly 8-18m above the local terrain (not an absolute height, which would put
 		# flocks below high ground or floating islands).
 		flock.position = Vector3(x, y + rng.randf_range(8.0, 18.0), z)
-		flock.set("rng_seed", rng.next_u32())
+		var bird_seed: int = rng.next_u32()
+		flock.set("rng_seed", bird_seed)
 		flock.set("bird_count", rng.randi_range(8, 15))
+		flock.set("species_name", creature_species_name(bird_seed, true))
+		flock.set("catalog_id", "bio_bird_" + str(placed))
 		parent.add_child(flock)
 		placed += 1
 
@@ -69,7 +93,10 @@ static func _scatter_fish_internal(parent: Node3D, world_seed: int, height_fn: C
 		var water_depth: float = water_level - ground_y
 		var height_offset: float = rng.randf_range(0.3, 0.7)
 		school.position = Vector3(x, ground_y + water_depth * height_offset, z)
-		school.set("rng_seed", rng.next_u32())
+		var fish_seed: int = rng.next_u32()
+		school.set("rng_seed", fish_seed)
 		school.set("fish_count", rng.randi_range(10, 18))
+		school.set("species_name", creature_species_name(fish_seed, false))
+		school.set("catalog_id", "bio_fish_" + str(placed))
 		parent.add_child(school)
 		placed += 1

@@ -6,6 +6,8 @@ const StableRng = preload("res://scripts/core/StableRng.gd")
 var fish_count: int = 8
 var mesh_quality: int = 0
 var rng_seed: int = 1
+var species_name: String = ""
+var catalog_id: String = ""
 
 var _fish_nodes: Array[Node3D] = []
 var _phases: Array[float] = []

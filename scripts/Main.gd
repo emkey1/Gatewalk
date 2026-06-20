@@ -120,6 +120,7 @@ var _arctic_recover_cooldown_until_msec: int = 0
 var _water_recover_cooldown_until_msec: int = 0
 var _cave_dark_since_msec: int = 0
 var _cave_recover_cooldown_until_msec: int = 0
+var _bioscan_next_msec: int = 0
 var _map_loading: bool = false
 var _loading_layer: CanvasLayer
 var _loading_label: Label
@@ -133,6 +134,7 @@ const DEFAULT_START_HOUR: float = 7.5
 const MAP_SURVEY_LICHEN_REWARD: int = 1
 const ARCTIC_SHELTER_RADIUS: float = 15.0
 const CAVE_DARK_LIMIT_MSEC: int = 8000
+const BIOSCAN_BASE_RANGE: float = 22.0
 
 # First-run field tips — each shown once per universe (tips_seen), the rest of the
 # teaching is carried by the per-map objective and warning lines.
@@ -261,6 +263,7 @@ func _process(_delta: float) -> void:
 	_update_arctic_exposure()
 	_update_drowning()
 	_update_cave_darkness()
+	_update_bioscan()
 	_recover_fallen_player()
 	_enforce_world_bounds()
 	_update_hud(_delta)
@@ -3004,6 +3007,40 @@ func _recover_lost_player(player: CharacterBody3D) -> void:
 	player.set("flashlight_charge", float(player.get("max_flashlight_charge")))
 	last_discovery_text = "Lost in the dark — you retrace your steps to the entrance. Upgrade Lantern to range farther."
 	_push_status_banner(last_discovery_text, 4200)
+
+
+# Bioscan: auto-catalog creature flocks within survey range as atlas discoveries
+# (No Man's Sky-style fauna logging). Scan range = base + the Survey kit's reach, so
+# the previously-inert survey_radius capability now has a tangible payoff. Cataloged
+# species feed the discovery total like any other find.
+func _update_bioscan() -> void:
+	if generated_root == null or discovery_tracker == null:
+		return
+	if _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var now: int = Time.get_ticks_msec()
+	if now < _bioscan_next_msec:
+		return
+	_bioscan_next_msec = now + 500
+	var scan_range: float = BIOSCAN_BASE_RANGE + float(_progression_capabilities().get("survey_radius", 0.0))
+	var range_sq: float = scan_range * scan_range
+	for child in generated_root.get_children():
+		var name_str: String = str(child.name)
+		if not (name_str.begins_with("BirdFlock") or name_str.begins_with("FishSchool")):
+			continue
+		var flock: Node3D = child as Node3D
+		if flock == null or flock.get("catalog_id") == null:
+			continue
+		var catalog_id: String = str(flock.get("catalog_id"))
+		if catalog_id == "":
+			continue
+		if flock.global_position.distance_squared_to(player.global_position) > range_sq:
+			continue
+		# record_discovery dedupes by id, so re-scans of a logged species are no-ops.
+		discovery_tracker.record_discovery(catalog_id, str(flock.get("species_name")), "creature", flock.global_position)
 
 
 func _update_day_night_cycle() -> void:
