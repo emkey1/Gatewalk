@@ -26,6 +26,7 @@ func _init() -> void:
 	_run_seed_allocator_isolation_checks(failures)
 	_run_tree_factory_checks(failures)
 	_run_progression_checks(failures)
+	_run_water_cache_terrain_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -756,6 +757,29 @@ func _signature_diff_summary(a: String, b: String) -> String:
 	var sample_a: String = only_a[0] if not only_a.is_empty() else "<none>"
 	var sample_b: String = only_b[0] if not only_b.is_empty() else "<none>"
 	return "delta_a=%d delta_b=%d sample_a=%s sample_b=%s" % [only_a.size(), only_b.size(), sample_a, sample_b]
+
+
+func _run_water_cache_terrain_checks(failures: Array[String]) -> void:
+	# Sunken caches (Main._scatter_sunken_caches) only place where the seabed is at
+	# least 4m below the surface. Guard the assumption that water maps actually have
+	# enough deep seabed, so caches don't silently vanish if terrain is retuned.
+	var ctx: MapContext = MapContext.new({"world_seed": 4242, "map_type": WorldGraph.MAP_WATER})
+	var half: float = ctx.world_half_size() * 0.86
+	var water_level: float = ctx.water_level
+	var deep: int = 0
+	var samples: int = 0
+	var step: float = (half * 2.0) / 24.0
+	var gx: float = -half
+	while gx <= half:
+		var gz: float = -half
+		while gz <= half:
+			samples += 1
+			if water_level - ctx.height_at_world(gx, gz) >= 4.0:
+				deep += 1
+			gz += step
+		gx += step
+	if deep < 30:
+		failures.append("Water map has too few deep-seabed points for sunken caches (%d/%d sampled)." % [deep, samples])
 
 
 func _run_progression_checks(failures: Array[String]) -> void:

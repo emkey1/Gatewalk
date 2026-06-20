@@ -117,6 +117,7 @@ var _cycle_time: float = 0.0
 var _map_loaded_at_msec: int = 0
 var _arctic_shelter_check_msec: int = 0
 var _arctic_recover_cooldown_until_msec: int = 0
+var _water_recover_cooldown_until_msec: int = 0
 var cycle_speed_multiplier: float = 1.0
 var start_fullscreen: bool = true
 var discovery_tracker: DiscoveryTracker
@@ -241,6 +242,7 @@ func _process(_delta: float) -> void:
 		_update_day_night_cycle()
 	_update_underwater_state()
 	_update_arctic_exposure()
+	_update_drowning()
 	_recover_fallen_player()
 	_enforce_world_bounds()
 	_update_hud(_delta)
@@ -2920,6 +2922,34 @@ func _recover_frozen_player(player: CharacterBody3D) -> void:
 	_push_status_banner(last_discovery_text, 4200)
 
 
+# Running out of air below the surface ends in a gentle, fully recoverable
+# blackout: surface back at a safe spawn with full breath. Uses the player's own
+# water_level so moon/arctic (water disabled, level -100000) never trigger it.
+func _update_drowning() -> void:
+	var player: CharacterBody3D = _get_player()
+	if player == null or player.get("breath") == null or player.get("water_level") == null:
+		return
+	var player_water_level: float = float(player.get("water_level"))
+	var underwater: bool = player.global_position.y + 1.65 < player_water_level
+	if not underwater or float(player.get("breath")) > 0.0:
+		return
+	var now: int = Time.get_ticks_msec()
+	if now < _water_recover_cooldown_until_msec:
+		return
+	_water_recover_cooldown_until_msec = now + 2500
+	_recover_drowned_player(player)
+
+
+func _recover_drowned_player(player: CharacterBody3D) -> void:
+	if player == null:
+		return
+	player.global_position = _sanitize_player_position(_find_spawn_position())
+	player.velocity = Vector3.ZERO
+	player.set("breath", float(player.get("max_breath")))
+	last_discovery_text = "Out of air — you surface gasping. Upgrade Lungs to dive deeper."
+	_push_status_banner(last_discovery_text, 4200)
+
+
 func _update_day_night_cycle() -> void:
 	if sun_light == null or world_environment == null:
 		return
@@ -3168,6 +3198,12 @@ func _next_objective_hint(map_record: Dictionary) -> String:
 		return "Objective: Return through a gate and continue atlas expansion."
 	if _is_current_map_cave():
 		return _maze_objective_text(map_record)
+	if _is_current_map_water():
+		var water_available: int = int(map_record.get("available_discoveries", 0))
+		var water_found: int = map_record.get("discoveries", {}).size()
+		if water_available > water_found:
+			return "Objective: Dive for sunken caches on the seabed (" + str(water_found) + "/" + str(water_available) + ") — surface before your breath runs out."
+		return "Objective: Caches recovered. Cross a gate to chart onward."
 
 	var available: int = int(map_record.get("available_discoveries", 0))
 	var found: int = map_record.get("discoveries", {}).size()
@@ -3692,6 +3728,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_ruins()
 			_scatter_underwater_plants()
 			_scatter_fish_schools()
+			_scatter_sunken_caches()
 			_spawn_wonders()
 		elif _is_current_map_floating_island():
 			_scatter_trees()
@@ -4035,6 +4072,64 @@ func _scatter_fish_schools() -> void:
 func _scatter_underwater_plants() -> void:
 	_begin_generation_channel("underwater_plants")
 	UnderwaterPlantFactory.scatter_plants(generated_root, world_seed, density_level, map_context)
+
+
+# Sunken caches give water maps a reason to dive: glowing relics on the deep
+# seabed that register as atlas discoveries. Depth is the gate — reaching the
+# deepest ones (and surfacing) takes the breath that the Lungs kit track buys.
+func _scatter_sunken_caches() -> void:
+	if not _is_current_map_water() or generated_root == null:
+		return
+	_begin_generation_channel("sunken_caches")
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "sunken_caches"))
+	var half: float = _world_half_size() * 0.86
+	var water_level: float = _water_level()
+	var container := Node3D.new()
+	container.name = "SunkenCaches"
+	generated_root.add_child(container)
+	var placed: int = 0
+	var attempts: int = 0
+	while placed < 8 and attempts < 240:
+		attempts += 1
+		var x: float = rng.randf_range(-half, half)
+		var z: float = rng.randf_range(-half, half)
+		var seabed: float = _height_at_world(x, z)
+		if water_level - seabed < 4.0:
+			continue
+		var cache := Node3D.new()
+		cache.name = "SunkenCache_" + str(placed)
+		cache.position = Vector3(x, seabed + 1.2, z)
+		container.add_child(cache)
+		_build_sunken_cache_visual(cache, rng)
+		var cache_id: String = "sunken_cache_" + str(int(round(x))) + "_" + str(int(round(z)))
+		_add_discovery_area(cache, Vector3.ZERO, 3.2, cache_id, "Sunken Cache", "relic")
+		_wonder_positions.append({"x": x, "z": z, "kind": "relic", "id": cache_id, "title": "Sunken Cache"})
+		placed += 1
+
+
+func _build_sunken_cache_visual(parent: Node3D, rng: StableRng) -> void:
+	var color: Color = Color.from_hsv(rng.randf_range(0.09, 0.14), 0.6, 1.0)
+	var mesh := MeshInstance3D.new()
+	mesh.name = "CacheGlow"
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.55
+	sphere.height = 1.1
+	mesh.mesh = sphere
+	mesh.position = Vector3(0.0, 0.55, 0.0)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 3.2
+	mesh.material_override = mat
+	parent.add_child(mesh)
+	var glow := OmniLight3D.new()
+	glow.name = "CacheLight"
+	glow.light_color = color
+	glow.light_energy = 2.4
+	glow.omni_range = 9.0
+	glow.position = Vector3(0.0, 0.8, 0.0)
+	parent.add_child(glow)
 
 
 func _scatter_moon_lichen() -> void:

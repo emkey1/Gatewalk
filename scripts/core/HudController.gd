@@ -568,6 +568,7 @@ func _update_minimap(player: Node3D, half: float, discoveries: Dictionary, pins:
 				"ruin": wonder_color = Color(0.75, 0.6, 1.0)
 				"orb": wonder_color = Color(0.3, 1.0, 0.6)
 				"crystal": wonder_color = Color(0.25, 0.90, 0.85)
+				"relic": wonder_color = Color(1.0, 0.82, 0.35)
 				_: wonder_color = Color(0.35, 0.85, 1.0)
 			_add_minimap_dot(wpos, wonder_color, 2.0)
 		else:
