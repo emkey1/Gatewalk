@@ -4,21 +4,41 @@ extends Node3D
 const StableRng = preload("res://scripts/core/StableRng.gd")
 
 var bird_count: int = 10
-var mesh_quality: int = 0
+var mesh_quality: int = 0  # kept for spawn-API compatibility; unused
 var rng_seed: int = 1
 
 var _bird_nodes: Array[Node3D] = []
+var _left_wings: Array[MeshInstance3D] = []
+var _right_wings: Array[MeshInstance3D] = []
 var _phases: Array[float] = []
 var _y_offsets: Array[float] = []
 var _speeds: Array[float] = []
 var _radii: Array[float] = []
 var _wing_phases: Array[float] = []
+var _flap_speeds: Array[float] = []
+var _scales: Array[float] = []
 var _time: float = 0.0
 
 
 func _ready() -> void:
 	var rng := StableRng.new(rng_seed)
-	var mesh: ArrayMesh = _create_bird_mesh() if mesh_quality < 2 else _create_bird_mesh_detailed()
+
+	# Shared resources: a streamlined body and two flat, swept-back wings that flap.
+	var body_mesh := SphereMesh.new()
+	body_mesh.radius = 0.075
+	body_mesh.height = 0.15
+	body_mesh.radial_segments = 8
+	body_mesh.rings = 5
+	var body_mat := StandardMaterial3D.new()
+	body_mat.albedo_color = Color(0.34, 0.28, 0.22)
+	body_mat.roughness = 0.95
+	var wing_mat := StandardMaterial3D.new()
+	wing_mat.albedo_color = Color(0.40, 0.36, 0.32)
+	wing_mat.roughness = 0.95
+	wing_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var left_wing_mesh := _wing_mesh(-1.0)
+	var right_wing_mesh := _wing_mesh(1.0)
+
 	for i in bird_count:
 		var bird := Node3D.new()
 		add_child(bird)
@@ -28,37 +48,27 @@ func _ready() -> void:
 		_speeds.append(rng.randf_range(0.4, 0.8))
 		_radii.append(rng.randf_range(7.0, 16.0))
 		_wing_phases.append(rng.randf_range(0.0, TAU))
+		_flap_speeds.append(rng.randf_range(8.0, 12.0))
 
 		var body := MeshInstance3D.new()
-		var body_mesh := SphereMesh.new()
-		body_mesh.radius = 0.10 if mesh_quality < 2 else 0.14
-		body_mesh.height = body_mesh.radius * 1.5
 		body.mesh = body_mesh
-		var body_mat := StandardMaterial3D.new()
-		body_mat.albedo_color = Color(0.18, 0.12, 0.10)
-		body_mat.roughness = 0.9
 		body.material_override = body_mat
-		body.scale = Vector3(rng.randf_range(1.0, 1.4), rng.randf_range(0.8, 1.1), rng.randf_range(1.4, 1.9))
+		body.scale = Vector3(0.8, 0.7, 2.3)  # torpedo body along the flight axis (-z)
 		bird.add_child(body)
 
-		var wing_mat := StandardMaterial3D.new()
-		wing_mat.albedo_color = Color(0.15, 0.10, 0.08)
-		wing_mat.roughness = 0.95
-
 		var left_wing := MeshInstance3D.new()
-		var right_wing := MeshInstance3D.new()
-		var wing_mesh := BoxMesh.new()
-		wing_mesh.size = Vector3(0.28, 0.02, 0.62)
-		left_wing.mesh = wing_mesh
-		right_wing.mesh = wing_mesh
+		left_wing.mesh = left_wing_mesh
 		left_wing.material_override = wing_mat
-		right_wing.material_override = wing_mat
-		left_wing.position = Vector3(-0.16, 0.0, 0.0)
-		right_wing.position = Vector3(0.16, 0.0, 0.0)
-		left_wing.rotation_degrees.z = -32.0
-		right_wing.rotation_degrees.z = 32.0
 		bird.add_child(left_wing)
+		_left_wings.append(left_wing)
+
+		var right_wing := MeshInstance3D.new()
+		right_wing.mesh = right_wing_mesh
+		right_wing.material_override = wing_mat
 		bird.add_child(right_wing)
+		_right_wings.append(right_wing)
+
+		_scales.append(rng.randf_range(0.8, 1.3))
 
 
 func _process(delta: float) -> void:
@@ -68,61 +78,27 @@ func _process(delta: float) -> void:
 		var r: float = _radii[i]
 		var pos := Vector3(cos(angle) * r, _y_offsets[i], sin(angle) * r)
 		var vel_dir := Vector3(-sin(angle), 0.0, cos(angle)).normalized()
-		_bird_nodes[i].position = pos
-		_bird_nodes[i].look_at(pos + vel_dir, Vector3.UP)
-		_bird_nodes[i].rotation_degrees.z = sin(_time * 8.0 + _wing_phases[i]) * 6.0
+		var bird: Node3D = _bird_nodes[i]
+		bird.position = pos
+		# Orient along the local flight direction (look_at would use a global target).
+		bird.basis = Basis.looking_at(vel_dir, Vector3.UP).scaled(Vector3.ONE * _scales[i])
+		# Symmetric flap about the local forward (z) axis: both wingtips rise together.
+		var flap: float = sin(_time * _flap_speeds[i] + _wing_phases[i]) * 38.0
+		_right_wings[i].rotation_degrees.z = flap
+		_left_wings[i].rotation_degrees.z = -flap
 
 
-static func _tri(st: SurfaceTool, normal: Vector3, color: Color, a: Vector3, b: Vector3, c: Vector3) -> void:
-	st.set_color(color)
-	st.set_normal(normal)
-	st.add_vertex(a)
-	st.add_vertex(b)
-	st.add_vertex(c)
-
-
-static func _paddle(st: SurfaceTool, color: Color, nu: Vector3, nd: Vector3, a: Vector3, b: Vector3, c: Vector3) -> void:
-	_tri(st, nu, color, a, b, c)
-	_tri(st, nd, color, a, c, b)
-
-
-static func _create_bird_mesh() -> ArrayMesh:
+# Flat, swept-back, tapered wing in the bird's XZ plane, pivoting at the shoulder
+# (origin) so a roll about local z flaps it. tip_sign +1 = right wing (+x), -1 = left.
+static func _wing_mesh(tip_sign: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var c := Color(0.15, 0.1, 0.08)
-	var ws := 0.35
-	var bl := 0.25
-	var nu := Vector3.UP
-	var nd := Vector3.DOWN
-
-	_paddle(st, c, nu, nd, Vector3(0.0, 0.0, -bl), Vector3(-ws, 0.0, 0.0), Vector3(0.0, 0.0, bl))
-	_paddle(st, c, nu, nd, Vector3(0.0, 0.0, -bl), Vector3(0.0, 0.0, bl), Vector3(ws, 0.0, 0.0))
-
-	return st.commit()
-
-
-static func _create_bird_mesh_detailed() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var c := Color(0.15, 0.1, 0.08)
-
-	var body: Array[Vector3] = [
-		Vector3(0.0, 0.0, -0.32), Vector3(-0.04, 0.0, -0.22), Vector3(0.04, 0.0, -0.22),
-		Vector3(-0.04, 0.0, -0.22), Vector3(-0.07, 0.0, -0.08), Vector3(0.04, 0.0, -0.22),
-		Vector3(-0.07, 0.0, -0.08), Vector3(0.07, 0.0, -0.08), Vector3(0.04, 0.0, -0.22),
-		Vector3(-0.07, 0.0, -0.08), Vector3(-0.09, 0.0, 0.08), Vector3(0.07, 0.0, -0.08),
-		Vector3(-0.09, 0.0, 0.08), Vector3(0.09, 0.0, 0.08), Vector3(0.07, 0.0, -0.08),
-		Vector3(-0.09, 0.0, 0.08), Vector3(-0.05, 0.0, 0.18), Vector3(0.09, 0.0, 0.08),
-		Vector3(-0.05, 0.0, 0.18), Vector3(0.05, 0.0, 0.18), Vector3(0.09, 0.0, 0.08),
-		Vector3(-0.05, 0.0, 0.18), Vector3(-0.12, 0.0, 0.30), Vector3(0.0, 0.0, 0.36),
-		Vector3(-0.05, 0.0, 0.18), Vector3(0.0, 0.0, 0.36), Vector3(0.05, 0.0, 0.18),
-		Vector3(0.05, 0.0, 0.18), Vector3(0.0, 0.0, 0.36), Vector3(0.12, 0.0, 0.30),
-	]
-	for i in range(0, body.size(), 3):
-		_paddle(st, c, Vector3.UP, Vector3.DOWN, body[i], body[i + 1], body[i + 2])
-
-	var ws: float = 0.28
-	_paddle(st, c, Vector3.UP, Vector3.DOWN, Vector3(-0.06, 0.0, -0.04), Vector3(-ws, 0.0, 0.02), Vector3(-0.08, 0.0, 0.08))
-	_paddle(st, c, Vector3.UP, Vector3.DOWN, Vector3(0.06, 0.0, -0.04), Vector3(0.08, 0.0, 0.08), Vector3(ws, 0.0, 0.02))
-
+	var root_front := Vector3(0.0, 0.0, -0.07)
+	var root_back := Vector3(0.0, 0.0, 0.11)
+	var mid := Vector3(tip_sign * 0.26, 0.0, 0.0)
+	var tip := Vector3(tip_sign * 0.52, 0.0, 0.17)
+	for tri: Array in [[root_front, mid, root_back], [mid, tip, root_back]]:
+		for v: Vector3 in tri:
+			st.set_normal(Vector3.UP)
+			st.add_vertex(v)
 	return st.commit()

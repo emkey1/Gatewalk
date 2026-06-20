@@ -17,7 +17,13 @@ var _time: float = 0.0
 
 func _ready() -> void:
 	var rng := StableRng.new(rng_seed)
-	var mesh: ArrayMesh = _create_fish_mesh() if mesh_quality < 2 else _create_fish_mesh_detailed()
+	# Always use the detailed fish mesh, with a material that reads its per-vertex
+	# body/belly/fin colors — without vertex_color_use_as_albedo they render flat.
+	var mesh: ArrayMesh = _create_fish_mesh_detailed()
+	var fish_mat := StandardMaterial3D.new()
+	fish_mat.vertex_color_use_as_albedo = true
+	fish_mat.roughness = 0.4
+	fish_mat.metallic = 0.15
 	for i in fish_count:
 		var fish := Node3D.new()
 		add_child(fish)
@@ -28,6 +34,7 @@ func _ready() -> void:
 		_radii.append(rng.randf_range(2.0, 5.0))
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
+		mi.material_override = fish_mat
 		fish.add_child(mi)
 		var s := rng.randf_range(0.6, 1.2)
 		mi.scale = Vector3(s, s, s)
@@ -38,10 +45,15 @@ func _process(delta: float) -> void:
 	for i in fish_count:
 		var angle: float = _phases[i] + _time * _speeds[i]
 		var r: float = _radii[i]
-		var pos := Vector3(cos(angle) * r, _y_offsets[i], sin(angle) * r)
+		var bob: float = sin(_time * 1.6 + _phases[i]) * 0.12
+		var pos := Vector3(cos(angle) * r, _y_offsets[i] + bob, sin(angle) * r)
 		var vel_dir := Vector3(-sin(angle), 0.0, cos(angle)).normalized()
-		_fish_nodes[i].position = pos
-		_fish_nodes[i].look_at(pos + vel_dir, Vector3.UP)
+		var fish: Node3D = _fish_nodes[i]
+		fish.position = pos
+		# Orient along the local swim direction (look_at would use a global target).
+		fish.basis = Basis.looking_at(vel_dir, Vector3.UP)
+		# Gentle side-to-side wag so they read as swimming, not gliding.
+		fish.rotate_object_local(Vector3.UP, sin(_time * 7.0 + _phases[i]) * 0.14)
 
 
 static func _tri(st: SurfaceTool, color: Color, n: Vector3, a: Vector3, b: Vector3, c: Vector3) -> void:
