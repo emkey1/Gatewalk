@@ -20,7 +20,9 @@ func randf() -> float:
 
 
 func randf_range(min_value: float, max_value: float) -> float:
-	return lerp(min_value, max_value, randf())
+	# self. is required: an unqualified randf() binds to the global (per-process,
+	# non-deterministic) randf, silently breaking seed reproducibility.
+	return lerp(min_value, max_value, self.randf())
 
 
 func randi_range(min_value: int, max_value: int) -> int:
@@ -30,7 +32,9 @@ func randi_range(min_value: int, max_value: int) -> int:
 
 
 func chance(probability: float) -> bool:
-	return randf() < probability
+	# self. is required: an unqualified randf() binds to the global (per-process,
+	# non-deterministic) randf, silently breaking seed reproducibility.
+	return self.randf() < probability
 
 
 func pick(items: Array) -> Variant:

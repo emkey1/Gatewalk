@@ -27,6 +27,7 @@ func _init() -> void:
 	_run_tree_factory_checks(failures)
 	_run_progression_checks(failures)
 	_run_water_cache_terrain_checks(failures)
+	_run_stable_rng_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -757,6 +758,29 @@ func _signature_diff_summary(a: String, b: String) -> String:
 	var sample_a: String = only_a[0] if not only_a.is_empty() else "<none>"
 	var sample_b: String = only_b[0] if not only_b.is_empty() else "<none>"
 	return "delta_a=%d delta_b=%d sample_a=%s sample_b=%s" % [only_a.size(), only_b.size(), sample_a, sample_b]
+
+
+func _run_stable_rng_checks(failures: Array[String]) -> void:
+	# Guards the bug class where an unqualified randf() inside StableRng binds to the
+	# global (per-process, non-deterministic) RNG instead of self.randf(), silently
+	# breaking seed reproducibility for randf_range() and chance(). Two instances with
+	# the same seed must produce identical sequences.
+	var a := StableRng.new(424242)
+	var b := StableRng.new(424242)
+	for i in range(32):
+		if not is_equal_approx(a.randf_range(-5.0, 5.0), b.randf_range(-5.0, 5.0)):
+			failures.append("StableRng.randf_range is non-deterministic for a fixed seed.")
+			break
+	var c := StableRng.new(424242)
+	var d := StableRng.new(424242)
+	for i in range(64):
+		if c.chance(0.5) != d.chance(0.5):
+			failures.append("StableRng.chance is non-deterministic for a fixed seed.")
+			break
+	# And the draws must actually advance (not return a constant).
+	var e := StableRng.new(7)
+	if is_equal_approx(e.randf_range(0.0, 1.0), e.randf_range(0.0, 1.0)):
+		failures.append("StableRng.randf_range returned identical consecutive draws.")
 
 
 func _run_water_cache_terrain_checks(failures: Array[String]) -> void:
