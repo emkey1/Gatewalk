@@ -424,7 +424,7 @@ func _poll_gate_use_input() -> void:
 		return
 	last_discovery_text = "Attempting gate " + str(gate_index + 1) + "..."
 	_gate_debug_line = "GateDbg: E fire g" + str(gate_index + 1)
-	_on_gate_body_entered(player, gate_index)
+	_force_gate_transition(gate_index, player)
 
 
 func _nearest_gate_index(player: CharacterBody3D, max_radius: float) -> int:
@@ -3868,7 +3868,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
 			target_seeds.append(_gate_target_seed(gi))
-		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
+		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context)
 		_gate_positions_to_wonders()
 	elif _is_current_map_map_nexus():
 		GateFactory.scatter_map_nexus_gates(generated_root, 4, _on_map_nexus_gate_body_entered)
@@ -3929,7 +3929,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		var target_seeds: Array[int] = []
 		for gi in range(GATE_COUNT):
 			target_seeds.append(_gate_target_seed(gi))
-		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context, _on_gate_body_entered)
+		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context)
 		_gate_positions_to_wonders()
 		if _is_current_map_floating_island():
 			_spawn_floating_local_gates()
@@ -5281,22 +5281,6 @@ func _moon_orb_discovery_count(discoveries: Dictionary) -> int:
 		if str(key).begins_with("moon_orb_"):
 			count += 1
 	return count
-
-
-func _on_gate_body_entered(body: Node3D, gate_index: int) -> void:
-	if body.name != "Player" or current_world_id == "" or current_map_id == "":
-		_gate_debug_line = "GateDbg: ignored body/world/map"
-		return
-	if _gate_transition_in_progress:
-		_gate_debug_line = "GateDbg: ignored lock"
-		return
-	if discovery_tracker == null:
-		_gate_debug_line = "GateDbg: no tracker"
-		return
-	if _is_current_map_gate_room() or _is_current_map_map_nexus():
-		_gate_debug_line = "GateDbg: ignored hub"
-		return
-	_force_gate_transition(gate_index, body as CharacterBody3D)
 
 
 func _deferred_load_gate_target(target_world_id: String, target_map_id: String) -> void:

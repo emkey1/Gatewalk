@@ -13,20 +13,20 @@ const GATE_DIRECTIONS: Array[Vector3] = [
 static var _cached_gate_material: StandardMaterial3D
 static var _cached_gate_post_mesh: CylinderMesh
 static var _cached_gate_arch_mesh: BoxMesh
-static var _cached_gate_area_shape: BoxShape3D
 
 
 static func clear_cache() -> void:
 	_cached_gate_material = null
 	_cached_gate_post_mesh = null
 	_cached_gate_arch_mesh = null
-	_cached_gate_area_shape = null
 
 
+# Regular gates carry no trigger Area3D: activation is detected by Main's
+# warmup/cooldown-guarded proximity polling (_poll_primary_gate_activation), the
+# single authoritative path. (The post meshes keep their own solid collision.)
 static func create_gates(
 	parent: Node3D, world_seed: int, target_seeds: Array[int],
-	context: MapContext,
-	on_body_entered: Callable
+	context: MapContext
 ) -> void:
 	var gate_root := Node3D.new()
 	gate_root.name = "Gates"
@@ -35,7 +35,6 @@ static func create_gates(
 	var gate_mat := _gate_material()
 	var post_mesh := _gate_post_mesh()
 	var arch_mesh := _gate_arch_mesh()
-	var gate_area_box := _gate_area_shape()
 
 	for gate_index in range(GATE_DIRECTIONS.size()):
 		var dir: Vector3 = GATE_DIRECTIONS[gate_index]
@@ -81,20 +80,6 @@ static func create_gates(
 		glow.position = Vector3(0.0, 2.0, 0.03)
 		glow.rotation_degrees.x = 90.0
 		gate.add_child(glow)
-
-		var area := Area3D.new()
-		area.name = "GateArea_" + str(gate_index)
-		area.collision_layer = 0
-		area.collision_mask = 2
-		area.monitoring = true
-		area.monitorable = true
-		var area_shape := CollisionShape3D.new()
-		area_shape.shape = gate_area_box
-		area_shape.position = Vector3(0.0, 1.8, 0.0)
-		area.add_child(area_shape)
-		area.position = gate_pos
-		area.body_entered.connect(on_body_entered.bind(gate_index), CONNECT_DEFERRED)
-		gate_root.add_child(area)
 
 
 static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_entered: Callable) -> void:
@@ -449,13 +434,6 @@ static func _gate_arch_mesh() -> BoxMesh:
 	return _cached_gate_arch_mesh
 
 
-static func _gate_area_shape() -> BoxShape3D:
-	if _cached_gate_area_shape != null:
-		return _cached_gate_area_shape
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.75, 5.0, 1.75)
-	_cached_gate_area_shape = shape
-	return _cached_gate_area_shape
 
 
 static func _gate_glow_material(target_seed: int) -> StandardMaterial3D:
