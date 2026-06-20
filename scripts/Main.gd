@@ -12,6 +12,7 @@ const CrystalFactory = preload("res://scripts/factories/CrystalFactory.gd")
 const RuinFactory = preload("res://scripts/factories/RuinFactory.gd")
 const FlowerFactory = preload("res://scripts/factories/FlowerFactory.gd")
 const CreatureFactory = preload("res://scripts/factories/CreatureFactory.gd")
+const WeatherFactory = preload("res://scripts/factories/WeatherFactory.gd")
 const UnderwaterPlantFactory = preload("res://scripts/factories/UnderwaterPlantFactory.gd")
 const MoonFeatureFactory = preload("res://scripts/factories/MoonFeatureFactory.gd")
 const GateFactory = preload("res://scripts/factories/GateFactory.gd")
@@ -121,6 +122,8 @@ var _water_recover_cooldown_until_msec: int = 0
 var _cave_dark_since_msec: int = 0
 var _cave_recover_cooldown_until_msec: int = 0
 var _bioscan_next_msec: int = 0
+var _weather_type: String = "clear"
+var _weather_root: Node3D
 var _map_loading: bool = false
 var _loading_layer: CanvasLayer
 var _loading_label: Label
@@ -264,6 +267,7 @@ func _process(_delta: float) -> void:
 	_update_drowning()
 	_update_cave_darkness()
 	_update_bioscan()
+	_update_weather_follow()
 	_recover_fallen_player()
 	_enforce_world_bounds()
 	_update_hud(_delta)
@@ -3043,6 +3047,57 @@ func _update_bioscan() -> void:
 		discovery_tracker.record_discovery(catalog_id, str(flock.get("species_name")), "creature", flock.global_position)
 
 
+# Deterministic, biome-appropriate weather for the map (consistent on reload). Caves,
+# the moon and hub spaces have no sky, so they stay clear.
+func _determine_weather() -> String:
+	if _is_current_map_cave() or _is_current_map_moon() or _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return WeatherFactory.CLEAR
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "weather"))
+	var r: float = rng.randf()
+	if _is_current_map_arctic():
+		if r < 0.35:
+			return WeatherFactory.CLEAR
+		if r < 0.72:
+			return WeatherFactory.SNOW
+		return WeatherFactory.BLIZZARD
+	if _is_current_map_water():
+		return WeatherFactory.CLEAR if r < 0.5 else WeatherFactory.RAIN
+	if _is_current_map_floating_island():
+		return WeatherFactory.CLEAR if r < 0.7 else WeatherFactory.RAIN
+	return WeatherFactory.CLEAR if r < 0.55 else WeatherFactory.RAIN
+
+
+func _setup_weather() -> void:
+	_weather_root = null
+	_weather_type = _determine_weather()
+	var node: Node3D = WeatherFactory.build(_weather_type)
+	if node != null and generated_root != null:
+		generated_root.add_child(node)
+		_weather_root = node
+		_update_weather_follow()
+	# A blizzard makes the arctic cold bite harder (ties into the warmth pressure).
+	if _weather_type == WeatherFactory.BLIZZARD:
+		var player: CharacterBody3D = _get_player()
+		if player != null and player.get("warmth_drain_per_sec") != null:
+			player.set("warmth_drain_per_sec", float(player.get("warmth_drain_per_sec")) * 1.7)
+
+
+# Keep the storm centred on the player so it feels continuous as they move.
+func _update_weather_follow() -> void:
+	if not is_instance_valid(_weather_root):
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	_weather_root.global_position = Vector3(player.global_position.x, 0.0, player.global_position.z)
+
+
+func _weather_hud_text() -> String:
+	if _weather_type == WeatherFactory.CLEAR:
+		return ""
+	return "Weather: " + WeatherFactory.label_for(_weather_type)
+
+
 func _update_day_night_cycle() -> void:
 	if sun_light == null or world_environment == null:
 		return
@@ -3252,6 +3307,7 @@ func _update_hud(delta: float = 0.0) -> void:
 		"position_text": position_text,
 		"warning_text": warning_text,
 			"flashlight_text": flashlight_text,
+			"weather_text": _weather_hud_text(),
 			"music_text": music_text,
 		"discovery_line": discovery_line,
 		"objective_line": objective_line,
@@ -4003,6 +4059,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 		_show_field_tip("moon_lichen")
 	elif not _is_current_map_gate_room() and not _is_current_map_map_nexus():
 		_show_field_tip("welcome")
+
+	_setup_weather()
 
 	if is_instance_valid(_player_ref):
 		_player_ref.set_physics_process(true)

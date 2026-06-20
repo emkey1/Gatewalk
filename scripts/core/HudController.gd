@@ -405,6 +405,9 @@ func update(data: Dictionary) -> void:
 		controls_lines.append("Lichen: " + str(lichen_count) + " [C] grab [T] throw")
 	if flashlight_text != "":
 		controls_lines.append(flashlight_text)
+	var weather_text: String = str(data.get("weather_text", ""))
+	if weather_text != "":
+		controls_lines.append(weather_text)
 	if warning_text != "":
 		status_lines.append(warning_text)
 
