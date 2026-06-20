@@ -124,6 +124,7 @@ var _cave_recover_cooldown_until_msec: int = 0
 var _bioscan_next_msec: int = 0
 var _weather_type: String = "clear"
 var _weather_root: Node3D
+var _weather_sun_mult: float = 1.0
 var _map_loading: bool = false
 var _loading_layer: CanvasLayer
 var _loading_label: Label
@@ -3070,6 +3071,17 @@ func _determine_weather() -> String:
 func _setup_weather() -> void:
 	_weather_root = null
 	_weather_type = _determine_weather()
+	# Storms dim the directional sun for a gloomier, overcast feel (applied each frame
+	# on top of the day/night energy in _update_day_night_cycle).
+	match _weather_type:
+		WeatherFactory.RAIN:
+			_weather_sun_mult = 0.60
+		WeatherFactory.SNOW:
+			_weather_sun_mult = 0.78
+		WeatherFactory.BLIZZARD:
+			_weather_sun_mult = 0.48
+		_:
+			_weather_sun_mult = 1.0
 	var node: Node3D = WeatherFactory.build(_weather_type)
 	if node != null and generated_root != null:
 		generated_root.add_child(node)
@@ -3185,6 +3197,8 @@ func _update_day_night_cycle() -> void:
 			Color(0.72, 0.82, 0.90),
 			Color(0.65, 0.75, 0.85))
 		sun_light.light_color = sun_base
+
+	sun_light.light_energy *= _weather_sun_mult
 
 	if generated_root != null:
 		var sun_disc: Node3D = generated_root.get_node_or_null("SunDisc") as Node3D
