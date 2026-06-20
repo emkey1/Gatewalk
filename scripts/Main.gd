@@ -3912,6 +3912,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_crystals()
 			await get_tree().process_frame
 			_scatter_ruins()
+			_scatter_bird_flocks()
 			_spawn_wonders()
 			await get_tree().process_frame
 		else:
@@ -3922,6 +3923,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 			await get_tree().process_frame
 			_scatter_ruins()
 			_scatter_flowers()
+			_scatter_bird_flocks()
 			await get_tree().process_frame
 			_spawn_wonders()
 			await get_tree().process_frame

@@ -29,7 +29,9 @@ static func _scatter_birds_internal(parent: Node3D, world_seed: int, height_fn: 
 
 		var flock := preload("res://scripts/BirdFlock.gd").new()
 		flock.name = "BirdFlock_" + str(placed)
-		flock.position = Vector3(x, rng.randf_range(8.0, 18.0), z)
+		# Fly 8-18m above the local terrain (not an absolute height, which would put
+		# flocks below high ground or floating islands).
+		flock.position = Vector3(x, y + rng.randf_range(8.0, 18.0), z)
 		flock.set("rng_seed", rng.next_u32())
 		flock.set("bird_count", rng.randi_range(8, 15))
 		parent.add_child(flock)
