@@ -3858,8 +3858,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 	await get_tree().process_frame
 
 	if _is_current_map_gate_room():
-		GateFactory.scatter_gate_room_gates(generated_root, 4, _on_gate_room_gate_body_entered)
-		GateFactory.scatter_gate_room_return_portal(generated_root, _on_gate_room_return_body_entered)
+		GateFactory.scatter_gate_room_gates(generated_root, 4)
+		GateFactory.scatter_gate_room_return_portal(generated_root)
 	elif _is_current_map_cave():
 		GateFactory.scatter_cave_items(generated_root, world_seed)
 		_spawn_wonders()
@@ -3871,7 +3871,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 		GateFactory.create_gates(generated_root, world_seed, target_seeds, map_context)
 		_gate_positions_to_wonders()
 	elif _is_current_map_map_nexus():
-		GateFactory.scatter_map_nexus_gates(generated_root, 4, _on_map_nexus_gate_body_entered)
+		GateFactory.scatter_map_nexus_gates(generated_root, 4)
 	else:
 		if _is_current_map_arctic():
 			AudioManager.setup_arctic_audio(generated_root)
@@ -4506,7 +4506,7 @@ func _spawn_wonder_instance(wonder_pos: Vector3, cell_x: int, cell_z: int) -> bo
 	wonder.set_meta("wonder_variant", variant)
 	_add_discovery_area(wonder, Vector3(0.0, 2.0, 0.0), 12.0, discovery_id, title, wonder_kind)
 	if archetype == "moon_gate":
-		MoonGateFactory.add_moon_gate_trigger(wonder, _on_moon_gate_body_entered)
+		MoonGateFactory.add_moon_gate_trigger(wonder)
 	_add_generated_child(wonder)
 	return true
 

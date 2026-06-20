@@ -82,7 +82,7 @@ static func create_gates(
 		gate.add_child(glow)
 
 
-static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_entered: Callable) -> void:
+static func scatter_gate_room_gates(parent: Node3D, slot_count: int) -> void:
 	var stone_mat := StandardMaterial3D.new()
 	stone_mat.albedo_color = Color(0.18, 0.21, 0.29)
 	stone_mat.roughness = 0.74
@@ -198,7 +198,7 @@ static func scatter_gate_room_gates(parent: Node3D, slot_count: int, on_body_ent
 		parent.add_child(area)
 
 
-static func scatter_gate_room_return_portal(parent: Node3D, on_body_entered: Callable) -> void:
+static func scatter_gate_room_return_portal(parent: Node3D) -> void:
 	var portal_mat := StandardMaterial3D.new()
 	portal_mat.albedo_color = Color(0.30, 0.78, 1.00, 0.46)
 	portal_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -262,7 +262,7 @@ static func scatter_gate_room_return_portal(parent: Node3D, on_body_entered: Cal
 	parent.add_child(area)
 
 
-static func scatter_map_nexus_gates(parent: Node3D, slot_count: int, on_body_entered: Callable) -> void:
+static func scatter_map_nexus_gates(parent: Node3D, slot_count: int) -> void:
 	var gate_mat := StandardMaterial3D.new()
 	gate_mat.albedo_color = Color(0.18, 0.28, 0.40)
 	gate_mat.roughness = 0.68

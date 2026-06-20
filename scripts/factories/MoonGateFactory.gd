@@ -2,7 +2,7 @@ extends RefCounted
 class_name MoonGateFactory
 
 
-static func add_moon_gate_trigger(parent: Node3D, on_body_entered: Callable) -> void:
+static func add_moon_gate_trigger(parent: Node3D) -> void:
 	var area := Area3D.new()
 	area.name = "MoonGateTrigger"
 	area.collision_layer = 0
