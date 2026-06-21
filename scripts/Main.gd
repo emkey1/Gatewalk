@@ -3165,10 +3165,18 @@ func _update_underwater_state() -> void:
 	var player: CharacterBody3D = _get_player()
 	if player == null or hud_controller == null:
 		return
+	# Drive the underwater LOOK off the player's actual per-map water line (the same
+	# value the drowning logic uses), not a hardcoded sea level. On drained maps it is
+	# -100000, so descending into a city basement no longer triggers the blue tint/fog;
+	# on normal maps it tracks the real body (sea or an elevated lake).
+	var wl: float = WATER_LEVEL
+	if player.get("water_level") != null:
+		wl = float(player.get("water_level"))
 	hud_controller.update_underwater_state(
 		_is_current_map_moon(),
 		_is_current_map_gate_room(),
 		player.camera,
+		wl,
 	)
 
 

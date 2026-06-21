@@ -632,7 +632,7 @@ func _add_minimap_dot(pos: Vector2, color: Color, radius: float) -> void:
 	minimap_marker_layer.add_child(dot)
 
 
-func update_underwater_state(is_moon: bool, is_gate_room: bool, camera: Camera3D) -> void:
+func update_underwater_state(is_moon: bool, is_gate_room: bool, camera: Camera3D, water_level: float = WATER_LEVEL) -> void:
 	if is_moon or is_gate_room:
 		if is_underwater:
 			is_underwater = false
@@ -643,7 +643,10 @@ func update_underwater_state(is_moon: bool, is_gate_room: bool, camera: Camera3D
 	if camera == null:
 		return
 
-	var now_underwater: bool = camera.global_position.y < WATER_LEVEL
+	# Use the caller-supplied water line (the player's per-map water_level). On maps with
+	# water disabled this is hugely negative, so a below-grade basement never reads as
+	# submerged; on water/normal maps it is the real sea or local-lake surface.
+	var now_underwater: bool = camera.global_position.y < water_level
 	if now_underwater == is_underwater:
 		return
 
