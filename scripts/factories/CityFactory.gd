@@ -153,7 +153,10 @@ static func _build_stairs(parent: Node3D, x0: float, x1: float, z0: float, z1: f
 		var k: int = j if ascend_pos else (n - 1 - j)
 		var z: float = z0 + (float(k) + 0.5) * depth
 		var tread: float = y0 + float(j + 1) * rise
-		_wall(parent, Vector3(cx, tread - rise, z), Vector3(sw - 0.4, rise * 2.0, depth + 0.05), mat)
+		# Solid block filled from the flight floor up to the tread, so the staircase
+		# reads as solid masonry with a flat underside (no floating inverted steps).
+		var fill_h: float = tread - y0
+		_wall(parent, Vector3(cx, y0 + fill_h * 0.5, z), Vector3(sw - 0.4, fill_h, depth + 0.05), mat)
 
 
 # An interior wall splitting the room area, with a doorway gap.
