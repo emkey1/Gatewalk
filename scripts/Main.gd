@@ -5492,7 +5492,7 @@ func _play_moon_pilgrim_cutscene() -> void:
 
 	# Keep the shrine field framed for the entire sweep (per-frame, via _moon_cut_look).
 	var look := create_tween()
-	look.tween_method(_moon_cut_look, 0.0, 1.0, 6.4)
+	look.tween_method(_moon_cut_look, 0.0, 1.0, 10.7)
 
 	var t := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	# Beams ignite in a rolling cascade as the camera sweeps low across the field.
@@ -5512,10 +5512,17 @@ func _play_moon_pilgrim_cutscene() -> void:
 	t.tween_callback(func() -> void:
 		_moon_fx_burst(fx, conv_center, base_ambient)
 	)
-	t.tween_property(cutscene_rig, "global_position", pos_c + Vector3(0.0, 2.0, -spread * 0.18), 1.8)
+	# Let the burst bloom and the moment breathe before handing control back.
+	t.tween_property(cutscene_rig, "global_position", pos_c + Vector3(0.0, 3.5, -spread * 0.28), 2.6)
 	t.tween_callback(func() -> void:
-		_push_status_banner("Moon Pilgrim — the Atlas resonates.", 3600)
+		_push_status_banner("Moon Pilgrim — the Atlas resonates.", 4800)
 	)
+	t.tween_property(cutscene_rig, "global_position", pos_c + Vector3(spread * 0.10, 5.0, -spread * 0.30), 1.8)
+	# Beams power down gently so the return isn't a hard snap.
+	t.tween_callback(func() -> void:
+		_moon_fx_fade(fx, 1.7)
+	)
+	t.tween_interval(1.7)
 	t.finished.connect(func() -> void:
 		_moon_cut_cam = null
 		if is_instance_valid(player_camera):
@@ -5688,6 +5695,21 @@ func _moon_fx_burst(parent: Node3D, center: Vector3, base_ambient: float) -> voi
 		var et := create_tween()
 		et.tween_property(world_environment, "ambient_light_energy", 1.7, 0.18)
 		et.tween_property(world_environment, "ambient_light_energy", base_ambient + 0.25, 1.0)
+
+
+# Gently retract the beams and dim their lights so the finale powers down instead
+# of snapping off when the FX are freed at the end.
+func _moon_fx_fade(fx: Node3D, dur: float) -> void:
+	if not is_instance_valid(fx):
+		return
+	for child in fx.get_children():
+		if child is Node3D and (child as Node3D).has_meta("beam_light"):
+			var beam := child as Node3D
+			var ft := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+			ft.tween_property(beam, "scale:y", 0.02, dur)
+			var lt: Variant = beam.get_meta("beam_light", null)
+			if lt is OmniLight3D:
+				ft.tween_property(lt, "light_energy", 0.0, dur)
 
 
 func _try_award_map_survey_completion(world_id: String, map_id: String) -> void:
