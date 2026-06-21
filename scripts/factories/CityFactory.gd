@@ -163,6 +163,22 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 		_wall(b, Vector3(-w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
 		_wall(b, Vector3(w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
 		_wall(b, Vector3(0.0, base_y * 0.5, d * 0.5), Vector3(w, -base_y, th), mat)
+		# A soft fill light so the cellar reads as a dim room rather than a pit of shadow.
+		# The basement is sealed off from the sun, so without this it gets only ambient and
+		# you cross a hard dark line at the hole edge. Shadows on so the glow stays in the
+		# cellar (and up the stairwell) instead of bleeding through the street; distance-fade
+		# so only the basement you are near actually pays for a shadow.
+		var cellar := OmniLight3D.new()
+		cellar.position = Vector3(0.0, base_y + sh * 0.62, 0.0)
+		cellar.light_color = Color(1.0, 0.91, 0.78)
+		cellar.light_energy = 1.6
+		cellar.omni_range = maxf(w, d) * 1.1
+		cellar.shadow_enabled = true
+		cellar.distance_fade_enabled = true
+		cellar.distance_fade_begin = 80.0
+		cellar.distance_fade_shadow = 45.0
+		cellar.distance_fade_length = 25.0
+		b.add_child(cellar)
 
 	# --- Above-ground walls with real window openings (grid frame). Window proportions
 	# vary per building (sill height, window height, spacing) so the city isn't uniform;
