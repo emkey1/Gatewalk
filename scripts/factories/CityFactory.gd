@@ -95,49 +95,69 @@ static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height
 		# Lift the floor a small plinth clear of the (near-flat) terrain so it never pokes
 		# through / z-fights with the ground; small enough to step into through the door.
 		lc.y = gy_max + 0.12
-		_build_building(parent, lc, lw, ld, rng.randi_range(1, 4), rng)
+		# Door faces a street: for a split lot that's the OUTER side (away from the alley
+		# between the two lots); an unsplit block fronts a street on every side.
+		var door_normal: Vector3 = Vector3(0.0, 0.0, 1.0)
+		if lots > 1:
+			door_normal = Vector3(signf(off), 0.0, 0.0) if split_long else Vector3(0.0, 0.0, signf(off))
+		_build_building(parent, lc, lw, ld, rng.randi_range(1, 4), rng, door_normal)
 		out_positions.append(lc)
 
 
 # A walkable multistory building: solid floor slabs per storey, a switchback ramp
-# stairwell in the back shaft, room dividers with doorways, and an optional basement.
-static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng) -> void:
+# stairwell in the back corner, and room dividers with doorways. door_normal selects
+# which (street-facing) wall carries the entrance.
+static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng, door_normal: Vector3 = Vector3(0.0, 0.0, 1.0)) -> void:
 	var b := Node3D.new()
 	b.position = pos
 	parent.add_child(b)
-	var mat := _exterior_material(rng)
+	var mat := _exterior_material(rng)            # outer cladding + stairs
+	# One interior paint shared by the room dividers AND the inward face of the outer
+	# walls, so the inside of the building reads as a single consistent finish.
+	var inner_col := Color.from_hsv(rng.randf_range(0.0, 1.0), rng.randf_range(0.10, 0.30), rng.randf_range(0.60, 0.82))
+	var inner_stripe: float = 1.0 if rng.randf() < 0.4 else 0.0
+	var div_mat := _surface_mat(4, inner_col, inner_col, Vector2(1.0, 1.0), 0.0, 0.65, inner_stripe)
+	var wall_mat: ShaderMaterial = mat.duplicate()   # cladding outside, interior paint inside
+	wall_mat.set_shader_parameter("inner_enable", 1.0)
+	wall_mat.set_shader_parameter("inner_color", inner_col)
+	wall_mat.set_shader_parameter("inner_stripe", inner_stripe)
+	wall_mat.set_shader_parameter("building_center", pos)
+	# Floor finish on top; a ceiling finish (plaster / concrete / acoustic tile) underneath,
+	# so a room's ceiling never looks like the floor of the storey above.
 	var floor_mat := _floor_material(rng)
-	var div_mat := _divider_material(rng)
+	var ceil_col := Color(rng.randf_range(0.62, 0.74), rng.randf_range(0.60, 0.72), rng.randf_range(0.56, 0.66))
+	var ceil_style: int = rng.randi_range(0, 2)
+	floor_mat.set_shader_parameter("ceiling_enable", 1.0)
+	floor_mat.set_shader_parameter("ceiling_color", ceil_col)
+	floor_mat.set_shader_parameter("ceiling_style", ceil_style)
+	# Roof slab: concrete on top, the same ceiling underneath for the top storey.
+	var roof_mat: ShaderMaterial = _surface_mat(2, Color(rng.randf_range(0.42, 0.52), rng.randf_range(0.42, 0.52), rng.randf_range(0.42, 0.52)), Color(0.40, 0.40, 0.40), Vector2(1.0, 1.0), 0.0, 0.95)
+	roof_mat.set_shader_parameter("ceiling_enable", 1.0)
+	roof_mat.set_shader_parameter("ceiling_color", ceil_col)
+	roof_mat.set_shader_parameter("ceiling_style", ceil_style)
 	var sh: float = STORY_H
-	var th: float = 0.3
 	var stair_w: float = minf(5.0, w - 5.0)     # stairwell (two half-flights wide) in the back-left corner
 	var stair_run: float = minf(5.5, d - 3.0)
 	var hx1: float = -w * 0.5 + stair_w         # stairwell occupies x in [-w/2, hx1]
 	var hz1: float = -d * 0.5 + stair_run       # ...and z in [-d/2, hz1]
-	var has_basement: bool = rng.randf() < 0.45
-	var base_level: int = -1 if has_basement else 0
-	var base_y: float = float(base_level) * sh
+	var base_level: int = 0   # all storeys are above grade (a below-grade basement would be
+	                          # capped by the un-carved terrain surface and unreachable)
 	var height: float = float(stories) * sh
 	var door_w: float = 2.4
 	var door_h: float = 2.8
 
-	# --- Basement walls (solid, underground) ---
-	if has_basement:
-		_wall(b, Vector3(0.0, base_y * 0.5, -d * 0.5), Vector3(w, -base_y, th), mat)
-		_wall(b, Vector3(-w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
-		_wall(b, Vector3(w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
-		_wall(b, Vector3(0.0, base_y * 0.5, d * 0.5), Vector3(w, -base_y, th), mat)
 	# --- Above-ground walls with real window openings (grid frame). Window proportions
 	# vary per building (sill height, window height, spacing) so the city isn't uniform;
-	# within a building they stay consistent for rhythm. Front wall carries the door. ---
+	# within a building they stay consistent for rhythm. The door goes on the street-facing
+	# wall (door_normal) so it is never trapped in the narrow alley between two lots. ---
 	var sill_h: float = rng.randf_range(1.0, 2.0)
 	var win_h: float = clampf(rng.randf_range(1.1, 1.9), 0.9, sh - sill_h - 1.0)
 	var win_w: float = rng.randf_range(1.2, 2.4)   # absolute window width; solid piers fill the rest
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, mat, 0.0, sill_h, win_h, win_w)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, win_w)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, win_w)
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, mat, door_w, sill_h, win_h, win_w)
-	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), mat)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z < -0.5 else 0.0), sill_h, win_h, win_w)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x < -0.5 else 0.0), sill_h, win_h, win_w)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x > 0.5 else 0.0), sill_h, win_h, win_w)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z > 0.5 else 0.0), sill_h, win_h, win_w)
+	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), roof_mat)
 
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
 	var land_d: float = 1.5
@@ -152,16 +172,17 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 			# Footprint minus the stairwell corner; the room floor just past it is the landing.
 			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fcy, 0.0), Vector3(w * 0.5 - hx1, fth, d), floor_mat)
 			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fcy, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, fth, d * 0.5 - hz1), floor_mat)
-		if w - stair_w > 6.0 and rng.randf() < 0.6:
-			# Land the divider on a facade pier so it meets solid wall (never a window)
-			# where it ties into the front and back walls.
+		if lvl >= 0 and w - stair_w > 6.0 and rng.randf() < 0.6:   # no partitions in the basement
+			# Land the divider on a facade pier so it meets solid wall (never a window),
+			# and keep it well clear of the stairwell so it never reads as a wall there.
 			var piers: Array = _facade_layout(w * 0.5, win_w)["piers"]
 			var cand: Array = []
 			for px in piers:
-				if px > hx1 + 1.5 and px < w * 0.5 - 1.5:
+				if px > hx1 + 3.0 and px < w * 0.5 - 1.5:
 					cand.append(px)
 			if not cand.is_empty():
-				_room_divider(b, cand[rng.randi_range(0, cand.size() - 1)], fy, -d * 0.5, d * 0.5, sh, door_h, div_mat, rng)
+				# A partition only spanning the open room depth (never crossing the stairwell line).
+				_room_divider(b, cand[rng.randi_range(0, cand.size() - 1)], fy, hz1, d * 0.5, sh, door_h, div_mat, rng)
 
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
@@ -254,11 +275,6 @@ static func _floor_material(rng: StableRng) -> ShaderMaterial:
 
 
 # Interior partition walls: painted plaster, ~40% with a faint wallpaper stripe.
-static func _divider_material(rng: StableRng) -> ShaderMaterial:
-	var base := Color.from_hsv(rng.randf_range(0.0, 1.0), rng.randf_range(0.10, 0.30), rng.randf_range(0.60, 0.82))
-	return _surface_mat(4, base, base, Vector2(1.0, 1.0), 0.0, 0.65, 1.0 if rng.randf() < 0.4 else 0.0)
-
-
 # A grid-frame exterior wall: vertical mullions + horizontal bands (sill, floor
 # lines, parapet) leaving real window openings between them, so light gets in and you
 # can see out. `along` is the in-plane horizontal axis, `normal` points outward; the
