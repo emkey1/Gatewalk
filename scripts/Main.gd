@@ -117,6 +117,8 @@ var _floating_recovery_gate_positions: Array[Vector3] = []
 var _floating_local_gate_last_trigger_msec: int = 0
 var _moon_cutscene_active: bool = false
 var _cutscene_active: bool = false
+var _moon_cut_cam: Camera3D = null
+var _moon_cut_focus: Vector3 = Vector3.ZERO
 var _cycle_time: float = 0.0
 var _map_loaded_at_msec: int = 0
 var _arctic_shelter_check_msec: int = 0
@@ -5311,46 +5313,87 @@ func _play_moon_pilgrim_cutscene() -> void:
 	player.velocity = Vector3.ZERO
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
+	# Gather the nine shrine platforms; the finale fires a beam of light from each.
+	var shrine_points: Array[Vector3] = []
+	var platforms_node: Node = generated_root.get_node_or_null("MoonPlatforms")
+	if platforms_node != null:
+		for c in platforms_node.get_children():
+			if c is Node3D and str(c.name).begins_with("MoonPlatform_"):
+				shrine_points.append((c as Node3D).global_position)
+	if shrine_points.is_empty():
+		shrine_points.append(player.global_position)
+
+	var centroid := Vector3.ZERO
+	for sp in shrine_points:
+		centroid += sp
+	centroid /= float(shrine_points.size())
+	var spread := 18.0
+	for sp in shrine_points:
+		spread = maxf(spread, Vector2(sp.x - centroid.x, sp.z - centroid.z).length())
+	spread = clampf(spread + 8.0, 20.0, 60.0)
+	var focus := centroid + Vector3(0.0, 10.0, 0.0)
+	var conv_center := centroid + Vector3(0.0, 15.0, 0.0)
+
+	var base_ambient: float = world_environment.ambient_light_energy if world_environment != null else 0.65
+	if world_environment != null:
+		world_environment.fog_light_color = Color(0.6, 0.82, 1.0)
+
+	# World-space FX container (kept separate from the moving camera rig).
+	var fx := Node3D.new()
+	fx.name = "MoonFinaleFX"
+	generated_root.add_child(fx)
+	var beams: Array[Node3D] = []
+	for sp in shrine_points:
+		beams.append(_moon_fx_beam(fx, sp))
+
 	var cutscene_rig := Node3D.new()
 	cutscene_rig.name = "MoonPilgrimCutsceneRig"
 	generated_root.add_child(cutscene_rig)
 	var cut_cam := Camera3D.new()
 	cut_cam.current = true
 	cutscene_rig.add_child(cut_cam)
+	cutscene_rig.global_position = centroid + Vector3(-spread * 0.8, 4.0, -spread * 0.8)
+	cut_cam.look_at(focus, Vector3.UP)
+	_moon_cut_cam = cut_cam
+	_moon_cut_focus = focus
 
-	var center: Vector3 = player.global_position + Vector3(0.0, 2.8, 0.0)
-	cutscene_rig.global_position = center + Vector3(-14.0, 6.0, -12.0)
-	cut_cam.look_at(center, Vector3.UP)
-	var base_ambient: float = world_environment.ambient_light_energy if world_environment != null else 0.65
-	if world_environment != null:
-		world_environment.ambient_light_energy = min(base_ambient + 0.35, 1.2)
-		world_environment.fog_light_color = Color(0.55, 0.78, 0.98)
+	var pos_b := centroid + Vector3(spread * 0.9, 6.5, spread * 0.5)
+	var pos_c := centroid + Vector3(0.0, spread * 0.9 + 14.0, spread * 1.45)
 
-	var t := create_tween()
-	t.set_trans(Tween.TRANS_SINE)
-	t.set_ease(Tween.EASE_IN_OUT)
-	t.tween_property(cutscene_rig, "global_position", center + Vector3(13.0, 6.5, -7.0), 2.8)
+	# Keep the shrine field framed for the entire sweep (per-frame, via _moon_cut_look).
+	var look := create_tween()
+	look.tween_method(_moon_cut_look, 0.0, 1.0, 6.4)
+
+	var t := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	# Beams ignite in a rolling cascade as the camera sweeps low across the field.
 	t.tween_callback(func() -> void:
-		if is_instance_valid(cut_cam):
-			cut_cam.look_at(center, Vector3.UP)
-		_push_status_banner("Final shrine attuned. Atlas signal stabilizing...", 2400)
+		for i in range(beams.size()):
+			_moon_fx_ignite(beams[i], float(i) * 0.16)
+		_push_status_banner("The nine shrines answer...", 2400)
 	)
-	t.tween_property(cutscene_rig, "global_position", center + Vector3(0.0, 10.5, 16.0), 2.6)
+	t.tween_property(cutscene_rig, "global_position", pos_b, 2.6)
+	# Energy lifts from every shrine and converges; the camera rises to a hero shot.
 	t.tween_callback(func() -> void:
-		if is_instance_valid(cut_cam):
-			cut_cam.look_at(center + Vector3(0.0, 0.8, 0.0), Vector3.UP)
-		_push_status_banner("Moon route indexed. Return gate lanes are now clear.", 2800)
+		_moon_fx_converge(fx, shrine_points, conv_center, 1.7)
+		_push_status_banner("Atlas signal converging.", 2200)
 	)
-	t.tween_property(cutscene_rig, "global_position", center + Vector3(-9.0, 5.5, 8.0), 2.0)
+	t.tween_property(cutscene_rig, "global_position", pos_c, 2.0)
+	# The burst.
 	t.tween_callback(func() -> void:
-		if is_instance_valid(cut_cam):
-			cut_cam.look_at(center, Vector3.UP)
+		_moon_fx_burst(fx, conv_center, base_ambient)
+	)
+	t.tween_property(cutscene_rig, "global_position", pos_c + Vector3(0.0, 2.0, -spread * 0.18), 1.8)
+	t.tween_callback(func() -> void:
+		_push_status_banner("Moon Pilgrim — the Atlas resonates.", 3600)
 	)
 	t.finished.connect(func() -> void:
+		_moon_cut_cam = null
 		if is_instance_valid(player_camera):
 			player_camera.current = true
 		if is_instance_valid(cutscene_rig):
 			cutscene_rig.queue_free()
+		if is_instance_valid(fx):
+			fx.queue_free()
 		if is_instance_valid(player):
 			player.set_physics_process(true)
 			player.set_process_unhandled_input(true)
@@ -5366,6 +5409,155 @@ func _play_moon_pilgrim_cutscene() -> void:
 		last_discovery_text = "Moon Pilgrim route unlocked. +3 lichen. Return through a gate when ready."
 		_push_status_banner(last_discovery_text, 5200)
 	)
+
+
+func _moon_cut_look(_p: float) -> void:
+	if is_instance_valid(_moon_cut_cam):
+		_moon_cut_cam.look_at(_moon_cut_focus, Vector3.UP)
+
+
+func _moon_glow_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.albedo_color = Color(1.0, 0.9, 0.55, 0.9)
+	m.emission_enabled = true
+	m.emission = Color(1.0, 0.82, 0.4)
+	m.emission_energy_multiplier = 2.0
+	return m
+
+
+# A pillar of light rising from a shrine; grows from its base when ignited.
+func _moon_fx_beam(parent: Node3D, base_pos: Vector3) -> Node3D:
+	var root := Node3D.new()
+	root.position = base_pos
+	root.scale = Vector3(1.0, 0.001, 1.0)
+	parent.add_child(root)
+	var h := 34.0
+	var mesh := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.12
+	cyl.bottom_radius = 0.55
+	cyl.height = h
+	mesh.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.albedo_color = Color(1.0, 0.92, 0.55, 0.5)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.85, 0.4)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mesh.material_override = mat
+	mesh.position.y = h * 0.5
+	root.add_child(mesh)
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.85, 0.45)
+	light.light_energy = 0.0
+	light.omni_range = 16.0
+	light.position.y = 2.5
+	light.shadow_enabled = false
+	root.add_child(light)
+	root.set_meta("beam_light", light)
+	return root
+
+
+func _moon_fx_ignite(beam: Node3D, delay: float) -> void:
+	if not is_instance_valid(beam):
+		return
+	var bt := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	bt.tween_interval(delay)
+	bt.tween_property(beam, "scale:y", 1.0, 0.55)
+	var light: Variant = beam.get_meta("beam_light", null)
+	if light is OmniLight3D:
+		var lt := create_tween()
+		lt.tween_interval(delay)
+		lt.tween_property(light, "light_energy", 2.6, 0.25)
+		lt.tween_property(light, "light_energy", 1.3, 0.5)
+
+
+# Glowing motes lift from each shrine top and stream into the convergence point.
+func _moon_fx_converge(parent: Node3D, shrines: Array, center: Vector3, arrive: float) -> void:
+	if not is_instance_valid(parent):
+		return
+	for s in shrines:
+		var orb := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.55
+		sm.height = 1.1
+		orb.mesh = sm
+		orb.material_override = _moon_glow_material()
+		orb.position = (s as Vector3) + Vector3(0.0, 30.0, 0.0)
+		parent.add_child(orb)
+		var ot := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		ot.tween_property(orb, "position", center, arrive)
+		ot.parallel().tween_property(orb, "scale", Vector3(0.35, 0.35, 0.35), arrive)
+
+
+# The climax: a particle burst, an expanding shockwave ring, a light flash, a swell.
+func _moon_fx_burst(parent: Node3D, center: Vector3, base_ambient: float) -> void:
+	if not is_instance_valid(parent):
+		return
+	var p := GPUParticles3D.new()
+	p.position = center
+	p.amount = 240
+	p.lifetime = 1.7
+	p.one_shot = true
+	p.explosiveness = 0.95
+	p.local_coords = false
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	pm.emission_sphere_radius = 1.2
+	pm.spread = 180.0
+	pm.initial_velocity_min = 7.0
+	pm.initial_velocity_max = 18.0
+	pm.gravity = Vector3(0.0, -3.0, 0.0)
+	pm.scale_min = 0.3
+	pm.scale_max = 0.9
+	pm.color = Color(1.0, 0.9, 0.55)
+	p.process_material = pm
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.35, 0.35)
+	var pmat := StandardMaterial3D.new()
+	pmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	pmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	pmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	pmat.albedo_color = Color(1.0, 0.92, 0.6)
+	pmat.emission_enabled = true
+	pmat.emission = Color(1.0, 0.85, 0.4)
+	qm.material = pmat
+	p.draw_pass_1 = qm
+	parent.add_child(p)
+	p.emitting = true
+
+	var ring := MeshInstance3D.new()
+	ring.position = center
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.6
+	torus.outer_radius = 1.0
+	ring.mesh = torus
+	var rmat := _moon_glow_material()
+	ring.material_override = rmat
+	parent.add_child(ring)
+	var rt := create_tween().set_parallel(true)
+	rt.tween_property(ring, "scale", Vector3(20.0, 6.0, 20.0), 1.3).set_ease(Tween.EASE_OUT)
+	rt.tween_property(rmat, "albedo_color:a", 0.0, 1.3)
+
+	var flash := OmniLight3D.new()
+	flash.position = center
+	flash.light_color = Color(1.0, 0.9, 0.6)
+	flash.light_energy = 8.0
+	flash.omni_range = 70.0
+	flash.shadow_enabled = false
+	parent.add_child(flash)
+	create_tween().tween_property(flash, "light_energy", 0.0, 1.4)
+
+	if world_environment != null:
+		var et := create_tween()
+		et.tween_property(world_environment, "ambient_light_energy", 1.7, 0.18)
+		et.tween_property(world_environment, "ambient_light_energy", base_ambient + 0.25, 1.0)
 
 
 func _try_award_map_survey_completion(world_id: String, map_id: String) -> void:
