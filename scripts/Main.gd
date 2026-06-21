@@ -227,6 +227,7 @@ func _ready() -> void:
 
 	_load_slot_index()
 	_load_save_data()
+	_consolidate_slots()
 	_apply_audio_settings()
 
 	if start_fullscreen:
@@ -850,6 +851,45 @@ func _save_slot_index() -> void:
 		push_error("Could not open slot index: " + SLOT_INDEX_PATH)
 		return
 	file.store_string(JSON.stringify({"current": current_slot, "count": slot_count}, "\t"))
+
+
+# One-time migration: older builds let you create multiple save "slots" (separate
+# files) on top of multiple universes — two redundant ways to have several games.
+# Fold every slot's universes into a single file so "Saved Games" is the only
+# concept. Retired slot files are renamed to .merged backups, never deleted.
+func _consolidate_slots() -> void:
+	var indices: Array = []
+	for i in range(64):
+		if FileAccess.file_exists(_slot_path(i)):
+			indices.append(i)
+	if indices.size() <= 1:
+		return
+
+	var universes: Dictionary = save_data.get("universes", {})
+	for i in indices:
+		if i == current_slot:
+			continue
+		var raw: Variant = JSON.parse_string(FileAccess.open(_slot_path(i), FileAccess.READ).get_as_text())
+		if raw is Dictionary:
+			var other_universes: Dictionary = (raw as Dictionary).get("universes", {})
+			for uid in other_universes.keys():
+				if not universes.has(uid):
+					universes[uid] = other_universes[uid]
+			# Only retire a slot we actually merged, so a corrupt file is never lost.
+			DirAccess.rename_absolute(_slot_path(i), _slot_path(i) + ".merged")
+	save_data["universes"] = universes
+
+	# Everything now lives in slot 0 as the sole save file.
+	if current_slot != 0:
+		DirAccess.rename_absolute(_slot_path(current_slot), _slot_path(current_slot) + ".merged")
+		current_slot = 0
+	var file := FileAccess.open(_slot_path(0), FileAccess.WRITE)
+	if file != null:
+		file.store_string(JSON.stringify(save_data, "\t"))
+		file.close()
+	slot_count = 1
+	_save_slot_index()
+	print("Consolidated ", indices.size(), " save slots into one; ", universes.size(), " saved games total.")
 
 
 func _load_save_data() -> void:
@@ -1539,25 +1579,7 @@ func _show_main_menu() -> void:
 	title.add_theme_font_size_override("font_size", 24)
 	list.add_child(title)
 
-	var slot_bar := HBoxContainer.new()
-	slot_bar.add_theme_constant_override("separation", 6)
-	list.add_child(slot_bar)
-
-	var slot_label := Label.new()
-	slot_label.text = "Slot " + str(current_slot + 1)
-	slot_label.add_theme_font_size_override("font_size", 14)
-	slot_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	slot_bar.add_child(slot_label)
-
-	var switch_btn := Button.new()
-	switch_btn.text = "Switch"
-	switch_btn.pressed.connect(_show_slot_picker)
-	slot_bar.add_child(switch_btn)
-
-	var new_slot_btn := Button.new()
-	new_slot_btn.text = "New Slot"
-	new_slot_btn.pressed.connect(_create_new_slot)
-	slot_bar.add_child(new_slot_btn)
+	# Save "slots" were folded into the Saved Games (universe) list — see _consolidate_slots.
 
 	var story := Label.new()
 	story.text = _backstory_text()
@@ -1596,7 +1618,10 @@ func _show_main_menu() -> void:
 		card.add_child(row)
 
 		var load_btn := Button.new()
-		load_btn.text = ("> " if is_cur else "   ") + str(universe.get("name", uid))
+		var uname: String = str(universe.get("name", "")).strip_edges()
+		if uname == "":
+			uname = "Untitled Game"
+		load_btn.text = ("> " if is_cur else "   ") + uname
 		load_btn.disabled = is_cur
 		load_btn.tooltip_text = "Load this saved game"
 		load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
