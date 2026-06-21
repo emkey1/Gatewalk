@@ -9,6 +9,7 @@ const MAP_GATE_ROOM := "gate_room"
 const MAP_CAVE := "cave"
 const MAP_NEXUS := "map_nexus"
 const MAP_FLOATING_ISLAND := "floating_island"
+const MAP_RUINED_CITY := "ruined_city"
 
 
 static func create_map_record(map_seed: int, map_type: String = MAP_NORMAL) -> MapRecord:

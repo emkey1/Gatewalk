@@ -63,7 +63,7 @@ func biome_value(wx: float, wz: float) -> float:
 
 
 func river_distance(wx: float, wz: float) -> float:
-	if map_type == WorldGraph.MAP_FLOATING_ISLAND:
+	if map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_RUINED_CITY:
 		return 999.0
 	var curve: float = sin(wx * 0.025) * 22.0 + noise.get_noise_2d(wx * 0.2 + 3200.0, 410.0) * 16.0
 	return abs(wz - curve)
@@ -72,6 +72,10 @@ func river_distance(wx: float, wz: float) -> float:
 func height_at_world(wx: float, wz: float) -> float:
 	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_NEXUS:
 		return 0.0
+
+	if map_type == WorldGraph.MAP_RUINED_CITY:
+		# Near-flat street level, with a gentle heave from settling rubble.
+		return noise.get_noise_2d(wx * 0.55 + 700.0, wz * 0.55 - 300.0) * 0.35
 
 	if map_type == WorldGraph.MAP_MOON:
 		var scale: float = 1.0 / float(moon_grid_scale)

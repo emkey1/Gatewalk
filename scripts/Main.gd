@@ -13,6 +13,7 @@ const RuinFactory = preload("res://scripts/factories/RuinFactory.gd")
 const LandmarkFactory = preload("res://scripts/factories/LandmarkFactory.gd")
 const RoadFactory = preload("res://scripts/factories/RoadFactory.gd")
 const BridgeFactory = preload("res://scripts/factories/BridgeFactory.gd")
+const CityFactory = preload("res://scripts/factories/CityFactory.gd")
 const FlowerFactory = preload("res://scripts/factories/FlowerFactory.gd")
 const CreatureFactory = preload("res://scripts/factories/CreatureFactory.gd")
 const WeatherFactory = preload("res://scripts/factories/WeatherFactory.gd")
@@ -47,6 +48,7 @@ const MOON_SHRINE_COUNT: int = 9
 const WATER_ROUTE_CHANCE: float = 0.12
 const FLOATING_ROUTE_CHANCE: float = 0.10
 const NEXUS_ROUTE_CHANCE: float = 0.06
+const CITY_ROUTE_CHANCE: float = 0.12
 const MAZE_OBJECTIVE_VARIANTS: Array[String] = [
 	"gate_sprint",
 	"discover_then_exit",
@@ -346,6 +348,7 @@ func _physics_process(_delta: float) -> void:
 	_poll_wonder_proximity_fallback()
 	_poll_moon_gate_proximity_fallback()
 	_poll_moon_shrine_fallback()
+	_poll_city_cores()
 	_poll_gate_room_slot_fallback()
 	_poll_gate_room_return_fallback()
 	_poll_map_nexus_slot_fallback()
@@ -537,7 +540,9 @@ func _force_gate_transition(gate_index: int, player: CharacterBody3D = null) -> 
 		WATER_ROUTE_CHANCE,
 		0.10,
 		0.18,
-		NEXUS_ROUTE_CHANCE
+		NEXUS_ROUTE_CHANCE,
+		0.0,
+		CITY_ROUTE_CHANCE
 	)
 	if not bool(gate_result.get("ok", false)):
 		var gate_error: String = str(gate_result.get("error", "unknown"))
@@ -2583,6 +2588,8 @@ func _create_precomputed_world_record(world_name: String, world_id: String, root
 			map_type = WorldGraph.MAP_FLOATING_ISLAND
 		elif branch_roll < WATER_ROUTE_CHANCE + 0.10 + FLOATING_ROUTE_CHANCE + 0.18:
 			map_type = WorldGraph.MAP_CAVE
+		elif branch_roll < WATER_ROUTE_CHANCE + 0.10 + FLOATING_ROUTE_CHANCE + 0.18 + CITY_ROUTE_CHANCE:
+			map_type = WorldGraph.MAP_RUINED_CITY
 		var local_seed: int = int((StableRng.mix_string(map_seed, "route_map_seed", i) & 0x7fffffff))
 		if local_seed == 0:
 			local_seed = map_seed + i + 1
@@ -3645,6 +3652,12 @@ func _next_objective_hint(map_record: Dictionary) -> String:
 		if water_available > water_found:
 			return "Objective: Dive for sunken caches on the seabed (" + str(water_found) + "/" + str(water_available) + ") — surface before your breath runs out."
 		return "Objective: Caches recovered. Cross a gate to chart onward."
+	if _is_current_map_ruined_city():
+		var city_total: int = int(map_record.get("city_cores_total", 0))
+		var city_found: int = _city_cores_found(map_record)
+		if city_total <= 0 or city_found < city_total:
+			return "Objective: Explore the ruined buildings for data cores (" + str(city_found) + "/" + str(maxi(city_total, 1)) + ")."
+		return "Objective: All data cores recovered. Cross a gate to chart onward."
 
 	var available: int = int(map_record.get("available_discoveries", 0))
 	var found: int = map_record.get("discoveries", {}).size()
@@ -3889,6 +3902,8 @@ func _map_type_label(map_type: String) -> String:
 			return "Inter-world Gate Room"
 		WorldGraph.MAP_NEXUS:
 			return "World Nexus"
+		WorldGraph.MAP_RUINED_CITY:
+			return "Ruined City"
 		_:
 			return map_type
 
@@ -3990,6 +4005,11 @@ func _is_current_map_floating_island() -> bool:
 	return str(raw.get("type", "")) == WorldGraph.MAP_FLOATING_ISLAND
 
 
+func _is_current_map_ruined_city() -> bool:
+	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
+	return str(raw.get("type", "")) == WorldGraph.MAP_RUINED_CITY
+
+
 func _current_map_type() -> String:
 	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
 	return WorldGraph.map_type_from_dict(raw)
@@ -4055,7 +4075,7 @@ func _gate_destination_type(gate_index: int) -> String:
 	var world: Dictionary = _get_world(current_world_id)
 	return GateTravelService.predict_gate_target_type(
 		world_seed, current_map_id, gate_index, world,
-		WATER_ROUTE_CHANCE, 0.10, 0.18, NEXUS_ROUTE_CHANCE,
+		WATER_ROUTE_CHANCE, 0.10, 0.18, NEXUS_ROUTE_CHANCE, 0.0, CITY_ROUTE_CHANCE,
 	)
 
 
@@ -4297,6 +4317,11 @@ func _load_map(world_id: String, map_id: String) -> void:
 			_scatter_ruins()
 			_scatter_bird_flocks()
 			_scatter_critter_herds()
+			await get_tree().process_frame
+		elif _is_current_map_ruined_city():
+			_scatter_city()
+			await get_tree().process_frame
+			_scatter_bird_flocks()
 			await get_tree().process_frame
 		else:
 			_spawn_wonders()
@@ -4692,6 +4717,86 @@ func _scatter_critter_herds() -> void:
 	CreatureFactory.scatter_critters(generated_root, world_seed, map_context)
 
 
+func _scatter_city() -> void:
+	_begin_generation_channel("city")
+	_city_core_positions = CityFactory.scatter_city(generated_root, world_seed, density_level, map_context)
+	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
+	map_record["city_cores_total"] = _city_core_positions.size()
+	_update_world_map_record(current_world_id, current_map_id, map_record, false)
+	_spawn_city_cores(map_record)
+
+
+# Glowing collectible "data cores" hidden inside buildings — the city objective.
+func _spawn_city_cores(map_record: Dictionary) -> void:
+	var discoveries: Dictionary = map_record.get("discoveries", {})
+	var root := Node3D.new()
+	root.name = "CityCores"
+	generated_root.add_child(root)
+	for i in range(_city_core_positions.size()):
+		if discoveries.has("city_core_" + str(i)):
+			continue
+		var core := Node3D.new()
+		core.name = "CityCore_" + str(i)
+		core.position = _city_core_positions[i]
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.55, 0.55, 0.55)
+		mi.mesh = bm
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.45, 0.9, 1.0)
+		mat.emission_enabled = true
+		mat.emission = Color(0.3, 0.8, 1.0)
+		mat.emission_energy_multiplier = 3.5
+		mi.material_override = mat
+		core.add_child(mi)
+		var light := OmniLight3D.new()
+		light.light_color = Color(0.45, 0.85, 1.0)
+		light.light_energy = 2.0
+		light.omni_range = 7.0
+		light.shadow_enabled = false
+		core.add_child(light)
+		root.add_child(core)
+
+
+func _poll_city_cores() -> void:
+	if not _is_current_map_ruined_city() or generated_root == null or discovery_tracker == null:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var cores_root: Node = generated_root.get_node_or_null("CityCores")
+	if cores_root == null:
+		return
+	var collected_any: bool = false
+	for child in cores_root.get_children():
+		if not (child is Node3D):
+			continue
+		var core := child as Node3D
+		if core.global_position.distance_to(player.global_position) <= 2.4:
+			discovery_tracker.record_discovery("city_core_" + str(core.name).trim_prefix("CityCore_"), "Data Core", "core", core.global_position)
+			core.queue_free()
+			collected_any = true
+	if not collected_any:
+		return
+	var map_record: Dictionary = _get_map_record(current_world_id, current_map_id)
+	if int(map_record.get("city_cores_total", 0)) > 0 and _city_cores_found(map_record) >= int(map_record.get("city_cores_total", 0)) and not bool(map_record.get("city_cleared", false)):
+		map_record["city_cleared"] = true
+		_update_world_map_record(current_world_id, current_map_id, map_record, true)
+		lichen_count += 4
+		if player.has_method(&"set"):
+			player.set("lichen_count", lichen_count)
+		last_discovery_text = "City secured — every data core recovered. +4 lichen."
+		_push_status_banner(last_discovery_text, 5200)
+
+
+func _city_cores_found(map_record: Dictionary) -> int:
+	var found: int = 0
+	for k in map_record.get("discoveries", {}).keys():
+		if str(k).begins_with("city_core_"):
+			found += 1
+	return found
+
+
 func _scatter_underwater_plants() -> void:
 	_begin_generation_channel("underwater_plants")
 	UnderwaterPlantFactory.scatter_plants(generated_root, world_seed, density_level, map_context)
@@ -4768,6 +4873,7 @@ func _scatter_moon_glass_craters() -> void:
 var _wonder_positions: Array = []
 var _landmark_positions: Array = []
 var _bridge_positions: Array = []
+var _city_core_positions: Array = []
 
 
 func _gate_positions_to_wonders() -> void:
@@ -5481,6 +5587,9 @@ func _find_spawn_position() -> Vector3:
 
 	if _is_current_map_arctic():
 		return Vector3(0.0, 2.5, 0.0)
+
+	if _is_current_map_ruined_city():
+		return Vector3(0.0, _height_at_world(0.0, 0.0) + 1.2, 0.0)
 
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "spawn"))
 	var half: float = _world_half_size() * 0.84

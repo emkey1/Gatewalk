@@ -16,7 +16,8 @@ static func resolve_gate_transition(
 	arctic_route_chance: float = 0.10,
 	floating_route_chance: float = 0.10,
 	cave_route_chance: float = 0.18,
-	nexus_route_chance: float = 0.0
+	nexus_route_chance: float = 0.0,
+	city_route_chance: float = 0.0
 ) -> Dictionary:
 	var maps: Dictionary = world.get("maps", {})
 	var raw_record = maps.get(current_map_id, {})
@@ -147,7 +148,8 @@ static func predict_gate_target_type(
 	arctic_route_chance: float = 0.10,
 	floating_route_chance: float = 0.10,
 	cave_route_chance: float = 0.18,
-	nexus_route_chance: float = 0.0
+	nexus_route_chance: float = 0.0,
+	city_route_chance: float = 0.0
 ) -> String:
 	var maps: Dictionary = world.get("maps", {})
 	var map_type: String = WorldGraph.MAP_NORMAL
@@ -163,7 +165,7 @@ static func predict_gate_target_type(
 	var gate_rng := StableRng.new(StableRng.mix_string(world_seed, "gate_" + str(gate_index)))
 	return _roll_route_target_type(
 		gate_rng, map_type, water_route_chance, arctic_route_chance,
-		floating_route_chance, cave_route_chance, nexus_route_chance,
+		floating_route_chance, cave_route_chance, nexus_route_chance, city_route_chance,
 	)
 
 
@@ -320,13 +322,15 @@ static func _roll_route_target_type(
 	arctic_route_chance: float,
 	floating_route_chance: float,
 	cave_route_chance: float,
-	nexus_route_chance: float
+	nexus_route_chance: float,
+	city_route_chance: float = 0.0
 ) -> String:
 	var target_type: String = WorldGraph.MAP_NORMAL
 	var is_water_route: bool = false
 	var is_arctic_route: bool = false
 	var is_floating_route: bool = false
 	var is_cave_route: bool = false
+	var is_city_route: bool = false
 	var from_cave: bool = map_type == WorldGraph.MAP_CAVE
 	if not from_cave and map_type != WorldGraph.MAP_WATER:
 		is_water_route = gate_rng.chance(water_route_chance)
@@ -344,14 +348,18 @@ static func _roll_route_target_type(
 		is_cave_route = gate_rng.chance(cave_route_chance)
 		if is_cave_route:
 			target_type = WorldGraph.MAP_CAVE
-	if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route and not is_cave_route and map_type == WorldGraph.MAP_NORMAL:
+	if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route and not is_cave_route:
+		is_city_route = gate_rng.chance(city_route_chance)
+		if is_city_route:
+			target_type = WorldGraph.MAP_RUINED_CITY
+	if not from_cave and not is_water_route and not is_arctic_route and not is_floating_route and not is_cave_route and not is_city_route and map_type == WorldGraph.MAP_NORMAL:
 		if gate_rng.chance(nexus_route_chance):
 			target_type = WorldGraph.MAP_NEXUS
 	return target_type
 
 
 static func _is_route_map_type(map_type: String) -> bool:
-	return map_type == WorldGraph.MAP_NORMAL or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC or map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_CAVE
+	return map_type == WorldGraph.MAP_NORMAL or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC or map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_RUINED_CITY
 
 
 static func _route_map_count(maps: Dictionary) -> int:
