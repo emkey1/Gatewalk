@@ -49,40 +49,56 @@ func _base_land_height(wx: float, wz: float) -> float:
 	return broad + hills + details
 
 
-# Scattered lakes, each on high ground so its surface sits ABOVE the sea — distinct
-# bodies at their own levels, not one global sheet. Each is a carved bowl with a raised
-# lip that contains it, plus a stored surface level for the local water plane.
+# Lakes placed in genuine basins — a hollow whose rim rises above the pool on every side
+# — so each is a contained body at its own level above the sea. No artificial lip to run
+# into; the natural rim holds the water and the shore steepening (below) stops it being a
+# shelf you can stand on.
 func _setup_lakes() -> void:
 	_lakes = []
 	if map_type != WorldGraph.MAP_NORMAL:
 		return
 	var lr := StableRng.new(StableRng.mix_string(world_seed, "lakes", 0))
-	var n: int = lr.randi_range(2, 4)
+	var target: int = lr.randi_range(2, 4)
 	var half: float = world_half_size() * 0.72
-	for k in range(n):
-		# Pick the most elevated of several candidates so the lake reads as a high tarn.
-		var bx: float = 0.0
-		var bz: float = 0.0
-		var bh: float = -1.0e9
-		for c in range(6):
-			var cxx: float = lr.randf_range(-half, half)
-			var czz: float = lr.randf_range(-half, half)
-			var hh: float = _base_land_height(cxx, czz)
-			if hh > bh:
-				bh = hh
-				bx = cxx
-				bz = czz
+	var tries: int = 0
+	while _lakes.size() < target and tries < 60:
+		tries += 1
+		var cxx: float = lr.randf_range(-half, half)
+		var czz: float = lr.randf_range(-half, half)
+		var rad: float = lr.randf_range(14.0, 22.0)
+		# Keep clear of the river — its carve drops part of the rim and the pool drains in.
+		if river_distance(cxx, czz) < rad + 18.0:
+			continue
+		# Keep lakes apart — an overlapping neighbour's bowl eats into this rim and the pool
+		# spills where the rim test (which samples bare land) can't see it.
+		var clear := true
+		for ex in _lakes:
+			if Vector2(cxx - float(ex["x"]), czz - float(ex["z"])).length() < rad + float(ex["r"]) + 14.0:
+				clear = false
+				break
+		if not clear:
+			continue
+		var rim_min: float = 1.0e9
+		var rim_max: float = -1.0e9
+		for a in range(16):
+			var ang: float = TAU * float(a) / 16.0
+			var rh: float = _base_land_height(cxx + cos(ang) * rad, czz + sin(ang) * rad)
+			rim_min = minf(rim_min, rh)
+			rim_max = maxf(rim_max, rh)
+		# An above-sea spot that isn't a steep hillside: the carve digs the basin and the
+		# natural rim (its lowest point, less a margin) sets a contained fill level.
+		if rim_min < -0.5 or rim_max - rim_min > 12.0:
+			continue
 		_lakes.append({
-			"x": bx, "z": bz,
-			"r": lr.randf_range(20.0, 34.0),
-			"depth": lr.randf_range(9.0, 14.0),
-			"rim": lr.randf_range(1.5, 2.5),
-			"level": bh - lr.randf_range(1.0, 2.0),   # surface just below the local ground
+			"x": cxx, "z": czz, "r": rad,
+			"depth": lr.randf_range(5.0, 9.0),
+			"level": rim_min - 1.5,
 		})
 
 
-# Net land offset from every lake at a point: a bowl (lowers the centre) plus a raised
-# lip around the rim so the pool is contained and clips cleanly.
+# Bowl depth from every lake at a point (0 outside), plus a GENTLE raised lip at the rim
+# (~14 deg slope) that guarantees the pool stays contained whatever the natural ground
+# does — a soft rise you walk over, not the steep wall from before.
 func _lake_carve(wx: float, wz: float) -> float:
 	var c: float = 0.0
 	for lake in _lakes:
@@ -90,8 +106,8 @@ func _lake_carve(wx: float, wz: float) -> float:
 		var d: float = Vector2(wx - float(lake["x"]), wz - float(lake["z"])).length()
 		if d < r:
 			c += smoothstep(0.0, 1.0, 1.0 - d / r) * float(lake["depth"])
-		var lip: float = 1.0 - clampf(absf(d - r) / (r * 0.22), 0.0, 1.0)
-		c -= lip * float(lake["rim"])
+		var lip: float = 1.0 - clampf(absf(d - r) / (r * 0.4), 0.0, 1.0)
+		c -= lip * 1.8
 	return c
 
 
@@ -240,6 +256,12 @@ func height_at_world(wx: float, wz: float) -> float:
 
 	if river_dist < 6.0:
 		height = min(height, water_level - 0.45 + abs(river_dist) * 0.05)
+
+	# Steepen the shore: anything near or below the local water line drops to clearly
+	# submerged, so you wade in and sink rather than walk a flat shelf at the surface.
+	var lw: float = water_level_at(wx, wz)
+	if height < lw + 0.2:
+		height = lw - 0.5 - maxf(0.0, lw - height) * 1.8
 
 	return height
 

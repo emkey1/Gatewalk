@@ -869,7 +869,7 @@ func _create_lakes() -> void:
 		water.name = "LakeWater%d" % idx
 		idx += 1
 		var mesh := PlaneMesh.new()
-		mesh.size = Vector2(r * 2.3, r * 2.3)
+		mesh.size = Vector2(r * 2.0, r * 2.0)
 		mesh.subdivide_width = 16
 		mesh.subdivide_depth = 16
 		water.mesh = mesh
