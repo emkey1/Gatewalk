@@ -74,8 +74,9 @@ func height_at_world(wx: float, wz: float) -> float:
 		return 0.0
 
 	if map_type == WorldGraph.MAP_RUINED_CITY:
-		# Near-flat street level, with a gentle heave from settling rubble.
-		return noise.get_noise_2d(wx * 0.55 + 700.0, wz * 0.55 - 300.0) * 0.35
+		# Graded street level: only a faint heave, so building floors sit flush and
+		# doorways stay a single step above grade (no terrain poking through floors).
+		return noise.get_noise_2d(wx * 0.55 + 700.0, wz * 0.55 - 300.0) * 0.07
 
 	if map_type == WorldGraph.MAP_MOON:
 		var scale: float = 1.0 / float(moon_grid_scale)

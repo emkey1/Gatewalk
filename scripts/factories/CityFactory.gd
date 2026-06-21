@@ -88,11 +88,13 @@ static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height
 		if lw < 7.0 or ld < 7.0:
 			continue
 		var lc: Vector3 = center + (Vector3(off, 0.0, 0.0) if split_long else Vector3(0.0, 0.0, off))
-		var gy_max: float = -1.0e9   # ground at the highest terrain under the footprint
-		for sx in [-lw * 0.5, 0.0, lw * 0.5]:
-			for sz in [-ld * 0.5, 0.0, ld * 0.5]:
+		var gy_max: float = -1.0e9   # highest terrain under the footprint
+		for sx in [-lw * 0.5, -lw * 0.25, 0.0, lw * 0.25, lw * 0.5]:
+			for sz in [-ld * 0.5, -ld * 0.25, 0.0, ld * 0.25, ld * 0.5]:
 				gy_max = maxf(gy_max, float(height_fn.call(lc.x + sx, lc.z + sz)))
-		lc.y = gy_max
+		# Lift the floor a small plinth clear of the (near-flat) terrain so it never pokes
+		# through / z-fights with the ground; small enough to step into through the door.
+		lc.y = gy_max + 0.12
 		_build_building(parent, lc, lw, ld, rng.randi_range(1, 4), rng)
 		out_positions.append(lc)
 
