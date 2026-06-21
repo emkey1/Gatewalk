@@ -3,6 +3,7 @@ class_name CityFactory
 
 const MapContext = preload("res://scripts/core/MapContext.gd")
 const MultiMeshScatter = preload("res://scripts/factories/MultiMeshScatter.gd")
+const CITY_SHADER := preload("res://scripts/factories/city_surface.gdshader")
 
 # A ruined, overgrown city: a grid of streets between blocks of multistory buildings
 # (hollow shells you can walk into through a doorway, with window facades), parks
@@ -87,7 +88,11 @@ static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height
 		if lw < 7.0 or ld < 7.0:
 			continue
 		var lc: Vector3 = center + (Vector3(off, 0.0, 0.0) if split_long else Vector3(0.0, 0.0, off))
-		lc.y = float(height_fn.call(lc.x, lc.z))   # each lot grounds to its own terrain
+		var gy_max: float = -1.0e9   # ground at the highest terrain under the footprint
+		for sx in [-lw * 0.5, 0.0, lw * 0.5]:
+			for sz in [-ld * 0.5, 0.0, ld * 0.5]:
+				gy_max = maxf(gy_max, float(height_fn.call(lc.x + sx, lc.z + sz)))
+		lc.y = gy_max
 		_build_building(parent, lc, lw, ld, rng.randi_range(1, 4), rng)
 		out_positions.append(lc)
 
@@ -98,8 +103,9 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var b := Node3D.new()
 	b.position = pos
 	parent.add_child(b)
-	var mat := _concrete_material(rng)
+	var mat := _exterior_material(rng)
 	var floor_mat := _floor_material(rng)
+	var div_mat := _divider_material(rng)
 	var sh: float = STORY_H
 	var th: float = 0.3
 	var stair_w: float = minf(5.0, w - 5.0)     # stairwell (two half-flights wide) in the back-left corner
@@ -135,12 +141,15 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var land_d: float = 1.5
 	for lvl in range(base_level, stories):
 		var fy: float = float(lvl) * sh
+		var fth: float = 0.7 if lvl == 0 else 0.2     # ground floor is a thick foundation slab
+		var fcy: float = fy - fth * 0.5               # keep the floor TOP at fy
 		if lvl == base_level:
-			_wall(b, Vector3(0.0, fy - 0.1, 0.0), Vector3(w, 0.2, d), floor_mat)  # solid base
+			var ov: float = 0.4 if lvl == 0 else 0.0  # foundation overhangs to hide the wall base on uneven terrain
+			_wall(b, Vector3(0.0, fcy, 0.0), Vector3(w + ov, fth, d + ov), floor_mat)  # solid base / foundation
 		else:
 			# Footprint minus the stairwell corner; the room floor just past it is the landing.
-			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fy - 0.1, 0.0), Vector3(w * 0.5 - hx1, 0.2, d), floor_mat)
-			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fy - 0.1, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, 0.2, d * 0.5 - hz1), floor_mat)
+			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fcy, 0.0), Vector3(w * 0.5 - hx1, fth, d), floor_mat)
+			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fcy, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, fth, d * 0.5 - hz1), floor_mat)
 		if w - stair_w > 6.0 and rng.randf() < 0.6:
 			# Land the divider on a facade pier so it meets solid wall (never a window)
 			# where it ties into the front and back walls.
@@ -150,7 +159,7 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 				if px > hx1 + 1.5 and px < w * 0.5 - 1.5:
 					cand.append(px)
 			if not cand.is_empty():
-				_room_divider(b, cand[rng.randi_range(0, cand.size() - 1)], fy, -d * 0.5, d * 0.5, sh, door_h, mat, rng)
+				_room_divider(b, cand[rng.randi_range(0, cand.size() - 1)], fy, -d * 0.5, d * 0.5, sh, door_h, div_mat, rng)
 
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
@@ -200,12 +209,52 @@ static func _room_divider(parent: Node3D, x: float, fy: float, z0: float, z1: fl
 	_wall(parent, Vector3(x, fy + (sh + door_h) * 0.5, door_z), Vector3(th, sh - door_h, door_w), mat)
 
 
-static func _floor_material(rng: StableRng) -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	var tone: float = rng.randf_range(0.28, 0.40)
-	mat.albedo_color = Color(tone, tone * 0.98, tone * 0.92)
-	mat.roughness = 1.0
-	return mat
+static func _surface_mat(style: int, base: Color, line: Color, cell: Vector2, line_frac: float, rough: float, stripe: float = 0.0) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = CITY_SHADER
+	m.set_shader_parameter("style", style)
+	m.set_shader_parameter("base_color", base)
+	m.set_shader_parameter("line_color", line)
+	m.set_shader_parameter("cell_size", cell)
+	m.set_shader_parameter("line_frac", line_frac)
+	m.set_shader_parameter("rough", rough)
+	m.set_shader_parameter("stripe", stripe)
+	return m
+
+
+# Exterior cladding: brick, stone, or concrete (one per building, for between-building variety).
+static func _exterior_material(rng: StableRng) -> ShaderMaterial:
+	var pick: int = rng.randi_range(0, 2)
+	if pick == 0:
+		var base := Color.from_hsv(rng.randf_range(0.02, 0.07), rng.randf_range(0.45, 0.65), rng.randf_range(0.40, 0.55))
+		return _surface_mat(0, base, Color(0.70, 0.68, 0.64), Vector2(rng.randf_range(0.42, 0.52), 0.16), 0.07, 0.9)
+	elif pick == 1:
+		var g: float = rng.randf_range(0.42, 0.60)
+		return _surface_mat(1, Color(g, g * 0.99, g * 0.95), Color(0.32, 0.31, 0.30), Vector2(rng.randf_range(0.7, 1.0), rng.randf_range(0.35, 0.5)), 0.05, 0.92)
+	var c: float = rng.randf_range(0.50, 0.66)
+	return _surface_mat(2, Color(c, c, c * 0.98), Color(0.40, 0.40, 0.40), Vector2(1.0, 1.0), 0.0, 0.95)
+
+
+# Interior floor finish: tile, carpet, wood planks, or concrete (one per building).
+static func _floor_material(rng: StableRng) -> ShaderMaterial:
+	var pick: int = rng.randi_range(0, 3)
+	if pick == 0:
+		var t: float = rng.randf_range(0.45, 0.70)
+		return _surface_mat(5, Color(t, t, t * 1.02), Color(0.25, 0.25, 0.27), Vector2(rng.randf_range(0.5, 0.8), rng.randf_range(0.5, 0.8)), 0.05, 0.55)
+	elif pick == 1:
+		var carpet := Color.from_hsv(rng.randf_range(0.0, 1.0), rng.randf_range(0.25, 0.50), rng.randf_range(0.30, 0.50))
+		return _surface_mat(6, carpet, carpet, Vector2(1.0, 1.0), 0.0, 1.0)
+	elif pick == 2:
+		var wood := Color.from_hsv(rng.randf_range(0.05, 0.10), rng.randf_range(0.45, 0.65), rng.randf_range(0.30, 0.50))
+		return _surface_mat(3, wood, Color(0.12, 0.08, 0.05), Vector2(rng.randf_range(1.6, 2.4), rng.randf_range(0.18, 0.26)), 0.04, 0.7)
+	var c2: float = rng.randf_range(0.32, 0.46)
+	return _surface_mat(2, Color(c2, c2, c2 * 1.02), Color(0.30, 0.30, 0.30), Vector2(1.0, 1.0), 0.0, 0.9)
+
+
+# Interior partition walls: painted plaster, ~40% with a faint wallpaper stripe.
+static func _divider_material(rng: StableRng) -> ShaderMaterial:
+	var base := Color.from_hsv(rng.randf_range(0.0, 1.0), rng.randf_range(0.10, 0.30), rng.randf_range(0.60, 0.82))
+	return _surface_mat(4, base, base, Vector2(1.0, 1.0), 0.0, 0.65, 1.0 if rng.randf() < 0.4 else 0.0)
 
 
 # A grid-frame exterior wall: vertical mullions + horizontal bands (sill, floor
