@@ -15,6 +15,10 @@ const BLOCK: float = 25.0    # block footprint
 const STREET_W: float = 8.0
 const STORY_H: float = 4.5   # tall floor-to-floor so the half-landing keeps head height
 const TARGET_CORES: int = 6
+const INTERIOR_CULL_DIST: float = 60.0   # interior floors/walls/stairs stop drawing past this (overdraw relief)
+# Set transiently around interior construction; _wall() then distance-caps those meshes so
+# distant buildings render only their exterior shell + roof, not their (unseen) insides.
+static var _cull_dist: float = 0.0
 
 
 static func scatter_city(parent: Node3D, world_seed: int, density_level: int, context: MapContext) -> Array:
@@ -131,6 +135,7 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var b := Node3D.new()
 	b.position = pos
 	parent.add_child(b)
+	_cull_dist = 0.0                              # exterior shell is always-visible; never inherit a stray cap
 	var mat := _exterior_material(rng)            # outer cladding + stairs
 	# One interior paint shared by the room dividers AND the inward face of the outer
 	# walls, so the inside of the building reads as a single consistent finish.
@@ -187,9 +192,9 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 		cellar.omni_range = maxf(w, d) * 1.1
 		cellar.shadow_enabled = true
 		cellar.distance_fade_enabled = true
-		cellar.distance_fade_begin = 80.0
-		cellar.distance_fade_shadow = 45.0
-		cellar.distance_fade_length = 25.0
+		cellar.distance_fade_begin = 55.0
+		cellar.distance_fade_shadow = 20.0   # only the basement you're in/next to casts a (costly) cubemap shadow
+		cellar.distance_fade_length = 18.0
 		b.add_child(cellar)
 
 	# --- Above-ground walls with real window openings (grid frame). Window proportions
@@ -210,6 +215,7 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
 	var land_d: float = 1.5
+	_cull_dist = INTERIOR_CULL_DIST   # floors / rooms / stairs are interior -> distance-cap them
 	for lvl in range(base_level, stories):
 		var fy: float = float(lvl) * sh
 		var fth: float = 0.7 if lvl == 0 else 0.2     # ground floor is a thick foundation slab
@@ -227,6 +233,7 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
 		_build_ustair(b, -w * 0.5, hx1, -d * 0.5, hz1, float(lvl) * sh, float(lvl + 1) * sh, land_d, mat, floor_mat)
+	_cull_dist = 0.0   # roof deck + parapet below are exterior-visible again
 
 	# --- Optional rooftop access: a final flight up through a holed roof deck onto a
 	# parapeted roof. Reuses the same holed-floor + stair patterns as every storey, so it
@@ -509,6 +516,8 @@ static func _wall(parent: Node3D, center: Vector3, size: Vector3, mat: Material)
 	shape.size = size
 	cs.shape = shape
 	body.add_child(cs)
+	if _cull_dist > 0.0:
+		mi.visibility_range_end = _cull_dist   # render cap only — collision stays at all ranges
 	parent.add_child(body)
 
 
