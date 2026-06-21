@@ -50,12 +50,12 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 			var cell_rng := StableRng.new(StableRng.mix_string(world_seed, "city_cell", i * 1000 + j))
 			var gy: float = float(height_fn.call(bx, bz))
 			var roll: float = cell_rng.randf()
-			if roll < 0.22:
+			if roll < 0.26:
 				_build_park(root, Vector3(bx, gy, bz), cell_rng, height_fn)
-			elif roll < 0.90:
+			elif roll < 0.68:
 				var bw: float = cell_rng.randf_range(12.0, BLOCK - 2.0)
 				var bd: float = cell_rng.randf_range(12.0, BLOCK - 2.0)
-				var stories: int = cell_rng.randi_range(1, 6)
+				var stories: int = cell_rng.randi_range(1, 5)
 				var bpos := Vector3(bx, gy, bz)
 				_build_building(root, bpos, bw, bd, stories, cell_rng, win_t, win_c)
 				building_positions.append(bpos)
@@ -80,37 +80,108 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 
 # --- Buildings ---------------------------------------------------------------
 
+# A walkable multistory building: solid floor slabs per storey, a switchback ramp
+# stairwell in the back shaft, room dividers with doorways, and an optional basement.
 static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng, win_t: Array, win_c: Array) -> void:
 	var b := Node3D.new()
 	b.position = pos
 	parent.add_child(b)
-	var height: float = float(stories) * STORY_H
 	var mat := _concrete_material(rng)
+	var floor_mat := _floor_material(rng)
+	var sh: float = STORY_H
 	var th: float = 0.3
-
-	# Back and side walls (solid).
-	_wall(b, Vector3(0.0, height * 0.5, -d * 0.5), Vector3(w, height, th), mat)
-	_wall(b, Vector3(-w * 0.5, height * 0.5, 0.0), Vector3(th, height, d), mat)
-	_wall(b, Vector3(w * 0.5, height * 0.5, 0.0), Vector3(th, height, d), mat)
-
-	# Front wall (+z) with a doorway gap so the player can walk in.
+	var sd: float = minf(3.4, d * 0.45)        # stairwell shaft depth (back strip)
+	var front_z0: float = -d * 0.5 + sd        # the room area begins here; shaft is behind it
+	var has_basement: bool = rng.randf() < 0.45
+	var base_level: int = -1 if has_basement else 0
+	var base_y: float = float(base_level) * sh
+	var height: float = float(stories) * sh
 	var door_w: float = 2.4
 	var door_h: float = 2.8
+
+	# --- Exterior shell (extends down to the basement floor if present) ---
+	var ext_h: float = height - base_y
+	var ext_cy: float = (height + base_y) * 0.5
+	_wall(b, Vector3(0.0, ext_cy, -d * 0.5), Vector3(w, ext_h, th), mat)
+	_wall(b, Vector3(-w * 0.5, ext_cy, 0.0), Vector3(th, ext_h, d), mat)
+	_wall(b, Vector3(w * 0.5, ext_cy, 0.0), Vector3(th, ext_h, d), mat)
+	if has_basement:
+		_wall(b, Vector3(0.0, base_y * 0.5, d * 0.5), Vector3(w, -base_y, th), mat)
 	var seg: float = (w - door_w) * 0.5
 	if seg > 0.4:
 		_wall(b, Vector3(-(door_w * 0.5 + seg * 0.5), height * 0.5, d * 0.5), Vector3(seg, height, th), mat)
 		_wall(b, Vector3(door_w * 0.5 + seg * 0.5, height * 0.5, d * 0.5), Vector3(seg, height, th), mat)
 	_wall(b, Vector3(0.0, (height + door_h) * 0.5, d * 0.5), Vector3(door_w, height - door_h, th), mat)
-
-	# Roof cap.
 	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), mat)
 
-	# Window facades (appended to the city-wide MultiMesh, in world space).
+	# --- Walkable floors + room dividers (front area; back strip is the open shaft) ---
+	var front_d: float = d * 0.5 - front_z0
+	var front_cz: float = (front_z0 + d * 0.5) * 0.5
+	for lvl in range(base_level, stories):
+		var fy: float = float(lvl) * sh
+		if lvl == base_level:
+			_wall(b, Vector3(0.0, fy - 0.1, 0.0), Vector3(w, 0.2, d), floor_mat)  # full slab (shaft floor too)
+		else:
+			_wall(b, Vector3(0.0, fy - 0.1, front_cz), Vector3(w, 0.2, front_d), floor_mat)
+		if front_d > 5.0 and rng.randf() < 0.7:
+			_room_divider(b, rng.randf_range(-w * 0.22, w * 0.22), fy, front_z0, d * 0.5, sh, door_h, mat, rng)
+
+	# --- Switchback ramps connecting consecutive levels in the shaft ---
+	var shaft_cz: float = -d * 0.5 + sd * 0.5
+	for lvl in range(base_level, stories - 1):
+		_build_ramp(b, w, sd, float(lvl) * sh, float(lvl + 1) * sh, shaft_cz, ((lvl - base_level) % 2) == 0, mat)
+
+	# --- Window facades (above-ground only) ---
 	var c := Vector3(pos.x, pos.y + height * 0.5, pos.z)
 	_face_windows(c + Vector3(0.0, 0.0, -d * 0.5), Vector3(0.0, 0.0, -1.0), w, height, win_t, win_c, rng, false)
 	_face_windows(c + Vector3(0.0, 0.0, d * 0.5), Vector3(0.0, 0.0, 1.0), w, height, win_t, win_c, rng, true)
 	_face_windows(c + Vector3(-w * 0.5, 0.0, 0.0), Vector3(-1.0, 0.0, 0.0), d, height, win_t, win_c, rng, false)
 	_face_windows(c + Vector3(w * 0.5, 0.0, 0.0), Vector3(1.0, 0.0, 0.0), d, height, win_t, win_c, rng, false)
+
+
+# One flight: a ramp rising y0 -> y1 across the building width in the back shaft.
+static func _build_ramp(parent: Node3D, w: float, sd: float, y0: float, y1: float, shaft_cz: float, going_right: bool, mat: Material) -> void:
+	var run: float = w - 1.4
+	var rise: float = y1 - y0
+	var ang: float = atan2(rise, run)
+	var length: float = sqrt(run * run + rise * rise)
+	var body := StaticBody3D.new()
+	body.position = Vector3(0.0, (y0 + y1) * 0.5, shaft_cz)
+	body.rotation.z = ang if going_right else -ang
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(length, 0.3, sd - 0.5)
+	mi.mesh = box
+	mi.material_override = mat
+	body.add_child(mi)
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = box.size
+	cs.shape = shape
+	body.add_child(cs)
+	parent.add_child(body)
+
+
+# An interior wall splitting the room area, with a doorway gap.
+static func _room_divider(parent: Node3D, x: float, fy: float, z0: float, z1: float, sh: float, door_h: float, mat: Material, rng: StableRng) -> void:
+	var th: float = 0.2
+	var door_w: float = 1.6
+	var door_z: float = rng.randf_range(z0 + door_w, z1 - door_w)
+	var lo_d: float = (door_z - door_w * 0.5) - z0
+	var hi_d: float = z1 - (door_z + door_w * 0.5)
+	if lo_d > 0.3:
+		_wall(parent, Vector3(x, fy + sh * 0.5, z0 + lo_d * 0.5), Vector3(th, sh, lo_d), mat)
+	if hi_d > 0.3:
+		_wall(parent, Vector3(x, fy + sh * 0.5, z1 - hi_d * 0.5), Vector3(th, sh, hi_d), mat)
+	_wall(parent, Vector3(x, fy + (sh + door_h) * 0.5, door_z), Vector3(th, sh - door_h, door_w), mat)
+
+
+static func _floor_material(rng: StableRng) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	var tone: float = rng.randf_range(0.28, 0.40)
+	mat.albedo_color = Color(tone, tone * 0.98, tone * 0.92)
+	mat.roughness = 1.0
+	return mat
 
 
 static func _face_windows(center: Vector3, normal: Vector3, face_w: float, face_h: float, win_t: Array, win_c: Array, rng: StableRng, has_door: bool) -> void:
