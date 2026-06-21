@@ -790,6 +790,8 @@ func _create_water() -> void:
 		return
 	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_NEXUS:
 		return
+	if map_type == WorldGraph.MAP_RUINED_CITY:
+		return   # a ruined city is drained — no standing water to flood basements/streets
 
 	var water_size: float = float(_effective_grid_size()) * CELL_SIZE * 0.94
 

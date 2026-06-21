@@ -5556,7 +5556,8 @@ func _spawn_player() -> void:
 	else:
 		player.set("gravity_multiplier", 1.0)
 		player.set("jump_multiplier", 1.0)
-		player.set("water_level", WATER_LEVEL)
+		# Ruined cities are drained, so disable the water/drowning line entirely there.
+		player.set("water_level", -100000.0 if _is_current_map_ruined_city() else WATER_LEVEL)
 	add_child(player)
 	_player_ref = player
 	if _is_current_map_cave():

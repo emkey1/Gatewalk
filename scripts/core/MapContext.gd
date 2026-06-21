@@ -11,6 +11,7 @@ var water_level: float = -1.7
 var height_scale: float = 15.0
 var moon_grid_scale: int = 1
 var noise: FastNoiseLite = FastNoiseLite.new()
+var _lakes: Array = []   # normal-map lake basins: {x, z, r, depth}
 
 
 func _init(config: Dictionary = {}) -> void:
@@ -26,6 +27,7 @@ func _init(config: Dictionary = {}) -> void:
 	if map_type == WorldGraph.MAP_MOON and moon_grid_scale == 1:
 		moon_grid_scale = 2
 	_setup_noise()
+	_setup_lakes()
 
 
 func _setup_noise() -> void:
@@ -36,6 +38,37 @@ func _setup_noise() -> void:
 	noise.fractal_octaves = 4
 	noise.fractal_lacunarity = 1.9
 	noise.fractal_gain = 0.45
+
+
+# A few scattered lake basins so open ground reads as distinct ponds/lakes rather than
+# one uniform sheet wherever the noise happens to dip below the water line.
+func _setup_lakes() -> void:
+	_lakes = []
+	if map_type != WorldGraph.MAP_NORMAL:
+		return
+	var lr := StableRng.new(StableRng.mix_string(world_seed, "lakes", 0))
+	var n: int = lr.randi_range(2, 4)
+	var half: float = world_half_size() * 0.72
+	for k in range(n):
+		_lakes.append({
+			"x": lr.randf_range(-half, half),
+			"z": lr.randf_range(-half, half),
+			"r": lr.randf_range(22.0, 40.0),
+			"depth": lr.randf_range(7.0, 13.0),
+		})
+
+
+# Smooth bowl depth at a point (0 outside every lake), subtracted from the land so the
+# water plane pools into it.
+func _lake_carve(wx: float, wz: float) -> float:
+	var c: float = 0.0
+	for lake in _lakes:
+		var r: float = lake["r"]
+		var d: float = Vector2(wx - float(lake["x"]), wz - float(lake["z"])).length()
+		if d < r:
+			var t: float = 1.0 - d / r
+			c = maxf(c, smoothstep(0.0, 1.0, t) * float(lake["depth"]))
+	return c
 
 
 func effective_grid_size() -> int:
@@ -65,7 +98,9 @@ func biome_value(wx: float, wz: float) -> float:
 func river_distance(wx: float, wz: float) -> float:
 	if map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_RUINED_CITY:
 		return 999.0
-	var curve: float = sin(wx * 0.025) * 22.0 + noise.get_noise_2d(wx * 0.2 + 3200.0, 410.0) * 16.0
+	# Two sines of different wavelength + noise so the river snakes naturally instead of
+	# tracing one predictable curve.
+	var curve: float = sin(wx * 0.025) * 20.0 + sin(wx * 0.011 + 2.1) * 16.0 + noise.get_noise_2d(wx * 0.2 + 3200.0, 410.0) * 14.0
 	return abs(wz - curve)
 
 
@@ -170,7 +205,7 @@ func height_at_world(wx: float, wz: float) -> float:
 	var details: float = noise.get_noise_2d(wx * 2.1 + 900.0, wz * 2.1 - 900.0) * 1.1
 	var river_dist: float = river_distance(wx, wz)
 	var river_carve: float = _smooth_falloff(river_dist, 0.0, 16.0) * 5.5
-	var height: float = broad + hills + details - river_carve
+	var height: float = broad + hills + details - river_carve - _lake_carve(wx, wz)
 
 	if river_dist < 6.0:
 		height = min(height, water_level - 0.45 + abs(river_dist) * 0.05)
