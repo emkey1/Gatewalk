@@ -51,12 +51,7 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 			if roll < 0.34:
 				_build_park(root, Vector3(bx, gy, bz), cell_rng, height_fn)
 			elif roll < 0.66:
-				var bw: float = cell_rng.randf_range(12.0, BLOCK - 2.0)
-				var bd: float = cell_rng.randf_range(12.0, BLOCK - 2.0)
-				var stories: int = cell_rng.randi_range(1, 4)
-				var bpos := Vector3(bx, gy, bz)
-				_build_building(root, bpos, bw, bd, stories, cell_rng)
-				building_positions.append(bpos)
+				_build_block(root, Vector3(bx, gy, bz), cell_rng, height_fn, building_positions)
 			else:
 				_build_rubble(root, Vector3(bx, gy, bz), cell_rng)
 
@@ -72,6 +67,30 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 
 
 # --- Buildings ---------------------------------------------------------------
+
+# A city block subdivided into lots (research: blocks -> lots -> one building per lot,
+# Parish & Müller / "Procedural Generation For Dummies"). Big blocks split into two
+# parcels along their longer axis, each set back from the lot edge, so a block reads as
+# a row of buildings with an alley between rather than one monolith.
+static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height_fn: Callable, out_positions: Array) -> void:
+	var bw: float = BLOCK - rng.randf_range(2.0, 5.0)
+	var bd: float = BLOCK - rng.randf_range(2.0, 5.0)
+	var split_long: bool = bw >= bd
+	var span: float = bw if split_long else bd
+	var lots: int = 2 if (span > 18.0 and rng.randf() < 0.4) else 1   # ~40% of big blocks split into two lots
+	var lot_span: float = span / float(lots)
+	for k in range(lots):
+		var off: float = (float(k) + 0.5) * lot_span - span * 0.5
+		var setback: float = rng.randf_range(0.8, 2.0)
+		var lw: float = (lot_span - setback) if split_long else (bw - setback)
+		var ld: float = (bd - setback) if split_long else (lot_span - setback)
+		if lw < 7.0 or ld < 7.0:
+			continue
+		var lc: Vector3 = center + (Vector3(off, 0.0, 0.0) if split_long else Vector3(0.0, 0.0, off))
+		lc.y = float(height_fn.call(lc.x, lc.z))   # each lot grounds to its own terrain
+		_build_building(parent, lc, lw, ld, rng.randi_range(1, 4), rng)
+		out_positions.append(lc)
+
 
 # A walkable multistory building: solid floor slabs per storey, a switchback ramp
 # stairwell in the back shaft, room dividers with doorways, and an optional basement.
@@ -123,7 +142,15 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fy - 0.1, 0.0), Vector3(w * 0.5 - hx1, 0.2, d), floor_mat)
 			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fy - 0.1, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, 0.2, d * 0.5 - hz1), floor_mat)
 		if w - stair_w > 6.0 and rng.randf() < 0.6:
-			_room_divider(b, rng.randf_range(hx1 + 1.5, w * 0.5 - 1.5), fy, -d * 0.5, d * 0.5, sh, door_h, mat, rng)
+			# Land the divider on a facade pier so it meets solid wall (never a window)
+			# where it ties into the front and back walls.
+			var piers: Array = _facade_layout(w * 0.5, win_w)["piers"]
+			var cand: Array = []
+			for px in piers:
+				if px > hx1 + 1.5 and px < w * 0.5 - 1.5:
+					cand.append(px)
+			if not cand.is_empty():
+				_room_divider(b, cand[rng.randi_range(0, cand.size() - 1)], fy, -d * 0.5, d * 0.5, sh, door_h, mat, rng)
 
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
@@ -185,43 +212,62 @@ static func _floor_material(rng: StableRng) -> StandardMaterial3D:
 # lines, parapet) leaving real window openings between them, so light gets in and you
 # can see out. `along` is the in-plane horizontal axis, `normal` points outward; the
 # front wall passes door_w > 0 for a ground-level doorway gap. Wall rises y=0..top_y.
-static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float) -> void:
-	var th: float = 0.3
+# Facade rhythm shared by exterior walls AND interior dividers, so a divider can land
+# on a solid pier and never split a window. Fixed-width windows; solid piers (>= min)
+# absorb the leftover wall, so a wider wall gets MORE windows, not wider ones.
+static func _facade_layout(half_len: float, win_w: float) -> Dictionary:
 	var length: float = half_len * 2.0
-	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
-	# Fit a whole number of FIXED-width windows; solid piers (>= min) absorb the leftover,
-	# so a wider wall gets more windows rather than wider ones.
 	var min_pier: float = 1.4
 	var cols: int = maxi(1, int((length - min_pier) / (win_w + min_pier)))
-	if door_w > 0.0 and cols % 2 == 0:
-		cols = maxi(1, cols - 1)   # odd count centres a window on the doorway (no pier in it)
 	var pier_w: float = (length - float(cols) * win_w) / float(cols + 1)
+	var piers: Array[float] = []
+	var windows: Array[float] = []
 	for i in range(cols + 1):
-		var t: float = -half_len + float(i) * (pier_w + win_w) + pier_w * 0.5
+		piers.append(-half_len + float(i) * (pier_w + win_w) + pier_w * 0.5)
+	for i in range(cols):
+		windows.append(-half_len + float(i) * (pier_w + win_w) + pier_w + win_w * 0.5)
+	return {"piers": piers, "windows": windows, "pier_w": pier_w}
+
+
+static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float) -> void:
+	var th: float = 0.3
+	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
+	var lay: Dictionary = _facade_layout(half_len, win_w)
+	var pier_w: float = lay["pier_w"]
+	for t in lay["piers"]:
 		var p: Vector3 = center_xz + along * t
 		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), along.abs() * pier_w + Vector3(0.0, top_y, 0.0) + normal.abs() * th, mat)
+	# Door sits in the window cell nearest the wall centre (a real opening, no pier in it).
+	var door_t: float = 0.0
+	if door_w > 0.0:
+		var best: float = 1e9
+		for wc in lay["windows"]:
+			if absf(wc) < best:
+				best = absf(wc)
+				door_t = wc
 	# Per storey: a solid sill band below the windows and a spandrel band above, so the
 	# openings are real punched windows (not full-height gaps). Ground sill carries the door.
 	for f in range(rows):
 		var fy: float = float(f) * STORY_H
-		_grid_band(parent, along, normal, center_xz, half_len, fy + sill_h * 0.5, sill_h, th, mat, (win_w + 0.6 if (door_w > 0.0 and f == 0) else 0.0))
+		_grid_band(parent, along, normal, center_xz, half_len, fy + sill_h * 0.5, sill_h, th, mat, (win_w + 0.6 if (door_w > 0.0 and f == 0) else 0.0), door_t)
 		var sp_bot: float = fy + sill_h + win_h
 		var sp_top: float = float(f + 1) * STORY_H
 		if sp_top - sp_bot > 0.15:
-			_grid_band(parent, along, normal, center_xz, half_len, (sp_bot + sp_top) * 0.5, sp_top - sp_bot, th, mat, 0.0)
+			_grid_band(parent, along, normal, center_xz, half_len, (sp_bot + sp_top) * 0.5, sp_top - sp_bot, th, mat, 0.0, 0.0)
 
 
-static func _grid_band(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, y: float, h: float, th: float, mat: Material, door_w: float) -> void:
+static func _grid_band(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, y: float, h: float, th: float, mat: Material, door_w: float, door_t: float = 0.0) -> void:
 	var length: float = half_len * 2.0
 	if door_w > 0.0:
-		var seg: float = (length - door_w) * 0.5
-		if seg <= 0.3:
-			return
-		var size: Vector3 = along.abs() * seg + Vector3(0.0, h, 0.0) + normal.abs() * th
-		var lp: Vector3 = center_xz - along * (door_w * 0.5 + seg * 0.5)
-		var rp: Vector3 = center_xz + along * (door_w * 0.5 + seg * 0.5)
-		_wall(parent, Vector3(lp.x, y, lp.z), size, mat)
-		_wall(parent, Vector3(rp.x, y, rp.z), size, mat)
+		# Solid segment left of the door gap, then right of it (gap centred at door_t).
+		var left_seg: float = (door_t - door_w * 0.5) - (-half_len)
+		var right_seg: float = half_len - (door_t + door_w * 0.5)
+		if left_seg > 0.3:
+			var lp: Vector3 = center_xz + along * (-half_len + left_seg * 0.5)
+			_wall(parent, Vector3(lp.x, y, lp.z), along.abs() * left_seg + Vector3(0.0, h, 0.0) + normal.abs() * th, mat)
+		if right_seg > 0.3:
+			var rp: Vector3 = center_xz + along * (half_len - right_seg * 0.5)
+			_wall(parent, Vector3(rp.x, y, rp.z), along.abs() * right_seg + Vector3(0.0, h, 0.0) + normal.abs() * th, mat)
 	else:
 		_wall(parent, Vector3(center_xz.x, y, center_xz.z), along.abs() * length + Vector3(0.0, h, 0.0) + normal.abs() * th, mat)
 
