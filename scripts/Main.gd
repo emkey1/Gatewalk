@@ -1574,7 +1574,7 @@ func _show_main_menu() -> void:
 	var atlas_section: VBoxContainer = _add_menu_section(list, "Atlas & Progress")
 
 	var universe_header := Label.new()
-	universe_header.text = "Universes:"
+	universe_header.text = "Saved Games:"
 	universe_header.add_theme_font_size_override("font_size", 13)
 	worlds_section.add_child(universe_header)
 
@@ -1585,12 +1585,41 @@ func _show_main_menu() -> void:
 	for universe_key in universes.keys():
 		var uid: String = str(universe_key)
 		var universe: Dictionary = universes[uid]
-		var universe_btn := Button.new()
-		universe_btn.text = ("> " if uid == current_universe_id else "  ") + str(universe.get("name", uid))
-		universe_btn.disabled = uid == current_universe_id
-		universe_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		universe_btn.pressed.connect(_switch_universe.bind(uid))
-		universe_list.add_child(universe_btn)
+		var is_cur: bool = uid == current_universe_id
+
+		var card := VBoxContainer.new()
+		card.add_theme_constant_override("separation", 0)
+		universe_list.add_child(card)
+
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		card.add_child(row)
+
+		var load_btn := Button.new()
+		load_btn.text = ("> " if is_cur else "   ") + str(universe.get("name", uid))
+		load_btn.disabled = is_cur
+		load_btn.tooltip_text = "Load this saved game"
+		load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		load_btn.pressed.connect(_switch_universe.bind(uid))
+		row.add_child(load_btn)
+
+		var ren_btn := Button.new()
+		ren_btn.text = "Rename"
+		ren_btn.pressed.connect(_rename_universe.bind(uid))
+		row.add_child(ren_btn)
+
+		var del_btn := Button.new()
+		del_btn.text = "Delete"
+		del_btn.disabled = is_cur or universes.size() <= 1
+		del_btn.tooltip_text = "Switch to another game first" if is_cur else "Delete this saved game"
+		del_btn.pressed.connect(_delete_universe.bind(uid))
+		row.add_child(del_btn)
+
+		var summary := Label.new()
+		summary.text = "      " + _universe_summary(universe) + ("  ·  (current)" if is_cur else "")
+		summary.add_theme_font_size_override("font_size", 10)
+		summary.modulate = Color(0.66, 0.72, 0.8)
+		card.add_child(summary)
 
 	var world_header := Label.new()
 	world_header.text = "Worlds:"
@@ -1662,7 +1691,8 @@ func _show_main_menu() -> void:
 	world_list.add_child(new_world_btn)
 
 	var new_universe_btn := Button.new()
-	new_universe_btn.text = "New Universe"
+	new_universe_btn.text = "+ New Game (Universe)"
+	new_universe_btn.tooltip_text = "Start a fresh saved game with its own worlds, kept separate from the others"
 	new_universe_btn.pressed.connect(_start_new_game)
 	world_list.add_child(new_universe_btn)
 
@@ -2144,6 +2174,7 @@ func _switch_universe(universe_id: String) -> void:
 
 func _start_new_game() -> void:
 	_close_menu()
+	_save_world_data()  # preserve the current saved game before starting a fresh one
 	var created: Dictionary = _create_universe_with_default_world("Universe " + str(_get_universe_count() + 1), "Default World")
 	var universe_id: String = str(created.get("universe_id", ""))
 	var universe: Dictionary = created.get("universe", {})
@@ -2154,6 +2185,105 @@ func _start_new_game() -> void:
 	_apply_current_universe_runtime_state()
 	_save_world_data()
 	_load_map(world_id, root_map_id)
+
+
+# One-line summary of a saved game (universe) for the menu: worlds, total
+# discoveries across all its maps, and how long ago it was last saved.
+func _universe_summary(universe: Dictionary) -> String:
+	var worlds: Dictionary = universe.get("worlds", {})
+	var world_count: int = worlds.size()
+	var disc: int = 0
+	for w in worlds.values():
+		var maps: Dictionary = (w as Dictionary).get("maps", {})
+		for m in maps.values():
+			disc += (m as Dictionary).get("discoveries", {}).size()
+	var parts: Array = []
+	parts.append(str(world_count) + (" world" if world_count == 1 else " worlds"))
+	parts.append(str(disc) + " discovered")
+	var unix: int = int(universe.get("last_explicit_save_unix", 0))
+	if unix > 0:
+		parts.append("played " + _relative_time(unix))
+	return "  ·  ".join(parts)
+
+
+func _relative_time(unix_time: int) -> String:
+	var delta: int = maxi(0, int(Time.get_unix_time_from_system()) - unix_time)
+	if delta < 60:
+		return "just now"
+	if delta < 3600:
+		return str(delta / 60) + "m ago"
+	if delta < 86400:
+		return str(delta / 3600) + "h ago"
+	return str(delta / 86400) + "d ago"
+
+
+func _rename_universe(universe_id: String) -> void:
+	var universes: Dictionary = save_data.get("universes", {})
+	if not universes.has(universe_id):
+		return
+	var current_name: String = str((universes[universe_id] as Dictionary).get("name", universe_id))
+	var dialog := AcceptDialog.new()
+	dialog.title = "Rename Saved Game"
+	var vb := VBoxContainer.new()
+	dialog.add_child(vb)
+	var label := Label.new()
+	label.text = "Enter a new name:"
+	vb.add_child(label)
+	var line_edit := LineEdit.new()
+	line_edit.text = current_name
+	line_edit.select_all()
+	line_edit.custom_minimum_size = Vector2(240, 0)
+	vb.add_child(line_edit)
+	dialog.register_text_enter(line_edit)
+	if menu_layer != null:
+		menu_layer.add_child(dialog)
+	else:
+		add_child(dialog)
+	dialog.popup_centered(Vector2i(300, 100))
+	dialog.confirmed.connect(func():
+		var new_name: String = line_edit.text.strip_edges()
+		if new_name != "":
+			_apply_universe_rename(universe_id, new_name)
+			_show_main_menu()
+	)
+
+
+func _apply_universe_rename(universe_id: String, new_name: String) -> void:
+	var universes: Dictionary = save_data.get("universes", {})
+	if not universes.has(universe_id):
+		return
+	var universe: Dictionary = universes[universe_id]
+	universe["name"] = new_name
+	_set_universe(universe_id, universe)
+	_save_world_data()
+
+
+func _delete_universe(universe_id: String) -> void:
+	var universes: Dictionary = save_data.get("universes", {})
+	if not universes.has(universe_id) or universe_id == current_universe_id or universes.size() <= 1:
+		return
+	var nm: String = str((universes[universe_id] as Dictionary).get("name", universe_id))
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Delete Saved Game"
+	dialog.dialog_text = "Permanently delete \"" + nm + "\"? This cannot be undone."
+	if menu_layer != null:
+		menu_layer.add_child(dialog)
+	else:
+		add_child(dialog)
+	dialog.popup_centered(Vector2i(360, 120))
+	dialog.confirmed.connect(func():
+		_apply_universe_delete(universe_id)
+		_show_main_menu()
+	)
+
+
+func _apply_universe_delete(universe_id: String) -> void:
+	var universes: Dictionary = save_data.get("universes", {})
+	if not universes.has(universe_id) or universe_id == current_universe_id or universes.size() <= 1:
+		return
+	universes.erase(universe_id)
+	save_data["universes"] = universes
+	_save_world_data()
 
 
 func _create_new_slot() -> void:
