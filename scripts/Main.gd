@@ -274,6 +274,7 @@ func _process(_delta: float) -> void:
 		_update_day_night_cycle()
 	_update_underwater_state()
 	_update_arctic_exposure()
+	_update_local_water_level()
 	_update_drowning()
 	_update_cave_darkness()
 	_update_bioscan()
@@ -3214,6 +3215,20 @@ func _recover_frozen_player(player: CharacterBody3D) -> void:
 	player.set("sheltered", true)
 	last_discovery_text = "You nearly froze — recovered at a safe ridge. Warm up near gates and wonders."
 	_push_status_banner(last_discovery_text, 4200)
+
+
+# Normal maps can hold elevated lakes whose surface sits above the sea — keep the
+# player's water/drowning line at whatever body they're actually inside.
+func _update_local_water_level() -> void:
+	var player: CharacterBody3D = _get_player()
+	if player == null or player.get("water_level") == null:
+		return
+	if float(player.get("water_level")) < -50000.0:
+		return   # water disabled on this map (moon / arctic / ruined city)
+	var ctx: MapContext = _active_map_context()
+	if ctx == null:
+		return
+	player.set("water_level", ctx.water_level_at(player.global_position.x, player.global_position.z))
 
 
 # Running out of air below the surface ends in a gentle, fully recoverable

@@ -40,8 +40,18 @@ func _setup_noise() -> void:
 	noise.fractal_gain = 0.45
 
 
-# A few scattered lake basins so open ground reads as distinct ponds/lakes rather than
-# one uniform sheet wherever the noise happens to dip below the water line.
+# The bare land height (no river/lake carving) — used both for the terrain and to decide
+# where lakes sit.
+func _base_land_height(wx: float, wz: float) -> float:
+	var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * height_scale
+	var hills: float = noise.get_noise_2d(wx, wz) * 5.5
+	var details: float = noise.get_noise_2d(wx * 2.1 + 900.0, wz * 2.1 - 900.0) * 1.1
+	return broad + hills + details
+
+
+# Scattered lakes, each on high ground so its surface sits ABOVE the sea — distinct
+# bodies at their own levels, not one global sheet. Each is a carved bowl with a raised
+# lip that contains it, plus a stored surface level for the local water plane.
 func _setup_lakes() -> void:
 	_lakes = []
 	if map_type != WorldGraph.MAP_NORMAL:
@@ -50,25 +60,49 @@ func _setup_lakes() -> void:
 	var n: int = lr.randi_range(2, 4)
 	var half: float = world_half_size() * 0.72
 	for k in range(n):
+		# Pick the most elevated of several candidates so the lake reads as a high tarn.
+		var bx: float = 0.0
+		var bz: float = 0.0
+		var bh: float = -1.0e9
+		for c in range(6):
+			var cxx: float = lr.randf_range(-half, half)
+			var czz: float = lr.randf_range(-half, half)
+			var hh: float = _base_land_height(cxx, czz)
+			if hh > bh:
+				bh = hh
+				bx = cxx
+				bz = czz
 		_lakes.append({
-			"x": lr.randf_range(-half, half),
-			"z": lr.randf_range(-half, half),
-			"r": lr.randf_range(22.0, 40.0),
-			"depth": lr.randf_range(7.0, 13.0),
+			"x": bx, "z": bz,
+			"r": lr.randf_range(20.0, 34.0),
+			"depth": lr.randf_range(9.0, 14.0),
+			"rim": lr.randf_range(1.5, 2.5),
+			"level": bh - lr.randf_range(1.0, 2.0),   # surface just below the local ground
 		})
 
 
-# Smooth bowl depth at a point (0 outside every lake), subtracted from the land so the
-# water plane pools into it.
+# Net land offset from every lake at a point: a bowl (lowers the centre) plus a raised
+# lip around the rim so the pool is contained and clips cleanly.
 func _lake_carve(wx: float, wz: float) -> float:
 	var c: float = 0.0
 	for lake in _lakes:
 		var r: float = lake["r"]
 		var d: float = Vector2(wx - float(lake["x"]), wz - float(lake["z"])).length()
 		if d < r:
-			var t: float = 1.0 - d / r
-			c = maxf(c, smoothstep(0.0, 1.0, t) * float(lake["depth"]))
+			c += smoothstep(0.0, 1.0, 1.0 - d / r) * float(lake["depth"])
+		var lip: float = 1.0 - clampf(absf(d - r) / (r * 0.22), 0.0, 1.0)
+		c -= lip * float(lake["rim"])
 	return c
+
+
+# The water surface height at a point: the global sea, raised to a lake's own level
+# wherever the point falls inside that lake (so you swim/drown at the right height).
+func water_level_at(wx: float, wz: float) -> float:
+	var lvl: float = water_level
+	for lake in _lakes:
+		if Vector2(wx - float(lake["x"]), wz - float(lake["z"])).length() < float(lake["r"]):
+			lvl = maxf(lvl, float(lake["level"]))
+	return lvl
 
 
 func effective_grid_size() -> int:
@@ -200,12 +234,9 @@ func height_at_world(wx: float, wz: float) -> float:
 			best_height = max(best_height, 19.0 - (1.0 - center_rim) * 2.0 + noise.get_noise_2d(wx * 0.30 + 2200.0, wz * 0.30 - 1700.0) * 0.55)
 		return best_height
 
-	var broad: float = noise.get_noise_2d(wx * 0.35 + 1200.0, wz * 0.35 - 800.0) * height_scale
-	var hills: float = noise.get_noise_2d(wx, wz) * 5.5
-	var details: float = noise.get_noise_2d(wx * 2.1 + 900.0, wz * 2.1 - 900.0) * 1.1
 	var river_dist: float = river_distance(wx, wz)
 	var river_carve: float = _smooth_falloff(river_dist, 0.0, 16.0) * 5.5
-	var height: float = broad + hills + details - river_carve - _lake_carve(wx, wz)
+	var height: float = _base_land_height(wx, wz) - river_carve - _lake_carve(wx, wz)
 
 	if river_dist < 6.0:
 		height = min(height, water_level - 0.45 + abs(river_dist) * 0.05)

@@ -72,6 +72,7 @@ func generate(root: Node3D) -> void:
 		_create_world_bounds()
 		_place_rivers()
 		_create_water()
+		_create_lakes()
 
 		if map_type == WorldGraph.MAP_MOON:
 			_create_moon_sky()
@@ -852,6 +853,34 @@ func _create_water() -> void:
 	else:
 		water_collision.position.y = WATER_LEVEL
 	generated_root.add_child(water_collision)
+
+
+# A local water plane per elevated lake, at the lake's own surface level. The terrain
+# (carved bowl + raised lip) clips it to the basin, so each reads as a distinct tarn
+# sitting above the sea.
+func _create_lakes() -> void:
+	if map_type != WorldGraph.MAP_NORMAL:
+		return
+	var ctx := _ensure_context()
+	var idx: int = 0
+	for lake in ctx._lakes:
+		var r: float = float(lake["r"])
+		var water := MeshInstance3D.new()
+		water.name = "LakeWater%d" % idx
+		idx += 1
+		var mesh := PlaneMesh.new()
+		mesh.size = Vector2(r * 2.3, r * 2.3)
+		mesh.subdivide_width = 16
+		mesh.subdivide_depth = 16
+		water.mesh = mesh
+		water.position = Vector3(float(lake["x"]), float(lake["level"]), float(lake["z"]))
+		var mat := ShaderMaterial.new()
+		mat.shader = _water_shader()
+		mat.set_shader_parameter("shallow_color", Color(0.10, 0.36, 0.56, 0.38))
+		mat.set_shader_parameter("deep_color", Color(0.03, 0.18, 0.36, 0.48))
+		mat.set_shader_parameter("alpha_boost", 0.04)
+		water.material_override = mat
+		generated_root.add_child(water)
 
 
 func _create_sky_clouds() -> void:
