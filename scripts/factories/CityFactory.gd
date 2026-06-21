@@ -12,7 +12,7 @@ const MultiMeshScatter = preload("res://scripts/factories/MultiMeshScatter.gd")
 const CELL: float = 34.0     # block-to-block pitch (block + street)
 const BLOCK: float = 25.0    # block footprint
 const STREET_W: float = 8.0
-const STORY_H: float = 3.6
+const STORY_H: float = 4.5   # tall floor-to-floor so the half-landing keeps head height
 const TARGET_CORES: int = 6
 
 
@@ -103,9 +103,9 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- Above-ground walls with real window openings (grid frame). Window proportions
 	# vary per building (sill height, window height, spacing) so the city isn't uniform;
 	# within a building they stay consistent for rhythm. Front wall carries the door. ---
-	var sill_h: float = rng.randf_range(0.9, 1.7)
-	var win_h: float = clampf(rng.randf_range(1.2, 2.4), 1.0, sh - sill_h - 0.5)
-	var col_sp: float = rng.randf_range(3.5, 6.5)
+	var sill_h: float = rng.randf_range(1.0, 2.2)
+	var win_h: float = clampf(rng.randf_range(1.0, 1.8), 0.9, sh - sill_h - 1.0)
+	var col_sp: float = rng.randf_range(6.0, 11.0)   # wide spacing -> far fewer windows
 	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
 	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
 	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
@@ -148,7 +148,7 @@ static func _build_ustair(parent: Node3D, x0: float, x1: float, z0: float, z1: f
 # One straight flight of solid steps between z_lo (back) and z_hi (interior edge).
 # ascend_toward_hi: the climb arrives at z_hi facing the open room; else arrives at z_lo.
 static func _build_flight(parent: Node3D, x0: float, x1: float, z_lo: float, z_hi: float, y0: float, y1: float, ascend_toward_hi: bool, mat: Material) -> void:
-	var n: int = 5
+	var n: int = 6
 	var rise: float = (y1 - y0) / float(n)
 	var depth: float = (z_hi - z_lo) / float(n)
 	var cx: float = (x0 + x1) * 0.5
