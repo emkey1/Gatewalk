@@ -53,7 +53,7 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 			elif roll < 0.66:
 				var bw: float = cell_rng.randf_range(12.0, BLOCK - 2.0)
 				var bd: float = cell_rng.randf_range(12.0, BLOCK - 2.0)
-				var stories: int = cell_rng.randi_range(1, 5)
+				var stories: int = cell_rng.randi_range(1, 4)
 				var bpos := Vector3(bx, gy, bz)
 				_build_building(root, bpos, bw, bd, stories, cell_rng)
 				building_positions.append(bpos)
@@ -103,13 +103,13 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- Above-ground walls with real window openings (grid frame). Window proportions
 	# vary per building (sill height, window height, spacing) so the city isn't uniform;
 	# within a building they stay consistent for rhythm. Front wall carries the door. ---
-	var sill_h: float = rng.randf_range(1.0, 2.2)
-	var win_h: float = clampf(rng.randf_range(1.0, 1.8), 0.9, sh - sill_h - 1.0)
-	var col_sp: float = rng.randf_range(6.0, 11.0)   # wide spacing -> far fewer windows
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, mat, door_w, sill_h, win_h, col_sp)
+	var sill_h: float = rng.randf_range(1.0, 2.0)
+	var win_h: float = clampf(rng.randf_range(1.1, 1.9), 0.9, sh - sill_h - 1.0)
+	var win_w: float = rng.randf_range(1.2, 2.4)   # absolute window width; solid piers fill the rest
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, mat, 0.0, sill_h, win_h, win_w)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, win_w)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, win_w)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, mat, door_w, sill_h, win_h, win_w)
 	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), mat)
 
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
@@ -185,25 +185,26 @@ static func _floor_material(rng: StableRng) -> StandardMaterial3D:
 # lines, parapet) leaving real window openings between them, so light gets in and you
 # can see out. `along` is the in-plane horizontal axis, `normal` points outward; the
 # front wall passes door_w > 0 for a ground-level doorway gap. Wall rises y=0..top_y.
-static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, col_sp: float) -> void:
+static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float) -> void:
 	var th: float = 0.3
-	var v_w: float = 0.5
 	var length: float = half_len * 2.0
-	var cols: int = maxi(1, int(length / col_sp))
 	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
-	# Vertical mullions (full height), clear of the doorway.
-	var col_size: Vector3 = along.abs() * v_w + Vector3(0.0, top_y, 0.0) + normal.abs() * th
+	# Fit a whole number of FIXED-width windows; solid piers (>= min) absorb the leftover,
+	# so a wider wall gets more windows rather than wider ones.
+	var min_pier: float = 1.4
+	var cols: int = maxi(1, int((length - min_pier) / (win_w + min_pier)))
+	if door_w > 0.0 and cols % 2 == 0:
+		cols = maxi(1, cols - 1)   # odd count centres a window on the doorway (no pier in it)
+	var pier_w: float = (length - float(cols) * win_w) / float(cols + 1)
 	for i in range(cols + 1):
-		var t: float = -half_len + float(i) / float(cols) * length
-		if door_w > 0.0 and absf(t) < door_w * 0.5 + 0.3:
-			continue
+		var t: float = -half_len + float(i) * (pier_w + win_w) + pier_w * 0.5
 		var p: Vector3 = center_xz + along * t
-		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), col_size, mat)
+		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), along.abs() * pier_w + Vector3(0.0, top_y, 0.0) + normal.abs() * th, mat)
 	# Per storey: a solid sill band below the windows and a spandrel band above, so the
 	# openings are real punched windows (not full-height gaps). Ground sill carries the door.
 	for f in range(rows):
 		var fy: float = float(f) * STORY_H
-		_grid_band(parent, along, normal, center_xz, half_len, fy + sill_h * 0.5, sill_h, th, mat, (door_w if f == 0 else 0.0))
+		_grid_band(parent, along, normal, center_xz, half_len, fy + sill_h * 0.5, sill_h, th, mat, (win_w + 0.6 if (door_w > 0.0 and f == 0) else 0.0))
 		var sp_bot: float = fy + sill_h + win_h
 		var sp_top: float = float(f + 1) * STORY_H
 		if sp_top - sp_bot > 0.15:
