@@ -18,6 +18,11 @@ const KIND_RELIC: int = 3
 # Footprint radius used both to ground a landmark and to reject too-lumpy spots.
 const FOOTPRINT: float = 2.0
 
+const LM_ADJECTIVES: Array[String] = [
+	"Ancient", "Weathered", "Forgotten", "Silent", "Mossy", "Cracked", "Lonely",
+	"Hollow", "Sunken", "Crooked", "Timeworn", "Shrouded", "Toppled", "Lichen-clad",
+]
+
 
 # Scatters landmarks under `parent` and returns their world-space XZ centers
 # (y = 0) so callers can keep trees and other scatter clear of them.
@@ -60,9 +65,14 @@ static func _scatter_internal(parent: Node3D, world_seed: int, density_level: in
 		if surf - ground > 2.2:
 			continue  # too steep/lumpy to seat a monument here
 
-		var landmark: Node3D = _build_landmark(_pick_kind(rng), rng.next_u32())
+		var kind: int = _pick_kind(rng)
+		var lm_seed: int = rng.next_u32()
+		var landmark: Node3D = _build_landmark(kind, lm_seed)
 		landmark.position = Vector3(x, ground, z)
 		landmark.rotation_degrees.y = rng.randf_range(0.0, 360.0)
+		# Metadata so the cartographer's survey can catalog it into the Field Guide.
+		landmark.set_meta("catalog_id", "landmark_" + str(placed))
+		landmark.set_meta("survey_name", _landmark_name(lm_seed, kind))
 		root.add_child(landmark)
 		positions.append(Vector3(x, 0.0, z))
 		placed += 1
@@ -88,6 +98,22 @@ static func _ground_y(x: float, z: float, height_fn: Callable) -> float:
 		var a: float = TAU * float(i) / 6.0
 		lo = minf(lo, float(height_fn.call(x + cos(a) * FOOTPRINT, z + sin(a) * FOOTPRINT)))
 	return lo - 0.15
+
+
+static func _landmark_name(seed: int, kind: int) -> String:
+	var rng := StableRng.new(seed)
+	var adjective: String = LM_ADJECTIVES[rng.randi_range(0, LM_ADJECTIVES.size() - 1)]
+	var noun: String = "Landmark"
+	match kind:
+		KIND_MONOLITH:
+			noun = "Monolith"
+		KIND_ARCH:
+			noun = "Archway"
+		KIND_CAIRN:
+			noun = "Cairn"
+		KIND_RELIC:
+			noun = "Relic"
+	return adjective + " " + noun
 
 
 static func _pick_kind(rng: StableRng) -> int:

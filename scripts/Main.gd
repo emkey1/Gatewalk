@@ -2140,7 +2140,7 @@ func _show_achievements_dialog() -> void:
 # Aggregate every discovery across the current saved game into catalog buckets.
 # Returns { category: { title: sighting_count } } for birds/fish/land/wonder/orb/other.
 func _build_catalog() -> Dictionary:
-	var cats: Dictionary = {"birds": {}, "fish": {}, "land": {}, "wonder": {}, "orb": {}, "other": {}}
+	var cats: Dictionary = {"birds": {}, "fish": {}, "land": {}, "landmark": {}, "wonder": {}, "orb": {}, "other": {}}
 	var universe: Dictionary = _current_universe()
 	var worlds: Dictionary = universe.get("worlds", {})
 	for w in worlds.values():
@@ -2161,6 +2161,8 @@ func _build_catalog() -> Dictionary:
 					cat = "fish"
 				elif id_str.begins_with("bio_land_"):
 					cat = "land"
+				elif kind == "landmark":
+					cat = "landmark"
 				elif kind == "wonder":
 					cat = "wonder"
 				elif kind == "orb":
@@ -2191,7 +2193,7 @@ func _show_field_guide() -> void:
 
 	var sections: Array = [
 		["Birds", "birds"], ["Fish", "fish"], ["Land Creatures", "land"],
-		["Wonders", "wonder"], ["Moon Relics", "orb"], ["Other Finds", "other"],
+		["Landmarks", "landmark"], ["Wonders", "wonder"], ["Moon Relics", "orb"], ["Other Finds", "other"],
 	]
 	var any_found: bool = false
 	for s in sections:
@@ -3275,6 +3277,17 @@ func _update_bioscan() -> void:
 			continue
 		# record_discovery dedupes by id, so re-scans of a logged species are no-ops.
 		discovery_tracker.record_discovery(catalog_id, str(flock.get("species_name")), "creature", flock.global_position)
+
+	# Survey nearby landmarks (static monuments) into the Field Guide as well.
+	var landmarks_node: Node = generated_root.get_node_or_null("Landmarks")
+	if landmarks_node != null:
+		for lm in landmarks_node.get_children():
+			if not (lm is Node3D) or not (lm as Node3D).has_meta("catalog_id"):
+				continue
+			var lm3d: Node3D = lm as Node3D
+			if lm3d.global_position.distance_squared_to(player.global_position) > range_sq:
+				continue
+			discovery_tracker.record_discovery(str(lm3d.get_meta("catalog_id")), str(lm3d.get_meta("survey_name", "Landmark")), "landmark", lm3d.global_position)
 
 
 # Deterministic, biome-appropriate weather for the map (consistent on reload). Caves,
