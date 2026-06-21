@@ -25,8 +25,6 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 	root.name = "City"
 	parent.add_child(root)
 
-	var win_t: Array = []
-	var win_c: Array = []
 	var building_positions: Array = []
 
 	var street_mat := _street_material()
@@ -57,15 +55,10 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 				var bd: float = cell_rng.randf_range(12.0, BLOCK - 2.0)
 				var stories: int = cell_rng.randi_range(1, 5)
 				var bpos := Vector3(bx, gy, bz)
-				_build_building(root, bpos, bw, bd, stories, cell_rng, win_t, win_c)
+				_build_building(root, bpos, bw, bd, stories, cell_rng)
 				building_positions.append(bpos)
 			else:
 				_build_rubble(root, Vector3(bx, gy, bz), cell_rng)
-
-	if not win_t.is_empty():
-		var quad := QuadMesh.new()
-		quad.size = Vector2(1.0, 1.0)
-		MultiMeshScatter.build(root, "CityWindows", quad, _window_material(), win_t, win_c)
 
 	# Spread the objective cores across the city's buildings.
 	var cores: Array = []
@@ -82,7 +75,7 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 
 # A walkable multistory building: solid floor slabs per storey, a switchback ramp
 # stairwell in the back shaft, room dividers with doorways, and an optional basement.
-static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng, win_t: Array, win_c: Array) -> void:
+static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng) -> void:
 	var b := Node3D.new()
 	b.position = pos
 	parent.add_child(b)
@@ -101,19 +94,17 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var door_w: float = 2.4
 	var door_h: float = 2.8
 
-	# --- Exterior shell (extends down to the basement floor if present) ---
-	var ext_h: float = height - base_y
-	var ext_cy: float = (height + base_y) * 0.5
-	_wall(b, Vector3(0.0, ext_cy, -d * 0.5), Vector3(w, ext_h, th), mat)
-	_wall(b, Vector3(-w * 0.5, ext_cy, 0.0), Vector3(th, ext_h, d), mat)
-	_wall(b, Vector3(w * 0.5, ext_cy, 0.0), Vector3(th, ext_h, d), mat)
+	# --- Basement walls (solid, underground) ---
 	if has_basement:
+		_wall(b, Vector3(0.0, base_y * 0.5, -d * 0.5), Vector3(w, -base_y, th), mat)
+		_wall(b, Vector3(-w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
+		_wall(b, Vector3(w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
 		_wall(b, Vector3(0.0, base_y * 0.5, d * 0.5), Vector3(w, -base_y, th), mat)
-	var seg: float = (w - door_w) * 0.5
-	if seg > 0.4:
-		_wall(b, Vector3(-(door_w * 0.5 + seg * 0.5), height * 0.5, d * 0.5), Vector3(seg, height, th), mat)
-		_wall(b, Vector3(door_w * 0.5 + seg * 0.5, height * 0.5, d * 0.5), Vector3(seg, height, th), mat)
-	_wall(b, Vector3(0.0, (height + door_h) * 0.5, d * 0.5), Vector3(door_w, height - door_h, th), mat)
+	# --- Above-ground walls with real window openings (grid frame); front has the door ---
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, mat, 0.0)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, mat, door_w)
 	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), mat)
 
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
@@ -133,13 +124,6 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
 		_build_ustair(b, -w * 0.5, hx1, -d * 0.5, hz1, float(lvl) * sh, float(lvl + 1) * sh, land_d, mat, floor_mat)
-
-	# --- Window facades (above-ground only) ---
-	var c := Vector3(pos.x, pos.y + height * 0.5, pos.z)
-	_face_windows(c + Vector3(0.0, 0.0, -d * 0.5), Vector3(0.0, 0.0, -1.0), w, height, win_t, win_c, rng, false)
-	_face_windows(c + Vector3(0.0, 0.0, d * 0.5), Vector3(0.0, 0.0, 1.0), w, height, win_t, win_c, rng, true)
-	_face_windows(c + Vector3(-w * 0.5, 0.0, 0.0), Vector3(-1.0, 0.0, 0.0), d, height, win_t, win_c, rng, false)
-	_face_windows(c + Vector3(w * 0.5, 0.0, 0.0), Vector3(1.0, 0.0, 0.0), d, height, win_t, win_c, rng, false)
 
 
 # A U-shaped half-landing stair for one storey: flight A climbs the left half to a
@@ -190,24 +174,42 @@ static func _floor_material(rng: StableRng) -> StandardMaterial3D:
 	return mat
 
 
-static func _face_windows(center: Vector3, normal: Vector3, face_w: float, face_h: float, win_t: Array, win_c: Array, rng: StableRng, has_door: bool) -> void:
-	var tangent := Vector3(normal.z, 0.0, -normal.x)
-	var cols: int = maxi(1, int(face_w / 3.0))
-	var rows: int = maxi(1, int(face_h / 3.5))
-	var basis := Basis.looking_at(-normal, Vector3.UP).scaled(Vector3(1.5, 1.9, 1.0))
-	for col in range(cols):
-		for row in range(rows):
-			var fx: float = (float(col) + 0.5) / float(cols) * face_w - face_w * 0.5
-			var fy: float = (float(row) + 0.5) / float(rows) * face_h - face_h * 0.5
-			if has_door and absf(fx) < 1.8 and fy < -face_h * 0.5 + 3.2:
-				continue  # leave the doorway clear
-			var wpos := center + tangent * fx + Vector3(0.0, fy, 0.0) + normal * 0.08
-			win_t.append(Transform3D(basis, wpos))
-			# A few windows still glow; most are dark and broken.
-			if rng.randf() < 0.16:
-				win_c.append(Color(0.95, 0.82, 0.45))
-			else:
-				win_c.append(Color(0.07, 0.08, 0.12))
+# A grid-frame exterior wall: vertical mullions + horizontal bands (sill, floor
+# lines, parapet) leaving real window openings between them, so light gets in and you
+# can see out. `along` is the in-plane horizontal axis, `normal` points outward; the
+# front wall passes door_w > 0 for a ground-level doorway gap. Wall rises y=0..top_y.
+static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float) -> void:
+	var th: float = 0.3
+	var v_w: float = 0.5
+	var length: float = half_len * 2.0
+	var cols: int = maxi(2, int(length / 5.5))
+	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
+	var col_size: Vector3 = along.abs() * v_w + Vector3(0.0, top_y, 0.0) + normal.abs() * th
+	for i in range(cols + 1):
+		var t: float = -half_len + float(i) / float(cols) * length
+		if door_w > 0.0 and absf(t) < door_w * 0.5 + 0.3:
+			continue  # keep the doorway clear of mullions
+		var p: Vector3 = center_xz + along * t
+		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), col_size, mat)
+	_grid_band(parent, along, normal, center_xz, half_len, 0.5, 1.0, th, mat, door_w)        # sill (door gap)
+	for f in range(1, rows):
+		_grid_band(parent, along, normal, center_xz, half_len, float(f) * STORY_H, 0.5, th, mat, 0.0)
+	_grid_band(parent, along, normal, center_xz, half_len, top_y - 0.25, 0.5, th, mat, 0.0)  # parapet
+
+
+static func _grid_band(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, y: float, h: float, th: float, mat: Material, door_w: float) -> void:
+	var length: float = half_len * 2.0
+	if door_w > 0.0:
+		var seg: float = (length - door_w) * 0.5
+		if seg <= 0.3:
+			return
+		var size: Vector3 = along.abs() * seg + Vector3(0.0, h, 0.0) + normal.abs() * th
+		var lp: Vector3 = center_xz - along * (door_w * 0.5 + seg * 0.5)
+		var rp: Vector3 = center_xz + along * (door_w * 0.5 + seg * 0.5)
+		_wall(parent, Vector3(lp.x, y, lp.z), size, mat)
+		_wall(parent, Vector3(rp.x, y, rp.z), size, mat)
+	else:
+		_wall(parent, Vector3(center_xz.x, y, center_xz.z), along.abs() * length + Vector3(0.0, h, 0.0) + normal.abs() * th, mat)
 
 
 static func _wall(parent: Node3D, center: Vector3, size: Vector3, mat: Material) -> void:
@@ -332,9 +334,3 @@ static func _street_material() -> StandardMaterial3D:
 	return mat
 
 
-static func _window_material() -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	return mat
