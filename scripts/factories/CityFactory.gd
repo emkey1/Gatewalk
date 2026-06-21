@@ -90,8 +90,10 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var floor_mat := _floor_material(rng)
 	var sh: float = STORY_H
 	var th: float = 0.3
-	var sd: float = minf(3.4, d * 0.45)        # stairwell shaft depth (back strip)
-	var front_z0: float = -d * 0.5 + sd        # the room area begins here; shaft is behind it
+	var stair_w: float = 3.4                    # compact stairwell in the back-left corner
+	var stair_run: float = minf(4.2, d - 4.0)
+	var hx1: float = -w * 0.5 + stair_w         # stairwell occupies x in [-w/2, hx1]
+	var hz1: float = -d * 0.5 + stair_run       # ...and z in [-d/2, hz1]
 	var has_basement: bool = rng.randf() < 0.45
 	var base_level: int = -1 if has_basement else 0
 	var base_y: float = float(base_level) * sh
@@ -114,22 +116,21 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	_wall(b, Vector3(0.0, (height + door_h) * 0.5, d * 0.5), Vector3(door_w, height - door_h, th), mat)
 	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), mat)
 
-	# --- Walkable floors + room dividers (front area; back strip is the open shaft) ---
-	var front_d: float = d * 0.5 - front_z0
-	var front_cz: float = (front_z0 + d * 0.5) * 0.5
+	# --- Walkable floors (with a stairwell hole in the back-left corner) + rooms ---
 	for lvl in range(base_level, stories):
 		var fy: float = float(lvl) * sh
 		if lvl == base_level:
-			_wall(b, Vector3(0.0, fy - 0.1, 0.0), Vector3(w, 0.2, d), floor_mat)  # full slab (shaft floor too)
+			_wall(b, Vector3(0.0, fy - 0.1, 0.0), Vector3(w, 0.2, d), floor_mat)  # solid base (stairwell floor too)
 		else:
-			_wall(b, Vector3(0.0, fy - 0.1, front_cz), Vector3(w, 0.2, front_d), floor_mat)
-		if front_d > 5.0 and rng.randf() < 0.7:
-			_room_divider(b, rng.randf_range(-w * 0.22, w * 0.22), fy, front_z0, d * 0.5, sh, door_h, mat, rng)
+			# Footprint minus the stairwell corner, as two boxes (an L).
+			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fy - 0.1, 0.0), Vector3(w * 0.5 - hx1, 0.2, d), floor_mat)
+			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fy - 0.1, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, 0.2, d * 0.5 - hz1), floor_mat)
+		if w - stair_w > 6.0 and rng.randf() < 0.6:
+			_room_divider(b, rng.randf_range(hx1 + 1.5, w * 0.5 - 1.5), fy, -d * 0.5, d * 0.5, sh, door_h, mat, rng)
 
-	# --- Switchback ramps connecting consecutive levels in the shaft ---
-	var shaft_cz: float = -d * 0.5 + sd * 0.5
+	# --- Stepped switchback stairwell in the corner ---
 	for lvl in range(base_level, stories - 1):
-		_build_ramp(b, w, sd, float(lvl) * sh, float(lvl + 1) * sh, shaft_cz, ((lvl - base_level) % 2) == 0, mat)
+		_build_stairs(b, -w * 0.5, hx1, -d * 0.5, hz1, float(lvl) * sh, float(lvl + 1) * sh, ((lvl - base_level) % 2) == 0, mat)
 
 	# --- Window facades (above-ground only) ---
 	var c := Vector3(pos.x, pos.y + height * 0.5, pos.z)
@@ -139,27 +140,20 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	_face_windows(c + Vector3(w * 0.5, 0.0, 0.0), Vector3(1.0, 0.0, 0.0), d, height, win_t, win_c, rng, false)
 
 
-# One flight: a ramp rising y0 -> y1 across the building width in the back shaft.
-static func _build_ramp(parent: Node3D, w: float, sd: float, y0: float, y1: float, shaft_cz: float, going_right: bool, mat: Material) -> void:
-	var run: float = w - 1.4
-	var rise: float = y1 - y0
-	var ang: float = atan2(rise, run)
-	var length: float = sqrt(run * run + rise * rise)
-	var body := StaticBody3D.new()
-	body.position = Vector3(0.0, (y0 + y1) * 0.5, shaft_cz)
-	body.rotation.z = ang if going_right else -ang
-	var mi := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(length, 0.3, sd - 0.5)
-	mi.mesh = box
-	mi.material_override = mat
-	body.add_child(mi)
-	var cs := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = box.size
-	cs.shape = shape
-	body.add_child(cs)
-	parent.add_child(body)
+# One flight of steps rising y0 -> y1 within the corner stairwell (x in [x0,x1],
+# z in [z0,z1]). ascend_pos: the climb heads toward +z; otherwise toward -z (the
+# switchback alternates each flight). Steps are solid blocks the capsule rounds over.
+static func _build_stairs(parent: Node3D, x0: float, x1: float, z0: float, z1: float, y0: float, y1: float, ascend_pos: bool, mat: Material) -> void:
+	var n: int = 9
+	var rise: float = (y1 - y0) / float(n)
+	var depth: float = (z1 - z0) / float(n)
+	var cx: float = (x0 + x1) * 0.5
+	var sw: float = x1 - x0
+	for j in range(n):
+		var k: int = j if ascend_pos else (n - 1 - j)
+		var z: float = z0 + (float(k) + 0.5) * depth
+		var tread: float = y0 + float(j + 1) * rise
+		_wall(parent, Vector3(cx, tread - rise, z), Vector3(sw - 0.4, rise * 2.0, depth + 0.05), mat)
 
 
 # An interior wall splitting the room area, with a doorway gap.
