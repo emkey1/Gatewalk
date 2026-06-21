@@ -225,6 +225,7 @@ func _ready() -> void:
 	dev_menu.set_e_key_gate_enabled_fn = _set_e_key_gate_enabled
 	dev_menu.get_gate_debug_hud_enabled_fn = _get_gate_debug_hud_enabled
 	dev_menu.set_gate_debug_hud_enabled_fn = _set_gate_debug_hud_enabled
+	dev_menu.toggle_day_night_fn = _toggle_day_night
 	add_child(dev_menu)
 
 	_load_slot_index()
@@ -3394,6 +3395,14 @@ func _weather_hud_text() -> String:
 	if _weather_type == WeatherFactory.CLEAR:
 		return ""
 	return "Weather: " + WeatherFactory.label_for(_weather_type)
+
+
+# Dev toggle (Shift+S menu): flip between bright midday and deep night.
+func _toggle_day_night() -> void:
+	var hour: float = (_cycle_time / CYCLE_LENGTH) * 24.0
+	var is_day: bool = hour >= 7.0 and hour < 17.5
+	_cycle_time = CYCLE_LENGTH * (0.0 if is_day else 0.5)   # -> midnight or noon
+	_update_day_night_cycle()
 
 
 func _update_day_night_cycle() -> void:
