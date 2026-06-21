@@ -220,17 +220,8 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 			# Footprint minus the stairwell corner; the room floor just past it is the landing.
 			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fcy, 0.0), Vector3(w * 0.5 - hx1, fth, d), floor_mat)
 			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fcy, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, fth, d * 0.5 - hz1), floor_mat)
-		if lvl >= 0 and w - stair_w > 6.0 and rng.randf() < 0.6:   # no partitions in the basement
-			# Land the divider on a facade pier so it meets solid wall (never a window),
-			# and keep it well clear of the stairwell so it never reads as a wall there.
-			var piers: Array = _facade_layout(w * 0.5, win_w)["piers"]
-			var cand: Array = []
-			for px in piers:
-				if px > hx1 + 3.0 and px < w * 0.5 - 1.5:
-					cand.append(px)
-			if not cand.is_empty():
-				# A partition only spanning the open room depth (never crossing the stairwell line).
-				_room_divider(b, cand[rng.randi_range(0, cand.size() - 1)], fy, hz1, d * 0.5, sh, door_h, div_mat, rng)
+		if lvl >= 0:   # a real interior floor plan above ground (the basement stays open)
+			_floor_plan(b, w, d, hx1, hz1, fy, sh, div_mat, door_h, rng)
 
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
@@ -286,18 +277,104 @@ static func _build_flight(parent: Node3D, x0: float, x1: float, z_lo: float, z_h
 		_wall(parent, Vector3(cx, y0 + fill_h * 0.5, z), Vector3(sw - 0.3, fill_h, depth + 0.05), mat)
 
 
-# An interior wall splitting the room area, with a doorway gap.
-static func _room_divider(parent: Node3D, x: float, fy: float, z0: float, z1: float, sh: float, door_h: float, mat: Material, rng: StableRng) -> void:
-	var th: float = 0.2
-	var door_w: float = 1.6
-	var door_z: float = rng.randf_range(z0 + door_w, z1 - door_w)
-	var lo_d: float = (door_z - door_w * 0.5) - z0
-	var hi_d: float = z1 - (door_z + door_w * 0.5)
-	if lo_d > 0.3:
-		_wall(parent, Vector3(x, fy + sh * 0.5, z0 + lo_d * 0.5), Vector3(th, sh, lo_d), mat)
-	if hi_d > 0.3:
-		_wall(parent, Vector3(x, fy + sh * 0.5, z1 - hi_d * 0.5), Vector3(th, sh, hi_d), mat)
-	_wall(parent, Vector3(x, fy + (sh + door_h) * 0.5, door_z), Vector3(th, sh - door_h, door_w), mat)
+# --- Interior floor plan: a corridor fronting the stairwell + BSP rooms off it. ----------
+# Approach distilled from procedural-floorplan research (BSP for building interiors +
+# reserved corridor; Liapis PCG-book ch.3, Müller/CityEngine split grammar): only ever cut
+# a rectangle with a FULL-SPAN wall, so partitions always terminate on another wall (no
+# floating stubs), and punch one doorway per cut so the spanning tree of doors keeps every
+# room reachable from the stair. A hall reserved in front of the stairwell gives circulation.
+const ROOM_MIN: float = 3.0      # smallest room edge
+const HALL_W: float = 1.6        # corridor width
+const DOOR_W: float = 1.0        # interior doorway clear width
+const PLAN_MAX_DEPTH: int = 2    # rooms per block stay believable (and the body count lean)
+
+static func _floor_plan(parent: Node3D, w: float, d: float, hx1: float, hz1: float, fy: float, sh: float, mat: Material, door_h: float, rng: StableRng) -> void:
+	var half_w: float = w * 0.5
+	var half_d: float = d * 0.5
+	var front_depth: float = half_d - hz1
+	var has_back: bool = (half_w - hx1) > ROOM_MIN and (hz1 + half_d) > ROOM_MIN
+	if w >= 9.0 and d >= 9.0 and front_depth > HALL_W + ROOM_MIN + 0.4 and has_back:
+		# Hall (full width) right in front of the stairwell — you step off the stairs into it.
+		var cz1: float = hz1 + HALL_W
+		_wall_with_door(parent, false, cz1, -half_w, half_w, fy, sh, door_h, _rand_door(rng, -half_w, half_w), mat)
+		_wall_with_door(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat)
+		_seg(parent, true, hx1, -half_d, hz1, fy + sh * 0.5, sh, 0.18, mat)   # seal the stairwell's open side
+		_subdivide(parent, -half_w, half_w, cz1, half_d, fy, sh, mat, door_h, rng, 0)   # rooms ahead of the hall
+		_subdivide(parent, hx1, half_w, -half_d, hz1, fy, sh, mat, door_h, rng, 0)      # rooms behind-right of it
+	else:
+		# Smaller building: rooms fill the area in front of the stairs (entered straight off
+		# the landing); a back-right pocket, if any, becomes its own room with a door in.
+		_subdivide(parent, -half_w, half_w, hz1, half_d, fy, sh, mat, door_h, rng, 0)
+		if has_back:
+			_wall_with_door(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat)
+			_seg(parent, true, hx1, -half_d, hz1, fy + sh * 0.5, sh, 0.18, mat)
+			_subdivide(parent, hx1, half_w, -half_d, hz1, fy, sh, mat, door_h, rng, 0)
+
+
+# A door centre keeping the whole opening inside [lo, hi].
+static func _rand_door(rng: StableRng, lo: float, hi: float) -> float:
+	if hi - lo < DOOR_W + 0.5:
+		return (lo + hi) * 0.5
+	return rng.randf_range(lo + DOOR_W * 0.5 + 0.25, hi - DOOR_W * 0.5 - 0.25)
+
+
+# Recursively split a rectangle with full-span doorway-walls, cutting the longer side so
+# rooms stay roughly square. Leaves are rooms.
+static func _subdivide(parent: Node3D, x0: float, x1: float, z0: float, z1: float, fy: float, sh: float, mat: Material, door_h: float, rng: StableRng, depth: int) -> void:
+	var wdt: float = x1 - x0
+	var dpt: float = z1 - z0
+	var can_x: bool = wdt >= ROOM_MIN * 2.0 + 0.2 and dpt >= DOOR_W + 0.6
+	var can_z: bool = dpt >= ROOM_MIN * 2.0 + 0.2 and wdt >= DOOR_W + 0.6
+	if not can_x and not can_z:
+		return
+	if depth >= PLAN_MAX_DEPTH or (depth >= 1 and rng.randf() < 0.22):
+		return
+	var split_x: bool
+	if wdt > dpt * 1.2:
+		split_x = true
+	elif dpt > wdt * 1.2:
+		split_x = false
+	else:
+		split_x = rng.randf() < 0.5
+	if split_x and not can_x:
+		split_x = false
+	elif not split_x and not can_z:
+		split_x = true
+	if split_x:
+		var cut: float = rng.randf_range(x0 + ROOM_MIN, x1 - ROOM_MIN)
+		_wall_with_door(parent, true, cut, z0, z1, fy, sh, door_h, _rand_door(rng, z0, z1), mat)
+		_subdivide(parent, x0, cut, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
+		_subdivide(parent, cut, x1, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
+	else:
+		var cz: float = rng.randf_range(z0 + ROOM_MIN, z1 - ROOM_MIN)
+		_wall_with_door(parent, false, cz, x0, x1, fy, sh, door_h, _rand_door(rng, x0, x1), mat)
+		_subdivide(parent, x0, x1, z0, cz, fy, sh, mat, door_h, rng, depth + 1)
+		_subdivide(parent, x0, x1, cz, z1, fy, sh, mat, door_h, rng, depth + 1)
+
+
+# A full-span interior wall with a doorway gap + header. wall_is_x: wall lies along Z at
+# x=fixed (spanning z in [span0,span1]); else along X at z=fixed (spanning that x range).
+static func _wall_with_door(parent: Node3D, wall_is_x: bool, fixed: float, span0: float, span1: float, fy: float, sh: float, door_h: float, door_pos: float, mat: Material) -> void:
+	var th: float = 0.18
+	var d0: float = door_pos - DOOR_W * 0.5
+	var d1: float = door_pos + DOOR_W * 0.5
+	if d0 - span0 > 0.25:
+		_seg(parent, wall_is_x, fixed, span0, d0, fy + sh * 0.5, sh, th, mat)
+	if span1 - d1 > 0.25:
+		_seg(parent, wall_is_x, fixed, d1, span1, fy + sh * 0.5, sh, th, mat)
+	if sh - door_h > 0.2:
+		_seg(parent, wall_is_x, fixed, d0, d1, fy + (door_h + sh) * 0.5, sh - door_h, th, mat)
+
+
+# One solid wall segment spanning a..b (along Z if wall_is_x, else along X), at the fixed
+# cross-coord, centred vertically at cy with height h.
+static func _seg(parent: Node3D, wall_is_x: bool, fixed: float, a: float, b: float, cy: float, h: float, th: float, mat: Material) -> void:
+	var mid: float = (a + b) * 0.5
+	var length: float = b - a
+	if wall_is_x:
+		_wall(parent, Vector3(fixed, cy, mid), Vector3(th, h, length), mat)
+	else:
+		_wall(parent, Vector3(mid, cy, fixed), Vector3(length, h, th), mat)
 
 
 static func _surface_mat(style: int, base: Color, line: Color, cell: Vector2, line_frac: float, rough: float, stripe: float = 0.0) -> ShaderMaterial:
