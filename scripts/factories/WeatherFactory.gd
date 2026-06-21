@@ -41,28 +41,32 @@ static func _build_rain() -> Node3D:
 	root.name = "Weather_Rain"
 
 	var particles := GPUParticles3D.new()
-	particles.amount = 700
-	particles.lifetime = 1.1
-	particles.preprocess = 1.1
+	# Dense field in a tighter column centred on the player so the rain reads when you
+	# look straight ahead, not only straight up.
+	particles.amount = 2000
+	particles.lifetime = 1.0
+	particles.preprocess = 1.0
 	particles.local_coords = false
-	particles.position = Vector3(0.0, 20.0, 0.0)
+	particles.position = Vector3(0.0, 15.0, 0.0)
 
 	var process := ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	process.emission_box_extents = Vector3(26.0, 0.5, 26.0)
+	process.emission_box_extents = Vector3(15.0, 0.5, 15.0)
 	process.direction = Vector3(0.05, -1.0, 0.0)
-	process.spread = 3.0
-	process.initial_velocity_min = 18.0
-	process.initial_velocity_max = 24.0
-	process.gravity = Vector3(0.0, -28.0, 0.0)
+	process.spread = 5.0
+	process.initial_velocity_min = 15.0
+	process.initial_velocity_max = 20.0
+	process.gravity = Vector3(0.0, -22.0, 0.0)
 	process.scale_min = 0.7
 	process.scale_max = 1.2
 	particles.process_material = process
 
+	# Longer streaks so a drop overlaps itself between frames (a short streak moving fast
+	# strobes into sparse dots — readable along the fall axis, not across it).
 	var streak := QuadMesh.new()
-	streak.size = Vector2(0.03, 0.55)
+	streak.size = Vector2(0.05, 1.05)
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.62, 0.70, 0.85, 0.45)
+	mat.albedo_color = Color(0.68, 0.76, 0.92, 0.55)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y

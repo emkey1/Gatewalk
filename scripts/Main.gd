@@ -3399,7 +3399,10 @@ func _update_weather_follow() -> void:
 	var player: CharacterBody3D = _get_player()
 	if player == null:
 		return
-	_weather_root.global_position = Vector3(player.global_position.x, 0.0, player.global_position.z)
+	# Follow the player in ALL axes — pinning Y to 0 left the emission band at a fixed
+	# world height, so at any elevation the rain sat above/below eye level (very visible
+	# looking up, sparse straight ahead). Tracking Y keeps the column centred on you.
+	_weather_root.global_position = player.global_position
 	# Hide falling rain/snow when the player is under a roof (indoors) — the particles
 	# would otherwise pass straight through a solid ceiling. Guarded against the brief
 	# mid-transition states where the player isn't in a live physics world.
