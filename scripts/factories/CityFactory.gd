@@ -53,14 +53,15 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 				# so the hole lines up under its walls, with a reachable basement below.
 				var bsz: float = MapContext.CITY_BASEMENT_HALF * 2.0
 				var bpos: Vector3 = Vector3(bx, gy + 0.12, bz)
-				_build_building(root, bpos, bsz, bsz, cell_rng.randi_range(1, 4), cell_rng, Vector3(0.0, 0.0, 1.0), true)
+				var bst: int = cell_rng.randi_range(1, 4)
+				_build_building(root, bpos, bsz, bsz, bst, cell_rng, Vector3(0.0, 0.0, 1.0), true, _roll_roof(world_seed, bx, bz, bst))
 				building_positions.append(bpos)
 				continue
 			var roll: float = cell_rng.randf()
 			if roll < 0.34:
 				_build_park(root, Vector3(bx, gy, bz), cell_rng, height_fn)
 			elif roll < 0.66:
-				_build_block(root, Vector3(bx, gy, bz), cell_rng, height_fn, building_positions)
+				_build_block(root, Vector3(bx, gy, bz), cell_rng, height_fn, building_positions, world_seed)
 			else:
 				_build_rubble(root, Vector3(bx, gy, bz), cell_rng)
 
@@ -81,7 +82,7 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 # Parish & Müller / "Procedural Generation For Dummies"). Big blocks split into two
 # parcels along their longer axis, each set back from the lot edge, so a block reads as
 # a row of buildings with an alley between rather than one monolith.
-static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height_fn: Callable, out_positions: Array) -> void:
+static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height_fn: Callable, out_positions: Array, world_seed: int) -> void:
 	var bw: float = BLOCK - rng.randf_range(2.0, 5.0)
 	var bd: float = BLOCK - rng.randf_range(2.0, 5.0)
 	var split_long: bool = bw >= bd
@@ -108,14 +109,25 @@ static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height
 		var door_normal: Vector3 = Vector3(0.0, 0.0, 1.0)
 		if lots > 1:
 			door_normal = Vector3(signf(off), 0.0, 0.0) if split_long else Vector3(0.0, 0.0, signf(off))
-		_build_building(parent, lc, lw, ld, rng.randi_range(1, 4), rng, door_normal)
+		var st: int = rng.randi_range(1, 4)
+		_build_building(parent, lc, lw, ld, st, rng, door_normal, false, _roll_roof(world_seed, lc.x, lc.z, st))
 		out_positions.append(lc)
+
+
+# Deterministic per-building rooftop-access roll on its OWN rng stream (keyed by world +
+# position), so toggling it never disturbs that building's window/material/divider draws.
+# Only multi-storey buildings qualify; ~35% of those get a roof you can climb to.
+static func _roll_roof(world_seed: int, bx: float, bz: float, stories: int) -> bool:
+	if stories < 2:
+		return false
+	var r := StableRng.new(StableRng.mix_string(world_seed, "city_roof", roundi(bx) * 100003 + roundi(bz)))
+	return r.randf() < 0.35
 
 
 # A walkable multistory building: solid floor slabs per storey, a switchback ramp
 # stairwell in the back corner, and room dividers with doorways. door_normal selects
 # which (street-facing) wall carries the entrance.
-static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng, door_normal: Vector3 = Vector3(0.0, 0.0, 1.0), has_basement: bool = false) -> void:
+static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng, door_normal: Vector3 = Vector3(0.0, 0.0, 1.0), has_basement: bool = false, roof_access: bool = false) -> void:
 	var b := Node3D.new()
 	b.position = pos
 	parent.add_child(b)
@@ -191,7 +203,9 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x < -0.5 else 0.0), sill_h, win_h, win_w)
 	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x > 0.5 else 0.0), sill_h, win_h, win_w)
 	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z > 0.5 else 0.0), sill_h, win_h, win_w)
-	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), roof_mat)
+	# A roof-access building gets a walkable holed deck + parapet instead of this solid cap.
+	if not roof_access:
+		_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), roof_mat)
 
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
 	var land_d: float = 1.5
@@ -221,6 +235,26 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
 		_build_ustair(b, -w * 0.5, hx1, -d * 0.5, hz1, float(lvl) * sh, float(lvl + 1) * sh, land_d, mat, floor_mat)
+
+	# --- Optional rooftop access: a final flight up through a holed roof deck onto a
+	# parapeted roof. Reuses the same holed-floor + stair patterns as every storey, so it
+	# connects and reads identically; the parapet is a collidable wall that stops you
+	# walking off the edge. ---
+	if roof_access:
+		var ry: float = height                                   # roof-deck top = top of the walls
+		var rcy: float = ry - th * 0.5                            # deck slab (th thick), top flush at ry
+		# Deck = footprint minus the stairwell hole, so you emerge from the stairwell.
+		_wall(b, Vector3((hx1 + w * 0.5) * 0.5, rcy, 0.0), Vector3(w * 0.5 - hx1, th, d), floor_mat)
+		_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, rcy, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, th, d * 0.5 - hz1), floor_mat)
+		# Final flight: top storey up to the roof deck.
+		_build_ustair(b, -w * 0.5, hx1, -d * 0.5, hz1, float(stories - 1) * sh, ry, land_d, mat, floor_mat)
+		# Parapet: a low collidable wall ringing the roof edge so you can't walk off.
+		var ph: float = 1.15
+		var pth: float = 0.25
+		_wall(b, Vector3(0.0, ry + ph * 0.5, -d * 0.5), Vector3(w, ph, pth), mat)
+		_wall(b, Vector3(0.0, ry + ph * 0.5, d * 0.5), Vector3(w, ph, pth), mat)
+		_wall(b, Vector3(-w * 0.5, ry + ph * 0.5, 0.0), Vector3(pth, ph, d), mat)
+		_wall(b, Vector3(w * 0.5, ry + ph * 0.5, 0.0), Vector3(pth, ph, d), mat)
 
 
 # A U-shaped half-landing stair for one storey: flight A climbs the left half to a
