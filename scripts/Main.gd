@@ -1926,6 +1926,12 @@ func _show_main_menu() -> void:
 	ach_btn.pressed.connect(_show_achievements_dialog)
 	ach_row.add_child(ach_btn)
 
+	var fg_btn := Button.new()
+	fg_btn.text = "Field Guide (" + str(_catalog_species_total(_build_catalog())) + " species)"
+	fg_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fg_btn.pressed.connect(_show_field_guide)
+	ach_row.add_child(fg_btn)
+
 	var hint := Label.new()
 	hint.text = "Objective: restore the Atlas by finding wonders and gates.\nM: menu | Tab: atlas graph | G: return to Gate Room | P: pin location | H: HUD | F10: windowed | F11: fullscreen"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -2126,6 +2132,94 @@ func _show_achievements_dialog() -> void:
 		desc_label.add_theme_font_size_override("font_size", 10)
 		desc_label.modulate = Color(0.7, 0.7, 0.7)
 		vbox.add_child(desc_label)
+
+	add_child(dialog)
+	dialog.popup_centered()
+
+
+# Aggregate every discovery across the current saved game into catalog buckets.
+# Returns { category: { title: sighting_count } } for birds/fish/land/wonder/orb/other.
+func _build_catalog() -> Dictionary:
+	var cats: Dictionary = {"birds": {}, "fish": {}, "land": {}, "wonder": {}, "orb": {}, "other": {}}
+	var universe: Dictionary = _current_universe()
+	var worlds: Dictionary = universe.get("worlds", {})
+	for w in worlds.values():
+		var maps: Dictionary = (w as Dictionary).get("maps", {})
+		for m in maps.values():
+			var discs: Dictionary = (m as Dictionary).get("discoveries", {})
+			for did in discs.keys():
+				var d: Dictionary = discs[did]
+				var title: String = str(d.get("title", ""))
+				if title == "":
+					continue
+				var id_str: String = str(did)
+				var kind: String = str(d.get("kind", ""))
+				var cat: String = "other"
+				if id_str.begins_with("bio_bird_"):
+					cat = "birds"
+				elif id_str.begins_with("bio_fish_"):
+					cat = "fish"
+				elif id_str.begins_with("bio_land_"):
+					cat = "land"
+				elif kind == "wonder":
+					cat = "wonder"
+				elif kind == "orb":
+					cat = "orb"
+				var bucket: Dictionary = cats[cat]
+				bucket[title] = int(bucket.get(title, 0)) + 1
+	return cats
+
+
+func _catalog_species_total(cats: Dictionary) -> int:
+	return (cats.get("birds", {}) as Dictionary).size() + (cats.get("fish", {}) as Dictionary).size() + (cats.get("land", {}) as Dictionary).size()
+
+
+func _show_field_guide() -> void:
+	var cats: Dictionary = _build_catalog()
+	var dialog := AcceptDialog.new()
+	dialog.title = "Field Guide"
+	dialog.min_size = Vector2(440, 460)
+	dialog.exclusive = true
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(420, 420)
+	dialog.add_child(scroll)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 2)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(vbox)
+
+	var sections: Array = [
+		["Birds", "birds"], ["Fish", "fish"], ["Land Creatures", "land"],
+		["Wonders", "wonder"], ["Moon Relics", "orb"], ["Other Finds", "other"],
+	]
+	var any_found: bool = false
+	for s in sections:
+		var bucket: Dictionary = cats.get(str(s[1]), {})
+		if bucket.is_empty():
+			continue
+		any_found = true
+		var header := Label.new()
+		header.text = str(s[0]) + "   (" + str(bucket.size()) + ")"
+		header.add_theme_font_size_override("font_size", 16)
+		header.modulate = Color(0.82, 0.9, 1.0)
+		vbox.add_child(header)
+		var titles: Array = bucket.keys()
+		titles.sort()
+		for title in titles:
+			var cnt: int = int(bucket[title])
+			var row := Label.new()
+			row.text = "    •  " + str(title) + ("    ×" + str(cnt) if cnt > 1 else "")
+			row.add_theme_font_size_override("font_size", 13)
+			vbox.add_child(row)
+		vbox.add_child(HSeparator.new())
+
+	if not any_found:
+		var empty := Label.new()
+		empty.text = "Nothing cataloged yet. Explore — your bioscanner logs nearby wildlife automatically (upgrade Survey range to scan farther), then come back here."
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.custom_minimum_size = Vector2(400, 0)
+		vbox.add_child(empty)
 
 	add_child(dialog)
 	dialog.popup_centered()
