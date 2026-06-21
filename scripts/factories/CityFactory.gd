@@ -48,6 +48,14 @@ static func scatter_city(parent: Node3D, world_seed: int, density_level: int, co
 				continue  # open plaza at the centre so the player spawns in the clear
 			var cell_rng := StableRng.new(StableRng.mix_string(world_seed, "city_cell", i * 1000 + j))
 			var gy: float = float(height_fn.call(bx, bz))
+			if context.city_cell_has_basement(i, j):
+				# A building over a carved terrain hole: fixed footprint, centred in the cell
+				# so the hole lines up under its walls, with a reachable basement below.
+				var bsz: float = MapContext.CITY_BASEMENT_HALF * 2.0
+				var bpos: Vector3 = Vector3(bx, gy + 0.12, bz)
+				_build_building(root, bpos, bsz, bsz, cell_rng.randi_range(1, 4), cell_rng, Vector3(0.0, 0.0, 1.0), true)
+				building_positions.append(bpos)
+				continue
 			var roll: float = cell_rng.randf()
 			if roll < 0.34:
 				_build_park(root, Vector3(bx, gy, bz), cell_rng, height_fn)
@@ -107,7 +115,7 @@ static func _build_block(parent: Node3D, center: Vector3, rng: StableRng, height
 # A walkable multistory building: solid floor slabs per storey, a switchback ramp
 # stairwell in the back corner, and room dividers with doorways. door_normal selects
 # which (street-facing) wall carries the entrance.
-static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng, door_normal: Vector3 = Vector3(0.0, 0.0, 1.0)) -> void:
+static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, stories: int, rng: StableRng, door_normal: Vector3 = Vector3(0.0, 0.0, 1.0), has_basement: bool = false) -> void:
 	var b := Node3D.new()
 	b.position = pos
 	parent.add_child(b)
@@ -136,15 +144,25 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	roof_mat.set_shader_parameter("ceiling_color", ceil_col)
 	roof_mat.set_shader_parameter("ceiling_style", ceil_style)
 	var sh: float = STORY_H
+	var th: float = 0.3
 	var stair_w: float = minf(5.0, w - 5.0)     # stairwell (two half-flights wide) in the back-left corner
 	var stair_run: float = minf(5.5, d - 3.0)
 	var hx1: float = -w * 0.5 + stair_w         # stairwell occupies x in [-w/2, hx1]
 	var hz1: float = -d * 0.5 + stair_run       # ...and z in [-d/2, hz1]
-	var base_level: int = 0   # all storeys are above grade (a below-grade basement would be
-	                          # capped by the un-carved terrain surface and unreachable)
+	var base_level: int = -1 if has_basement else 0
+	var base_y: float = float(base_level) * sh
 	var height: float = float(stories) * sh
 	var door_w: float = 2.4
 	var door_h: float = 2.8
+
+	# --- Basement perimeter walls. The terrain is holed under the footprint (see
+	# MapContext.city_point_in_basement), so this below-grade space is open and reachable
+	# down the stairwell. ---
+	if has_basement:
+		_wall(b, Vector3(0.0, base_y * 0.5, -d * 0.5), Vector3(w, -base_y, th), mat)
+		_wall(b, Vector3(-w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
+		_wall(b, Vector3(w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
+		_wall(b, Vector3(0.0, base_y * 0.5, d * 0.5), Vector3(w, -base_y, th), mat)
 
 	# --- Above-ground walls with real window openings (grid frame). Window proportions
 	# vary per building (sill height, window height, spacing) so the city isn't uniform;

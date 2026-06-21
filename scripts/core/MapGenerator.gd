@@ -18,6 +18,7 @@ var map_context: MapContext
 var noise: FastNoiseLite
 var height_values: PackedFloat32Array
 var generated_root: Node3D
+var _terrain_mesh: Mesh   # kept so RUINED_CITY can build a trimesh collider matching the holed mesh
 
 
 func _init(config: Dictionary) -> void:
@@ -207,6 +208,7 @@ func _create_terrain_mesh() -> void:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
 	var g: int = _effective_grid_size()
+	var hole_city: bool = map_type == WorldGraph.MAP_RUINED_CITY
 	for z in range(g):
 		for x in range(g):
 			var p00: Vector3 = Vector3(_grid_to_world_x(x), height_values[_height_index(x, z)], _grid_to_world_z(z))
@@ -214,11 +216,16 @@ func _create_terrain_mesh() -> void:
 			var p01: Vector3 = Vector3(_grid_to_world_x(x), height_values[_height_index(x, z + 1)], _grid_to_world_z(z + 1))
 			var p11: Vector3 = Vector3(_grid_to_world_x(x + 1), height_values[_height_index(x + 1, z + 1)], _grid_to_world_z(z + 1))
 
+			# Punch a real hole in the ground under basement buildings so you can descend in.
+			if hole_city and map_context.city_point_in_basement((p00.x + p10.x) * 0.5, (p00.z + p01.z) * 0.5):
+				continue
+
 			_add_triangle(st, p00, p10, p11, _terrain_color(p00), _terrain_color(p10), _terrain_color(p11))
 			_add_triangle(st, p00, p11, p01, _terrain_color(p00), _terrain_color(p11), _terrain_color(p01))
 
 	st.generate_normals()
 	var terrain_mesh := st.commit()
+	_terrain_mesh = terrain_mesh
 
 	var terrain := MeshInstance3D.new()
 	terrain.name = "GeneratedTerrain"
@@ -251,16 +258,21 @@ func _create_terrain_collision() -> void:
 	body.collision_layer = 1
 	body.collision_mask = 1
 
-	var shape := HeightMapShape3D.new()
-	var g: int = _effective_grid_size()
-	shape.map_width = g + 1
-	shape.map_depth = g + 1
-	shape.map_data = height_values
-
 	var collision := CollisionShape3D.new()
-	collision.name = "TerrainHeightMapCollision"
-	collision.shape = shape
-	collision.scale = Vector3(CELL_SIZE, 1.0, CELL_SIZE)
+	if map_type == WorldGraph.MAP_RUINED_CITY and _terrain_mesh != null:
+		# Trimesh collider so the collision has the SAME hole as the mesh (a heightmap
+		# can't be holed). Vertices are already in world space, so no scale.
+		collision.name = "TerrainTrimeshCollision"
+		collision.shape = _terrain_mesh.create_trimesh_shape()
+	else:
+		var shape := HeightMapShape3D.new()
+		var g: int = _effective_grid_size()
+		shape.map_width = g + 1
+		shape.map_depth = g + 1
+		shape.map_data = height_values
+		collision.name = "TerrainHeightMapCollision"
+		collision.shape = shape
+		collision.scale = Vector3(CELL_SIZE, 1.0, CELL_SIZE)
 
 	body.add_child(collision)
 	generated_root.add_child(body)

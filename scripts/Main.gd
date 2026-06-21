@@ -5645,6 +5645,10 @@ func _ensure_player_above_surface(player: CharacterBody3D) -> bool:
 		return false
 	if _is_current_map_cave() or _is_current_map_gate_room() or _is_current_map_map_nexus():
 		return false
+	# Inside a ruined-city basement the ground is holed and being below grade is
+	# legitimate — rescuing here would pogo-stick the player back to the surface.
+	if _is_current_map_ruined_city() and _active_map_context().city_point_in_basement(player.global_position.x, player.global_position.z):
+		return false
 	var terrain_y: float = _height_at_world(player.global_position.x, player.global_position.z)
 	# Only rescue when clearly below terrain to avoid canceling legitimate jumps,
 	# especially on moon maps with low gravity.

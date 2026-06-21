@@ -121,7 +121,7 @@ func show_login() -> void:
 	cancel_btn.pressed.connect(close)
 	button_row.add_child(cancel_btn)
 
-	line_edit.text_submitted.connect(_on_login_attempt.bind(line_edit))
+	line_edit.text_submitted.connect(func(_text: String) -> void: _on_login_attempt(line_edit))
 	line_edit.grab_focus()
 
 

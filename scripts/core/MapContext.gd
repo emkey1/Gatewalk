@@ -69,6 +69,36 @@ func river_distance(wx: float, wz: float) -> float:
 	return abs(wz - curve)
 
 
+# --- Ruined-city basements: a shared, deterministic decision so the terrain (which
+# punches a real hole under the building) and CityFactory (which builds the basement
+# into that hole) always agree on which cells have one. ---
+const CITY_CELL: float = 34.0           # must match CityFactory.CELL
+const CITY_BASEMENT_HALF: float = 8.0   # half-footprint of a basement building (grid-aligned)
+
+func _city_extent() -> float:
+	return minf(world_half_size() * 0.7, 145.0)
+
+
+func city_cell_has_basement(i: int, j: int) -> bool:
+	if map_type != WorldGraph.MAP_RUINED_CITY:
+		return false
+	if absi(i) <= 1 and absi(j) <= 1:
+		return false   # central plaza is kept clear of buildings
+	if Vector2(float(i) * CITY_CELL, float(j) * CITY_CELL).length() > _city_extent():
+		return false
+	return StableRng.new(StableRng.mix_string(world_seed, "city_basement", i * 1000 + j)).randf() < 0.33
+
+
+# True if the world point sits under a basement building's footprint (so the terrain
+# mesh/collision should be holed there).
+func city_point_in_basement(wx: float, wz: float) -> bool:
+	var i: int = roundi(wx / CITY_CELL)
+	var j: int = roundi(wz / CITY_CELL)
+	if not city_cell_has_basement(i, j):
+		return false
+	return absf(wx - float(i) * CITY_CELL) < CITY_BASEMENT_HALF and absf(wz - float(j) * CITY_CELL) < CITY_BASEMENT_HALF
+
+
 func height_at_world(wx: float, wz: float) -> float:
 	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_NEXUS:
 		return 0.0
