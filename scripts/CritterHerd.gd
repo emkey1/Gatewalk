@@ -38,11 +38,16 @@ func _ready() -> void:
 		add_child(critter)
 		_critters.append(critter)
 		_legs.append(_build_critter(critter, body_col, leg_col, scale))
-		_homes.append(Vector2(rng.randf_range(-5.0, 5.0), rng.randf_range(-5.0, 5.0)))
+		var home := Vector2(rng.randf_range(-4.0, 4.0), rng.randf_range(-4.0, 4.0))
+		# Born over a void/cliff edge (e.g. a sky-island rim)? Anchor at the herd's
+		# solid origin instead so the critter doesn't start in mid-air.
+		if height_fn.is_valid() and float(height_fn.call(_origin_xz.x + home.x, _origin_xz.y + home.y)) < global_position.y - 4.0:
+			home = Vector2.ZERO
+		_homes.append(home)
 		_radii.append(rng.randf_range(2.0, 5.0))
 		_wspeeds.append(rng.randf_range(0.25, 0.55))
 		_phases.append(rng.randf_range(0.0, TAU))
-		_prev.append(_homes[i])
+		_prev.append(home)
 		_yaw.append(rng.randf_range(0.0, TAU))
 
 
@@ -59,8 +64,13 @@ func _process(delta: float) -> void:
 			sin(_time * ws + ph) * r + sin(_time * ws * 0.43 + ph * 2.1) * r * 0.4,
 			cos(_time * ws * 0.87 + ph * 1.3) * r + cos(_time * ws * 0.51 + ph) * r * 0.4)
 		var critter: Node3D = _critters[i]
-		var gy: float = float(height_fn.call(_origin_xz.x + rel.x, _origin_xz.y + rel.y)) - global_position.y
-		critter.position = Vector3(rel.x, gy, rel.y)
+		var wy: float = float(height_fn.call(_origin_xz.x + rel.x, _origin_xz.y + rel.y))
+		# Refuse to step off a cliff/island edge into the void: hold the last valid
+		# spot when the ground there drops away sharply below the herd.
+		if wy < global_position.y - 4.0:
+			rel = _prev[i]
+			wy = float(height_fn.call(_origin_xz.x + rel.x, _origin_xz.y + rel.y))
+		critter.position = Vector3(rel.x, wy - global_position.y, rel.y)
 
 		var vel := rel - _prev[i]
 		if vel.length() > 0.0008:
