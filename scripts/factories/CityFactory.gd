@@ -100,11 +100,16 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 		_wall(b, Vector3(-w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
 		_wall(b, Vector3(w * 0.5, base_y * 0.5, 0.0), Vector3(th, -base_y, d), mat)
 		_wall(b, Vector3(0.0, base_y * 0.5, d * 0.5), Vector3(w, -base_y, th), mat)
-	# --- Above-ground walls with real window openings (grid frame); front has the door ---
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, mat, 0.0)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0)
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, mat, door_w)
+	# --- Above-ground walls with real window openings (grid frame). Window proportions
+	# vary per building (sill height, window height, spacing) so the city isn't uniform;
+	# within a building they stay consistent for rhythm. Front wall carries the door. ---
+	var sill_h: float = rng.randf_range(0.9, 1.7)
+	var win_h: float = clampf(rng.randf_range(1.2, 2.4), 1.0, sh - sill_h - 0.5)
+	var col_sp: float = rng.randf_range(3.5, 6.5)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, mat, 0.0, sill_h, win_h, col_sp)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, mat, door_w, sill_h, win_h, col_sp)
 	_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), mat)
 
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
@@ -114,9 +119,8 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 		if lvl == base_level:
 			_wall(b, Vector3(0.0, fy - 0.1, 0.0), Vector3(w, 0.2, d), floor_mat)  # solid base
 		else:
-			# Footprint minus the stairwell hole, keeping a landing strip at the near edge.
+			# Footprint minus the stairwell corner; the room floor just past it is the landing.
 			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fy - 0.1, 0.0), Vector3(w * 0.5 - hx1, 0.2, d), floor_mat)
-			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fy - 0.1, -d * 0.5 + land_d * 0.5), Vector3(stair_w, 0.2, land_d), floor_mat)
 			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fy - 0.1, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, 0.2, d * 0.5 - hz1), floor_mat)
 		if w - stair_w > 6.0 and rng.randf() < 0.6:
 			_room_divider(b, rng.randf_range(hx1 + 1.5, w * 0.5 - 1.5), fy, -d * 0.5, d * 0.5, sh, door_h, mat, rng)
@@ -131,23 +135,26 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 # above. Readable, connects cleanly, keeps head height. Solid steps the capsule
 # rounds into a smooth ~25 deg slope.
 static func _build_ustair(parent: Node3D, x0: float, x1: float, z0: float, z1: float, y0: float, y1: float, land_d: float, mat: Material, floor_mat: Material) -> void:
+	# z0 = back wall, z1 = interior (open-room) edge. The mid-landing sits at the back,
+	# and the arrival flight climbs back toward the room — so you never face a wall.
 	var x_mid: float = (x0 + x1) * 0.5
 	var mid_y: float = (y0 + y1) * 0.5
-	var run_z1: float = z1 - land_d
-	_wall(parent, Vector3((x0 + x1) * 0.5, mid_y - 0.1, (run_z1 + z1) * 0.5), Vector3(x1 - x0, 0.2, z1 - run_z1), floor_mat)
-	_build_flight(parent, x0, x_mid, z0, run_z1, y0, mid_y, true, mat)
-	_build_flight(parent, x_mid, x1, z0, run_z1, mid_y, y1, false, mat)
+	var land_z1: float = z0 + land_d
+	_wall(parent, Vector3((x0 + x1) * 0.5, mid_y - 0.1, (z0 + land_z1) * 0.5), Vector3(x1 - x0, 0.2, land_z1 - z0), floor_mat)
+	_build_flight(parent, x0, x_mid, land_z1, z1, y0, mid_y, false, mat)   # left: interior edge up to the back landing
+	_build_flight(parent, x_mid, x1, land_z1, z1, mid_y, y1, true, mat)    # right: back landing up to the interior edge
 
 
-# One straight flight of solid steps. ascend_pos: climb runs toward +z; otherwise -z.
-static func _build_flight(parent: Node3D, x0: float, x1: float, z0: float, z1: float, y0: float, y1: float, ascend_pos: bool, mat: Material) -> void:
+# One straight flight of solid steps between z_lo (back) and z_hi (interior edge).
+# ascend_toward_hi: the climb arrives at z_hi facing the open room; else arrives at z_lo.
+static func _build_flight(parent: Node3D, x0: float, x1: float, z_lo: float, z_hi: float, y0: float, y1: float, ascend_toward_hi: bool, mat: Material) -> void:
 	var n: int = 5
 	var rise: float = (y1 - y0) / float(n)
-	var depth: float = (z1 - z0) / float(n)
+	var depth: float = (z_hi - z_lo) / float(n)
 	var cx: float = (x0 + x1) * 0.5
 	var sw: float = x1 - x0
 	for j in range(n):
-		var z: float = (z0 + (float(j) + 0.5) * depth) if ascend_pos else (z1 - (float(j) + 0.5) * depth)
+		var z: float = (z_lo + (float(j) + 0.5) * depth) if ascend_toward_hi else (z_hi - (float(j) + 0.5) * depth)
 		var fill_h: float = float(j + 1) * rise
 		_wall(parent, Vector3(cx, y0 + fill_h * 0.5, z), Vector3(sw - 0.3, fill_h, depth + 0.05), mat)
 
@@ -178,23 +185,29 @@ static func _floor_material(rng: StableRng) -> StandardMaterial3D:
 # lines, parapet) leaving real window openings between them, so light gets in and you
 # can see out. `along` is the in-plane horizontal axis, `normal` points outward; the
 # front wall passes door_w > 0 for a ground-level doorway gap. Wall rises y=0..top_y.
-static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float) -> void:
+static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, col_sp: float) -> void:
 	var th: float = 0.3
 	var v_w: float = 0.5
 	var length: float = half_len * 2.0
-	var cols: int = maxi(2, int(length / 5.5))
+	var cols: int = maxi(1, int(length / col_sp))
 	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
+	# Vertical mullions (full height), clear of the doorway.
 	var col_size: Vector3 = along.abs() * v_w + Vector3(0.0, top_y, 0.0) + normal.abs() * th
 	for i in range(cols + 1):
 		var t: float = -half_len + float(i) / float(cols) * length
 		if door_w > 0.0 and absf(t) < door_w * 0.5 + 0.3:
-			continue  # keep the doorway clear of mullions
+			continue
 		var p: Vector3 = center_xz + along * t
 		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), col_size, mat)
-	_grid_band(parent, along, normal, center_xz, half_len, 0.5, 1.0, th, mat, door_w)        # sill (door gap)
-	for f in range(1, rows):
-		_grid_band(parent, along, normal, center_xz, half_len, float(f) * STORY_H, 0.5, th, mat, 0.0)
-	_grid_band(parent, along, normal, center_xz, half_len, top_y - 0.25, 0.5, th, mat, 0.0)  # parapet
+	# Per storey: a solid sill band below the windows and a spandrel band above, so the
+	# openings are real punched windows (not full-height gaps). Ground sill carries the door.
+	for f in range(rows):
+		var fy: float = float(f) * STORY_H
+		_grid_band(parent, along, normal, center_xz, half_len, fy + sill_h * 0.5, sill_h, th, mat, (door_w if f == 0 else 0.0))
+		var sp_bot: float = fy + sill_h + win_h
+		var sp_top: float = float(f + 1) * STORY_H
+		if sp_top - sp_bot > 0.15:
+			_grid_band(parent, along, normal, center_xz, half_len, (sp_bot + sp_top) * 0.5, sp_top - sp_bot, th, mat, 0.0)
 
 
 static func _grid_band(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, y: float, h: float, th: float, mat: Material, door_w: float) -> void:

@@ -3376,6 +3376,18 @@ func _update_weather_follow() -> void:
 	if player == null:
 		return
 	_weather_root.global_position = Vector3(player.global_position.x, 0.0, player.global_position.z)
+	# Hide falling rain/snow when the player is under a roof (indoors) — the particles
+	# would otherwise pass straight through a solid ceiling. Guarded against the brief
+	# mid-transition states where the player isn't in a live physics world.
+	if _map_loading or not player.is_inside_tree():
+		return
+	var world: World3D = player.get_world_3d()
+	if world == null or world.direct_space_state == null:
+		return
+	var from: Vector3 = player.global_position + Vector3(0.0, 1.7, 0.0)
+	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3(0.0, 28.0, 0.0))
+	query.exclude = [player.get_rid()]
+	_weather_root.visible = world.direct_space_state.intersect_ray(query).is_empty()
 
 
 func _weather_hud_text() -> String:
