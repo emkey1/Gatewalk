@@ -206,10 +206,13 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# vary per building (sill height, window height, spacing) so the city isn't uniform;
 	# within a building they stay consistent for rhythm. The door goes on the street-facing
 	# wall (door_normal) so it is never trapped in the narrow alley between two lots. ---
-	var sill_h: float = rng.randf_range(1.0, 2.0)
-	var win_h: float = clampf(rng.randf_range(1.1, 1.9), 0.9, sh - sill_h - 1.0)
-	var win_w: float = rng.randf_range(1.1, 2.6)   # absolute window width; solid piers fill the rest
-	var bay_target: float = rng.randf_range(2.6, 5.0)  # per-building bay spacing -> window count = round(width/bay), not always ~4
+	# Proportions from real multi-storey facades (CMP/architecture refs): sill stays near
+	# ~0.9m and the window grows UP into a portrait opening (taller than wide), which on a
+	# tall 4.5m storey lands the head ~3m and leaves a ~1.2m spandrel.
+	var sill_h: float = rng.randf_range(0.8, 1.0)
+	var win_h: float = clampf(rng.randf_range(1.9, 2.5), 1.6, sh - sill_h - 1.0)
+	var win_w: float = rng.randf_range(1.0, 1.5)   # portrait (H:W ~1.5-2.2); solid piers fill the rest
+	var bay_target: float = rng.randf_range(2.8, 4.6)  # per-building bay spacing -> window count = round(width/bay)
 	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z < -0.5 else 0.0), sill_h, win_h, win_w, bay_target)
 	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x < -0.5 else 0.0), sill_h, win_h, win_w, bay_target)
 	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x > 0.5 else 0.0), sill_h, win_h, win_w, bay_target)
@@ -506,6 +509,15 @@ static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_x
 		var sp_top: float = float(f + 1) * STORY_H
 		if sp_top - sp_bot > 0.15:
 			_grid_band(parent, along, normal, center_xz, half_len, (sp_bot + sp_top) * 0.5, sp_top - sp_bot, th, mat, 0.0, 0.0)
+
+	# Horizontal articulation (CMP-style base/shaft/cornice): a shallow projecting string
+	# course at each floor line + a deeper cornice at the roofline. Continuous bands (one box
+	# per line, proud of the wall so no z-fight), not per-window trim, to stay perf-cheap.
+	var wall_len: float = half_len * 2.0
+	for f in range(1, rows):
+		var ly: float = float(f) * STORY_H
+		_decor_box(parent, center_xz + Vector3(0.0, ly, 0.0) + normal * (th * 0.5 + 0.04), along.abs() * wall_len + Vector3(0.0, 0.18, 0.0) + normal.abs() * 0.08, mat)
+	_decor_box(parent, center_xz + Vector3(0.0, top_y - 0.18, 0.0) + normal * (th * 0.5 + 0.09), along.abs() * wall_len + Vector3(0.0, 0.36, 0.0) + normal.abs() * 0.18, mat)
 
 
 static func _grid_band(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, y: float, h: float, th: float, mat: Material, door_w: float, door_t: float = 0.0) -> void:
