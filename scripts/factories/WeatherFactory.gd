@@ -41,22 +41,24 @@ static func _build_rain() -> Node3D:
 	root.name = "Weather_Rain"
 
 	var particles := GPUParticles3D.new()
-	# Dense field in a tighter column centred on the player so the rain reads when you
-	# look straight ahead, not only straight up.
-	particles.amount = 2000
-	particles.lifetime = 1.0
-	particles.preprocess = 1.0
+	# Rain reads only when you look UP (along the fall axis) if it's a thin sheet emitted from
+	# far overhead. Emit instead across a TALL box that straddles eye level, in a TIGHT column
+	# right around the player, with lots of drops — so a horizontal sightline crosses dense rain
+	# too, not just a sparse slice. The column follows the player (Main._update_weather_follow).
+	particles.amount = 4000
+	particles.lifetime = 0.95
+	particles.preprocess = 0.95
 	particles.local_coords = false
-	particles.position = Vector3(0.0, 15.0, 0.0)
+	particles.position = Vector3(0.0, 4.0, 0.0)
 
 	var process := ParticleProcessMaterial.new()
 	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	process.emission_box_extents = Vector3(15.0, 0.5, 15.0)
-	process.direction = Vector3(0.05, -1.0, 0.0)
-	process.spread = 5.0
-	process.initial_velocity_min = 15.0
-	process.initial_velocity_max = 20.0
-	process.gravity = Vector3(0.0, -22.0, 0.0)
+	process.emission_box_extents = Vector3(8.0, 7.0, 8.0)   # 16m-wide, 14m-tall column straddling eye level
+	process.direction = Vector3(0.08, -1.0, 0.0)
+	process.spread = 6.0
+	process.initial_velocity_min = 12.0
+	process.initial_velocity_max = 18.0
+	process.gravity = Vector3(0.0, -20.0, 0.0)
 	process.scale_min = 0.7
 	process.scale_max = 1.2
 	particles.process_material = process
@@ -64,9 +66,9 @@ static func _build_rain() -> Node3D:
 	# Longer streaks so a drop overlaps itself between frames (a short streak moving fast
 	# strobes into sparse dots — readable along the fall axis, not across it).
 	var streak := QuadMesh.new()
-	streak.size = Vector2(0.05, 1.05)
+	streak.size = Vector2(0.06, 0.95)
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.68, 0.76, 0.92, 0.55)
+	mat.albedo_color = Color(0.68, 0.76, 0.92, 0.62)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
