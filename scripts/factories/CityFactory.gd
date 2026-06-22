@@ -19,6 +19,11 @@ const INTERIOR_CULL_DIST: float = 60.0   # interior floors/walls/stairs stop dra
 # Set transiently around interior construction; _wall() then distance-caps those meshes so
 # distant buildings render only their exterior shell + roof, not their (unseen) insides.
 static var _cull_dist: float = 0.0
+const CEIL_GAP: float = 0.06    # interior walls stop just under the ceiling slab (no coplanar z-fight)
+# Facade pier positions for the current building; interior cuts snap to these so partitions
+# meet the outer wall between windows (on a solid pier), never bisecting a window.
+static var _piers_x: Array = []   # x-positions of piers on the front/back walls
+static var _piers_z: Array = []   # z-positions of piers on the left/right walls
 
 
 static func scatter_city(parent: Node3D, world_seed: int, density_level: int, context: MapContext) -> Array:
@@ -216,6 +221,8 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
 	var land_d: float = 1.5
 	_cull_dist = INTERIOR_CULL_DIST   # floors / rooms / stairs are interior -> distance-cap them
+	_piers_x = _facade_layout(w * 0.5, win_w, bay_target)["piers"]   # interior cuts snap to facade piers
+	_piers_z = _facade_layout(d * 0.5, win_w, bay_target)["piers"]
 	for lvl in range(base_level, stories):
 		var fy: float = float(lvl) * sh
 		var fth: float = 0.7 if lvl == 0 else 0.2     # ground floor is a thick foundation slab
@@ -306,7 +313,7 @@ static func _floor_plan(parent: Node3D, w: float, d: float, hx1: float, hz1: flo
 		var cz1: float = hz1 + HALL_W
 		_wall_with_door(parent, false, cz1, -half_w, half_w, fy, sh, door_h, _rand_door(rng, -half_w, half_w), mat)
 		_wall_with_door(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat)
-		_seg(parent, true, hx1, -half_d, hz1, fy + sh * 0.5, sh, 0.18, mat)   # seal the stairwell's open side
+		_seg(parent, true, hx1, -half_d, hz1, fy + (sh - CEIL_GAP) * 0.5, sh - CEIL_GAP, 0.18, mat)   # seal the stairwell's open side
 		_subdivide(parent, -half_w, half_w, cz1, half_d, fy, sh, mat, door_h, rng, 0)   # rooms ahead of the hall
 		_subdivide(parent, hx1, half_w, -half_d, hz1, fy, sh, mat, door_h, rng, 0)      # rooms behind-right of it
 	else:
@@ -315,7 +322,7 @@ static func _floor_plan(parent: Node3D, w: float, d: float, hx1: float, hz1: flo
 		_subdivide(parent, -half_w, half_w, hz1, half_d, fy, sh, mat, door_h, rng, 0)
 		if has_back:
 			_wall_with_door(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat)
-			_seg(parent, true, hx1, -half_d, hz1, fy + sh * 0.5, sh, 0.18, mat)
+			_seg(parent, true, hx1, -half_d, hz1, fy + (sh - CEIL_GAP) * 0.5, sh - CEIL_GAP, 0.18, mat)
 			_subdivide(parent, hx1, half_w, -half_d, hz1, fy, sh, mat, door_h, rng, 0)
 
 
@@ -324,6 +331,20 @@ static func _rand_door(rng: StableRng, lo: float, hi: float) -> float:
 	if hi - lo < DOOR_W + 0.5:
 		return (lo + hi) * 0.5
 	return rng.randf_range(lo + DOOR_W * 0.5 + 0.25, hi - DOOR_W * 0.5 - 0.25)
+
+
+# Snap a proposed cut to the nearest facade pier inside (lo, hi) that still leaves both
+# rooms >= ROOM_MIN, so the partition meets the outer wall on a solid pier (between windows).
+# Falls back to the raw cut when no pier fits.
+static func _snap_cut(val: float, lo: float, hi: float, piers: Array) -> float:
+	var best: float = val
+	var bestd: float = 1.0e9
+	for p in piers:
+		var pf: float = float(p)
+		if pf > lo + ROOM_MIN and pf < hi - ROOM_MIN and absf(pf - val) < bestd:
+			bestd = absf(pf - val)
+			best = pf
+	return best
 
 
 # Recursively split a rectangle with full-span doorway-walls, cutting the longer side so
@@ -349,12 +370,12 @@ static func _subdivide(parent: Node3D, x0: float, x1: float, z0: float, z1: floa
 	elif not split_x and not can_z:
 		split_x = true
 	if split_x:
-		var cut: float = rng.randf_range(x0 + ROOM_MIN, x1 - ROOM_MIN)
+		var cut: float = _snap_cut(rng.randf_range(x0 + ROOM_MIN, x1 - ROOM_MIN), x0, x1, _piers_x)
 		_wall_with_door(parent, true, cut, z0, z1, fy, sh, door_h, _rand_door(rng, z0, z1), mat)
 		_subdivide(parent, x0, cut, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
 		_subdivide(parent, cut, x1, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
 	else:
-		var cz: float = rng.randf_range(z0 + ROOM_MIN, z1 - ROOM_MIN)
+		var cz: float = _snap_cut(rng.randf_range(z0 + ROOM_MIN, z1 - ROOM_MIN), z0, z1, _piers_z)
 		_wall_with_door(parent, false, cz, x0, x1, fy, sh, door_h, _rand_door(rng, x0, x1), mat)
 		_subdivide(parent, x0, x1, z0, cz, fy, sh, mat, door_h, rng, depth + 1)
 		_subdivide(parent, x0, x1, cz, z1, fy, sh, mat, door_h, rng, depth + 1)
@@ -364,14 +385,15 @@ static func _subdivide(parent: Node3D, x0: float, x1: float, z0: float, z1: floa
 # x=fixed (spanning z in [span0,span1]); else along X at z=fixed (spanning that x range).
 static func _wall_with_door(parent: Node3D, wall_is_x: bool, fixed: float, span0: float, span1: float, fy: float, sh: float, door_h: float, door_pos: float, mat: Material) -> void:
 	var th: float = 0.18
+	var wh: float = sh - CEIL_GAP   # top tucks into the ceiling slab, not coplanar with the floor above
 	var d0: float = door_pos - DOOR_W * 0.5
 	var d1: float = door_pos + DOOR_W * 0.5
 	if d0 - span0 > 0.25:
-		_seg(parent, wall_is_x, fixed, span0, d0, fy + sh * 0.5, sh, th, mat)
+		_seg(parent, wall_is_x, fixed, span0, d0, fy + wh * 0.5, wh, th, mat)
 	if span1 - d1 > 0.25:
-		_seg(parent, wall_is_x, fixed, d1, span1, fy + sh * 0.5, sh, th, mat)
-	if sh - door_h > 0.2:
-		_seg(parent, wall_is_x, fixed, d0, d1, fy + (door_h + sh) * 0.5, sh - door_h, th, mat)
+		_seg(parent, wall_is_x, fixed, d1, span1, fy + wh * 0.5, wh, th, mat)
+	if wh - door_h > 0.2:
+		_seg(parent, wall_is_x, fixed, d0, d1, fy + (door_h + wh) * 0.5, wh - door_h, th, mat)
 
 
 # One solid wall segment spanning a..b (along Z if wall_is_x, else along X), at the fixed
