@@ -8,6 +8,7 @@ class_name SkyscraperFactory
 # is always low so you can leave without a marathon climb.
 
 const StableRng = preload("res://scripts/core/StableRng.gd")
+const MultiMeshScatter = preload("res://scripts/factories/MultiMeshScatter.gd")
 
 const FOOTPRINT: float = 120.0     # square plan side (~Empire State base)
 const STORIES: int = 50            # 50 storeys -> ~200 m tall: clearly a tower at 120 m wide
@@ -40,27 +41,33 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	var trim := _mat(Color(0.30, 0.31, 0.34), 0.6, 0.0)   # dark mullions
 	var glass := _glass_mat()
 
-	# --- Base + roof slabs (sealed top & bottom; base is solid under the stair) ---
-	_box(root, Vector3(0.0, -TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
-	_box(root, Vector3(0.0, top_y + TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
-
-	# --- Office floor slabs (1..STORIES-1): full plate minus the central stairwell opening. ---
-	for f in range(1, STORIES):
-		_floor_slab(root, half, float(f) * STORY_H, floor_mat)
-
-	# --- Three-sided stairwell shaft (open on the +z entry side) so you don't wander off the
-	# opening, then a compact switchback per storey climbing through the openings. ---
-	_stair_walls(root, top_y, core_mat)
-	for f in range(STORIES):
-		_ustair(root, float(f) * STORY_H, float(f + 1) * STORY_H, core_mat)
-
-	# --- Structural columns on a grid (skip the central stairwell). ---
-	_columns(root, half, top_y, col_mat)
-
-	# --- Glass curtain wall on each face + a mullion grid. Sealed. ---
+	# --- Envelope: always-drawn full-height geometry (stair shaft walls, columns, glass). It's
+	# few pieces and the opaque slabs occlude all but the player's storey of it anyway. ---
+	var env := Node3D.new()
+	env.name = "Envelope"
+	root.add_child(env)
+	_stair_walls(env, top_y, core_mat)
+	_columns(env, half, top_y, col_mat)
 	for sgn in [-1.0, 1.0]:
-		_glass_face(root, true, sgn * half, half, top_y, glass, trim)
-		_glass_face(root, false, sgn * half, half, top_y, glass, trim)
+		_glass_face(env, true, sgn * half, half, top_y, glass, trim)
+		_glass_face(env, false, sgn * half, half, top_y, glass, trim)
+
+	# --- Per-storey groups (Floor_<n>) so Main can hide every storey except the player's: with
+	# opaque windows you can never see another floor, so only one needs to draw. Floor_n carries
+	# the slab at y=n*H, the stair climbing out of it, and (later) its office fit-out. ---
+	var floors: Array = []
+	for n in range(STORIES + 1):
+		var fl := Node3D.new()
+		fl.name = "Floor_" + str(n)
+		root.add_child(fl)
+		floors.append(fl)
+	_box(floors[0], Vector3(0.0, -TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
+	_box(floors[STORIES], Vector3(0.0, top_y + TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
+	for f in range(1, STORIES):
+		_floor_slab(floors[f], half, float(f) * STORY_H, floor_mat)
+	for f in range(STORIES):
+		_ustair(floors[f], float(f) * STORY_H, float(f + 1) * STORY_H, core_mat)
+		_furnish_floor(floors[f], half, float(f) * STORY_H, world_seed, f)
 
 	# --- Four gates scattered across the floors. Gate 0 sits low (near the arrival spot) so the
 	# player can always leave without a marathon climb; the rest are spread higher. ---
@@ -165,6 +172,185 @@ static func _glass_face(parent: Node3D, wall_is_z: bool, fixed: float, half: flo
 			_box(parent, Vector3(fixed, fy, 0.0), Vector3(gth + proud, 0.24, FOOTPRINT), trim, false)
 
 
+# --- Office fit-out for one storey ---------------------------------------------------------
+# All the loose furniture (desks, chairs, partitions, plants, elevator doors) renders as ONE
+# per-floor MultiMesh of coloured unit cubes (scaled per instance) -> one draw call per floor,
+# and Main only ever shows the player's floor. Rooms that you walk into (restrooms, conference
+# rooms) and the elevator block are solid collidable boxes.
+const CORE_HALF: float = 13.0      # central service-zone (stair + elevators + restrooms)
+const FIT_H: float = 2.7           # interior partition / room-wall height
+
+
+static func _furnish_floor(group: Node3D, half: float, fy: float, world_seed: int, f: int) -> void:
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "skyfloor", f))
+	var wall := _mat(Color(0.80, 0.80, 0.82), 0.9, 0.0)
+	var glass := _glass_mat_clear()
+	var xf: Array = []   # furniture instance transforms
+	var cf: Array = []   # furniture instance colours
+	_fit_core(group, fy, wall, xf, cf)
+	var zones: Array = _fit_conference(group, half, fy, rng, glass, xf, cf)
+	_fit_cubicles(half, fy, rng, zones, xf, cf)
+	_fit_plants(half, fy, rng, xf, cf)
+	if xf.size() > 0:
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3.ONE
+		MultiMeshScatter.build(group, "Furniture", mesh, MultiMeshScatter.instance_color_material(0.8), xf, cf)
+
+
+# One coloured unit-cube furniture instance: size + yaw + position.
+static func _furn(xf: Array, cf: Array, center: Vector3, size: Vector3, color: Color, yaw: float = 0.0) -> void:
+	xf.append(Transform3D(Basis(Vector3.UP, yaw).scaled(size), center))
+	cf.append(color)
+
+
+static func _chair(xf: Array, cf: Array, base: Vector3, yaw: float) -> void:
+	var c := Color(0.14, 0.15, 0.19)
+	var back: Vector3 = Vector3(sin(yaw), 0.0, cos(yaw)) * 0.22
+	_furn(xf, cf, base + Vector3(0.0, 0.46, 0.0), Vector3(0.5, 0.09, 0.5), c, yaw)       # seat
+	_furn(xf, cf, base + Vector3(0.0, 0.72, 0.0) + back, Vector3(0.5, 0.52, 0.07), c, yaw)  # back
+
+
+static func _workstation(xf: Array, cf: Array, base: Vector3, yaw: float) -> void:
+	var fwd: Vector3 = Vector3(sin(yaw), 0.0, cos(yaw))
+	var side: Vector3 = Vector3(cos(yaw), 0.0, -sin(yaw))
+	_furn(xf, cf, base + Vector3(0.0, 0.37, 0.0), Vector3(1.4, 0.74, 0.62), Color(0.60, 0.56, 0.50), yaw)  # desk
+	_chair(xf, cf, base - fwd * 0.55, yaw)                                                                 # chair
+	_furn(xf, cf, base + fwd * 0.40 + Vector3(0.0, 0.62, 0.0), Vector3(1.5, 1.24, 0.05), Color(0.44, 0.48, 0.54), yaw)  # spine partition
+	_furn(xf, cf, base + side * 0.74 + Vector3(0.0, 0.55, 0.0), Vector3(0.05, 1.1, 1.4), Color(0.44, 0.48, 0.54), yaw)  # side partition
+
+
+# Elevator block (-z of the stair) with door faces, plus two restrooms flanking it.
+static func _fit_core(group: Node3D, fy: float, wall: Material, xf: Array, cf: Array) -> void:
+	_box(group, Vector3(0.0, fy + FIT_H * 0.5, -9.0), Vector3(14.0, FIT_H, 4.0), wall, true)   # elevator bank block
+	for i in range(4):
+		var ex: float = -5.25 + float(i) * 3.5
+		_furn(xf, cf, Vector3(ex, fy + 1.2, -7.0), Vector3(1.5, 2.4, 0.10), Color(0.50, 0.53, 0.58))  # door
+		_furn(xf, cf, Vector3(ex, fy + 1.2, -6.95), Vector3(0.05, 2.4, 0.12), Color(0.18, 0.20, 0.24))  # door split
+	# restrooms left/right, doors facing the core lobby
+	_room(group, 11.0, -9.0, 5.0, 5.0, fy, FIT_H, 3, wall)
+	_room(group, -11.0, -9.0, 5.0, 5.0, fy, FIT_H, 2, wall)
+	for rx in [11.0, -11.0]:
+		for s in range(3):
+			_furn(xf, cf, Vector3(rx - 1.6 + float(s) * 1.6, fy + 0.6, -10.6), Vector3(0.05, 1.2, 1.3), Color(0.72, 0.73, 0.75))
+
+
+# A few glass-walled conference rooms along the perimeter. Returns keep-out rects for cubicles.
+static func _fit_conference(group: Node3D, half: float, fy: float, rng: StableRng, glass: Material, xf: Array, cf: Array) -> Array:
+	var zones: Array = []
+	var n: int = rng.randi_range(2, 3)
+	for i in range(n):
+		var side: int = rng.randi_range(0, 3)
+		var w: float = rng.randf_range(7.0, 10.0)
+		var d: float = rng.randf_range(6.0, 8.0)
+		var span: float = half - 1.0 - maxf(w, d)
+		var cx: float = 0.0
+		var cz: float = 0.0
+		var door: int = 0
+		match side:
+			0: cz = half - 0.6 - d * 0.5; cx = rng.randf_range(-span, span); door = 1
+			1: cz = -(half - 0.6 - d * 0.5); cx = rng.randf_range(-span, span); door = 0
+			2: cx = half - 0.6 - w * 0.5; cz = rng.randf_range(-span, span); door = 3
+			_: cx = -(half - 0.6 - w * 0.5); cz = rng.randf_range(-span, span); door = 2
+		if absf(cx) < CORE_HALF + 4.0 and absf(cz) < CORE_HALF + 4.0:
+			continue
+		_room(group, cx, cz, w, d, fy, 2.6, door, glass, 1.4)
+		_conf_table(xf, cf, Vector3(cx, fy, cz), w, d)
+		zones.append(Rect2(cx - w * 0.5 - 1.5, cz - d * 0.5 - 1.5, w + 3.0, d + 3.0))
+	return zones
+
+
+static func _conf_table(xf: Array, cf: Array, base: Vector3, w: float, d: float) -> void:
+	var tw: float = w * 0.45
+	var td: float = d * 0.4
+	_furn(xf, cf, base + Vector3(0.0, 0.73, 0.0), Vector3(tw, 0.09, td), Color(0.30, 0.24, 0.18))   # tabletop
+	_furn(xf, cf, base + Vector3(0.0, 0.36, 0.0), Vector3(tw * 0.5, 0.72, td * 0.5), Color(0.26, 0.21, 0.16))
+	var nx: int = maxi(2, int(tw / 1.1))
+	for i in range(nx):
+		var x: float = base.x - tw * 0.5 + (float(i) + 0.5) * tw / float(nx)
+		_chair(xf, cf, Vector3(x, base.y, base.z + td * 0.5 + 0.45), PI)
+		_chair(xf, cf, Vector3(x, base.y, base.z - td * 0.5 - 0.45), 0.0)
+
+
+# Cubicle neighbourhoods: a few dense grids of workstations in the open office.
+static func _fit_cubicles(half: float, fy: float, rng: StableRng, zones: Array, xf: Array, cf: Array) -> void:
+	var blocks: int = rng.randi_range(3, 4)
+	for b in range(blocks):
+		var w: float = rng.randf_range(9.0, 14.0)
+		var d: float = rng.randf_range(9.0, 14.0)
+		var lim_x: float = half - 6.0 - w * 0.5
+		var lim_z: float = half - 6.0 - d * 0.5
+		var cx: float = rng.randf_range(-lim_x, lim_x)
+		var cz: float = rng.randf_range(-lim_z, lim_z)
+		if absf(cx) < CORE_HALF + w * 0.5 + 1.0 and absf(cz) < CORE_HALF + d * 0.5 + 1.0:
+			continue
+		if _rect_in_zones(cx, cz, w, d, zones):
+			continue
+		var yaw: float = (PI * 0.5) * float(rng.randi_range(0, 3))
+		var px: float = cx - w * 0.5 + 1.3
+		while px <= cx + w * 0.5 - 1.0:
+			var pz: float = cz - d * 0.5 + 1.3
+			while pz <= cz + d * 0.5 - 1.0:
+				if not _near_col(px, pz):
+					_workstation(xf, cf, Vector3(px, fy, pz), yaw)
+				pz += 2.6
+			px += 2.6
+
+
+static func _fit_plants(half: float, fy: float, rng: StableRng, xf: Array, cf: Array) -> void:
+	for i in range(8):
+		var x: float = rng.randf_range(-(half - 4.0), half - 4.0)
+		var z: float = rng.randf_range(-(half - 4.0), half - 4.0)
+		if absf(x) < CORE_HALF and absf(z) < CORE_HALF:
+			continue
+		if _near_col(x, z):
+			continue
+		_furn(xf, cf, Vector3(x, fy + 0.3, z), Vector3(0.4, 0.6, 0.4), Color(0.30, 0.24, 0.18))   # pot
+		_furn(xf, cf, Vector3(x, fy + 1.1, z), Vector3(0.9, 1.1, 0.9), Color(0.18, 0.42, 0.20))   # foliage
+
+
+# Four walls around [cx+-w/2, cz+-d/2] with a door gap on `door_side` (0:+z 1:-z 2:+x 3:-x).
+static func _room(parent: Node3D, cx: float, cz: float, w: float, d: float, fy: float, h: float, door_side: int, mat: Material, door_w: float = 1.2) -> void:
+	var t: float = 0.12
+	var hw: float = w * 0.5
+	var hd: float = d * 0.5
+	var cy: float = fy + h * 0.5
+	_door_wall(parent, Vector3(cx, cy, cz + hd), Vector3(w, h, t), door_side == 0, door_w, mat, true)
+	_door_wall(parent, Vector3(cx, cy, cz - hd), Vector3(w, h, t), door_side == 1, door_w, mat, true)
+	_door_wall(parent, Vector3(cx + hw, cy, cz), Vector3(t, h, d), door_side == 2, door_w, mat, false)
+	_door_wall(parent, Vector3(cx - hw, cy, cz), Vector3(t, h, d), door_side == 3, door_w, mat, false)
+
+
+static func _door_wall(parent: Node3D, center: Vector3, size: Vector3, has_door: bool, door_w: float, mat: Material, span_x: bool) -> void:
+	if not has_door:
+		_box(parent, center, size, mat, true)
+		return
+	var span: float = size.x if span_x else size.z
+	var seg: float = (span - door_w) * 0.5
+	if seg <= 0.15:
+		_box(parent, center, size, mat, true)
+		return
+	if span_x:
+		_box(parent, center + Vector3(-(door_w + seg) * 0.5, 0.0, 0.0), Vector3(seg, size.y, size.z), mat, true)
+		_box(parent, center + Vector3((door_w + seg) * 0.5, 0.0, 0.0), Vector3(seg, size.y, size.z), mat, true)
+	else:
+		_box(parent, center + Vector3(0.0, 0.0, -(door_w + seg) * 0.5), Vector3(size.x, size.y, seg), mat, true)
+		_box(parent, center + Vector3(0.0, 0.0, (door_w + seg) * 0.5), Vector3(size.x, size.y, seg), mat, true)
+
+
+static func _near_col(x: float, z: float) -> bool:
+	var nx: float = round(x / COL_GRID) * COL_GRID
+	var nz: float = round(z / COL_GRID) * COL_GRID
+	return Vector2(x - nx, z - nz).length() < 1.3
+
+
+static func _rect_in_zones(cx: float, cz: float, w: float, d: float, zones: Array) -> bool:
+	var r := Rect2(cx - w * 0.5, cz - d * 0.5, w, d)
+	for z in zones:
+		if (z as Rect2).intersects(r):
+			return true
+	return false
+
+
 # --- Primitives --------------------------------------------------------------------------
 static func _box(parent: Node3D, center: Vector3, size: Vector3, mat: Material, collide: bool) -> void:
 	if collide:
@@ -198,10 +384,22 @@ static func _mat(color: Color, rough: float, metallic: float) -> StandardMateria
 
 
 static func _glass_mat() -> StandardMaterial3D:
+	# Opaque dark-tinted curtain wall: you can't see out (so Main can cull every other floor)
+	# and it's cheaper than transparent overdraw. Reads as mirror glass inside and out.
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.55, 0.68, 0.78, 0.22)
+	m.albedo_color = Color(0.09, 0.12, 0.17)
+	m.roughness = 0.12
+	m.metallic = 0.85
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+
+# Clear interior glass for conference-room partitions.
+static func _glass_mat_clear() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.62, 0.72, 0.80, 0.20)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.roughness = 0.05
-	m.metallic = 0.4
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED   # visible from inside and outside
+	m.roughness = 0.08
+	m.metallic = 0.3
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m

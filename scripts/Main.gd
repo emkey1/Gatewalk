@@ -282,6 +282,7 @@ func _process(_delta: float) -> void:
 	_update_weather_follow()
 	_recover_fallen_player()
 	_keep_player_inside_skyscraper()
+	_update_skyscraper_floor_culling()
 	_enforce_world_bounds()
 	_update_hud(_delta)
 
@@ -3142,6 +3143,37 @@ func _recover_fallen_player() -> void:
 
 # Safety net for the sealed tower: if the player ever ends up outside the glass curtain (a
 # stale save position, a physics clip), snap them back to the inside arrival spot.
+func _cache_skyscraper_floors() -> void:
+	_skyscraper_floor_nodes.clear()
+	_skyscraper_visible_floor = -999
+	if generated_root == null:
+		return
+	var sky: Node = generated_root.get_node_or_null("Skyscraper")
+	if sky == null:
+		return
+	for n in range(SkyscraperFactory.STORIES + 1):
+		_skyscraper_floor_nodes.append(sky.get_node_or_null("Floor_" + str(n)))
+
+
+# Draw only the player's storey (+/- one for stair transitions). Sealed tower, opaque windows:
+# no other floor is ever visible, so hiding them is free framerate for the dense fit-out.
+func _update_skyscraper_floor_culling() -> void:
+	if not _is_current_map_skyscraper() or _skyscraper_floor_nodes.is_empty():
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var pf: int = int(floor(player.global_position.y / SkyscraperFactory.STORY_H))
+	pf = clampi(pf, 0, _skyscraper_floor_nodes.size() - 1)
+	if pf == _skyscraper_visible_floor:
+		return
+	_skyscraper_visible_floor = pf
+	for n in range(_skyscraper_floor_nodes.size()):
+		var node: Node3D = _skyscraper_floor_nodes[n] as Node3D
+		if is_instance_valid(node):
+			node.visible = (n >= pf - 1 and n <= pf + 2)
+
+
 func _keep_player_inside_skyscraper() -> void:
 	if not _is_current_map_skyscraper():
 		return
@@ -4812,6 +4844,7 @@ func _scatter_skyscraper() -> void:
 	# spots in the usable ring, on different floors).
 	_begin_generation_channel("gates")
 	var positions: Array = SkyscraperFactory.build(generated_root, world_seed)
+	_cache_skyscraper_floors()
 	var target_seeds: Array[int] = []
 	for gi in range(positions.size()):
 		target_seeds.append(_gate_target_seed(gi))
@@ -5000,6 +5033,10 @@ var _city_core_positions: Array = []
 # Skyscraper: the inside arrival spot (a few metres in front of the first gate). Also the
 # fallback the containment net snaps the player back to if they ever clip outside the tower.
 var _skyscraper_safe_spawn: Vector3 = Vector3(0.0, 1.2, 11.0)
+# Per-storey group nodes (index = floor number). Only the player's storey is drawn — with
+# opaque windows you can never see another floor, so the other ~49 cost nothing to render.
+var _skyscraper_floor_nodes: Array = []
+var _skyscraper_visible_floor: int = -999
 
 
 func _gate_positions_to_wonders() -> void:
