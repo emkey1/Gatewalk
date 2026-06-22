@@ -141,15 +141,23 @@ static func _glass_face(parent: Node3D, wall_is_z: bool, fixed: float, half: flo
 
 
 # --- Switchback (U) stair for one storey, filling [x0,x1]x[z0,z1] from y0 to y1. ----------
+# The visible steps are decoration only; each flight carries an invisible collision ramp so
+# the capsule walks a smooth slope. Plain solid steps here read as un-climbable: spanning the
+# whole 14 m core makes each tread ~1.8 m deep, so the capsule meets every riser head-on from
+# a flat approach and (with no step-up logic) is stopped dead. The ramp sidesteps that.
 static func _ustair(parent: Node3D, x0: float, x1: float, z0: float, z1: float, y0: float, y1: float, mat: Material) -> void:
 	var x_mid: float = (x0 + x1) * 0.5
 	var mid_y: float = (y0 + y1) * 0.5
 	var land_d: float = 1.4
 	var land_z1: float = z0 + land_d
-	# mid landing at the back
+	# mid landing at the back (a real floor you stand on)
 	_box(parent, Vector3((x0 + x1) * 0.5, mid_y - 0.1, (z0 + land_z1) * 0.5), Vector3(x1 - x0, 0.2, land_z1 - z0), mat, true)
 	_flight(parent, x0, x_mid, land_z1, z1, y0, mid_y, false, mat)
 	_flight(parent, x_mid, x1, land_z1, z1, mid_y, y1, true, mat)
+	# Walkable ramps under the steps. Flight A descends in z as it climbs (door->back); flight
+	# B climbs back->door. Endpoints are the flight's low/high walking points.
+	_ramp(parent, (x0 + x_mid) * 0.5, x_mid - x0, z1, y0, land_z1, mid_y)
+	_ramp(parent, (x_mid + x1) * 0.5, x1 - x_mid, land_z1, mid_y, z1, y1)
 
 
 static func _flight(parent: Node3D, x0: float, x1: float, z_lo: float, z_hi: float, y0: float, y1: float, ascend_hi: bool, mat: Material) -> void:
@@ -161,7 +169,24 @@ static func _flight(parent: Node3D, x0: float, x1: float, z_lo: float, z_hi: flo
 	for j in range(n):
 		var z: float = (z_lo + (float(j) + 0.5) * depth) if ascend_hi else (z_hi - (float(j) + 0.5) * depth)
 		var fill_h: float = float(j + 1) * rise
-		_box(parent, Vector3(cx, y0 + fill_h * 0.5, z), Vector3(sw - 0.3, fill_h, depth + 0.05), mat, true)
+		# Visual only (collide=false) — the ramp below carries the collision.
+		_box(parent, Vector3(cx, y0 + fill_h * 0.5, z), Vector3(sw - 0.3, fill_h, depth + 0.05), mat, false)
+
+
+# Invisible collision ramp from (z_a, y_a) to (z_b, y_b), centred on cx, width `width`. A thin
+# box rotated about X so its top face is the walking surface aligned with the step nosings.
+static func _ramp(parent: Node3D, cx: float, width: float, z_a: float, y_a: float, z_b: float, y_b: float) -> void:
+	var body := StaticBody3D.new()
+	var length: float = Vector2(z_b - z_a, y_b - y_a).length()
+	# Drop the centre by half the thickness so the top face sits on the nosing line.
+	body.position = Vector3(cx, (y_a + y_b) * 0.5 - 0.15, (z_a + z_b) * 0.5)
+	body.rotation.x = atan2(-(y_b - y_a), z_b - z_a)
+	var cs := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = Vector3(width - 0.2, 0.3, length)
+	cs.shape = sh
+	body.add_child(cs)
+	parent.add_child(body)
 
 
 # --- Primitives --------------------------------------------------------------------------
