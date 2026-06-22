@@ -20,10 +20,6 @@ const INTERIOR_CULL_DIST: float = 60.0   # interior floors/walls/stairs stop dra
 # distant buildings render only their exterior shell + roof, not their (unseen) insides.
 static var _cull_dist: float = 0.0
 const CEIL_GAP: float = 0.06    # interior walls stop just under the ceiling slab (no coplanar z-fight)
-# Facade pier positions for the current building; interior cuts snap to these so partitions
-# meet the outer wall between windows (on a solid pier), never bisecting a window.
-static var _piers_x: Array = []   # x-positions of piers on the front/back walls
-static var _piers_z: Array = []   # z-positions of piers on the left/right walls
 # Small houses run the floor plan in "record" mode first (no geometry) to collect where its
 # interior walls meet each exterior wall, then place that wall's windows to suit ITS rooms.
 static var _plan_build: bool = true
@@ -223,17 +219,12 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var win_h: float = clampf(rng.randf_range(1.9, 2.5), 1.6, sh - sill_h - 1.0)
 	var win_w: float = rng.randf_range(1.0, 1.5)   # portrait (H:W ~1.5-2.2); solid piers fill the rest
 	var bay_target: float = rng.randf_range(2.8, 4.6)  # per-building bay spacing -> window count = round(width/bay)
-	# Irregular window spacing: the jitter scales with footprint — small houses come out
-	# quite asymmetric, big blocks nearly regular (just slight spacing variation). Front/back
-	# share a facade seed (left/right share another) so partition pier-snapping still lines up.
 	var plan_seed: int = rng.randi_range(1, 1 << 30)
 	# Rooms first, ALWAYS: record where interior walls meet each exterior wall (no geometry),
 	# then place that wall's windows in the gaps BETWEEN the walls -- a window can never be
 	# split by a wall. Each gap is filled with a bay grid (several windows in a big room, ~one
 	# in a small room), so big buildings still read as a regular grid and small houses as a
 	# window-per-room. The plan is stacked up every floor so window columns line up.
-	_piers_x = []
-	_piers_z = []
 	_mull_fx = []
 	_mull_bx = []
 	_mull_lz = []
@@ -366,20 +357,6 @@ static func _rand_door(rng: StableRng, lo: float, hi: float) -> float:
 	return rng.randf_range(lo + DOOR_W * 0.5 + 0.25, hi - DOOR_W * 0.5 - 0.25)
 
 
-# Snap a proposed cut to the nearest facade pier inside (lo, hi) that still leaves both
-# rooms >= ROOM_MIN, so the partition meets the outer wall on a solid pier (between windows).
-# Falls back to the raw cut when no pier fits.
-static func _snap_cut(val: float, lo: float, hi: float, piers: Array) -> float:
-	var best: float = val
-	var bestd: float = 1.0e9
-	for p in piers:
-		var pf: float = float(p)
-		if pf > lo + ROOM_MIN and pf < hi - ROOM_MIN and absf(pf - val) < bestd:
-			bestd = absf(pf - val)
-			best = pf
-	return best
-
-
 # Every interior wall goes through here: in build mode it makes the geometry; in record mode
 # (small houses) it instead notes where the wall touches an exterior wall, so windows can be
 # placed between rooms afterwards. The rng draws are identical either way, so the recorded
@@ -400,8 +377,8 @@ static func _plan_wall(parent: Node3D, is_x: bool, fixed: float, span0: float, s
 
 
 # Windows-follow-rooms (small houses): given where interior walls meet THIS wall, drop one
-# centred window into each wide-enough room segment; solid piers flank them. Returns the same
-# {piers:[{c,w}], windows:[centres]} shape as _facade_layout.
+# centred window into each wide-enough room segment; solid piers flank them. Returns
+# {piers:[{c,w}], windows:[centres]}.
 static func _facade_windows(half_len: float, mullions: Array, win_w: float, bay_target: float) -> Dictionary:
 	var bounds: Array[float] = [-half_len]
 	var ms: Array[float] = []
@@ -466,12 +443,12 @@ static func _subdivide(parent: Node3D, x0: float, x1: float, z0: float, z1: floa
 	elif not split_x and not can_z:
 		split_x = true
 	if split_x:
-		var cut: float = _snap_cut(rng.randf_range(x0 + ROOM_MIN, x1 - ROOM_MIN), x0, x1, _piers_x)
+		var cut: float = rng.randf_range(x0 + ROOM_MIN, x1 - ROOM_MIN)
 		_plan_wall(parent, true, cut, z0, z1, fy, sh, door_h, _rand_door(rng, z0, z1), mat, false)
 		_subdivide(parent, x0, cut, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
 		_subdivide(parent, cut, x1, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
 	else:
-		var cz: float = _snap_cut(rng.randf_range(z0 + ROOM_MIN, z1 - ROOM_MIN), z0, z1, _piers_z)
+		var cz: float = rng.randf_range(z0 + ROOM_MIN, z1 - ROOM_MIN)
 		_plan_wall(parent, false, cz, x0, x1, fy, sh, door_h, _rand_door(rng, x0, x1), mat, false)
 		_subdivide(parent, x0, x1, z0, cz, fy, sh, mat, door_h, rng, depth + 1)
 		_subdivide(parent, x0, x1, cz, z1, fy, sh, mat, door_h, rng, depth + 1)
@@ -545,52 +522,10 @@ static func _floor_material(rng: StableRng) -> ShaderMaterial:
 	return _surface_mat(2, Color(c2, c2, c2 * 1.02), Color(0.30, 0.30, 0.30), Vector2(1.0, 1.0), 0.0, 0.9)
 
 
-# Interior partition walls: painted plaster, ~40% with a faint wallpaper stripe.
 # A grid-frame exterior wall: vertical mullions + horizontal bands (sill, floor
 # lines, parapet) leaving real window openings between them, so light gets in and you
 # can see out. `along` is the in-plane horizontal axis, `normal` points outward; the
 # front wall passes door_w > 0 for a ground-level doorway gap. Wall rises y=0..top_y.
-static func _sum(a: Array) -> float:
-	var s: float = 0.0
-	for v in a:
-		s += float(v)
-	return s
-
-
-# Facade rhythm shared by exterior walls AND interior dividers, so a divider can land on a
-# solid pier and never split a window. Window count from a per-building bay spacing, but the
-# gap (pier) AND window widths are JITTERED so the facade isn't graph-paper-regular. `irr`
-# scales the jitter: ~0.15 for big regular blocks, ~0.85 for small asymmetric houses. Returns
-# piers as {c, w} (varying widths) and window centres.
-static func _facade_layout(half_len: float, win_w: float, bay_target: float = 3.4, seed: int = 0, irr: float = 0.0) -> Dictionary:
-	var length: float = half_len * 2.0
-	var cols: int = clampi(int(round(length / bay_target)), 1, 8)
-	while cols > 1 and (length - float(cols) * win_w) / float(cols + 1) < 0.5:
-		cols -= 1
-	var rng := StableRng.new(seed)
-	var win_ws: Array[float] = []
-	for i in range(cols):
-		win_ws.append(win_w * clampf(1.0 + rng.randf_range(-0.25, 0.35) * irr, 0.7, 1.4))
-	var base_pier: float = maxf(0.3, (length - _sum(win_ws)) / float(cols + 1))
-	var pier_ws: Array[float] = []
-	for i in range(cols + 1):
-		pier_ws.append(base_pier * clampf(1.0 + rng.randf_range(-0.6, 0.9) * irr, 0.5, 1.9))
-	var scale: float = length / (_sum(win_ws) + _sum(pier_ws))   # normalise to fill the wall exactly
-	var piers: Array = []
-	var windows: Array[float] = []
-	var x: float = -half_len
-	for i in range(cols):
-		var pw: float = pier_ws[i] * scale
-		piers.append({"c": x + pw * 0.5, "w": pw})
-		x += pw
-		var ww: float = win_ws[i] * scale
-		windows.append(x + ww * 0.5)
-		x += ww
-	var lpw: float = pier_ws[cols] * scale
-	piers.append({"c": x + lpw * 0.5, "w": lpw})
-	return {"piers": piers, "windows": windows}
-
-
 static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float, bay_target: float = 3.4, mullions: Array = []) -> void:
 	var th: float = 0.3
 	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
