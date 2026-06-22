@@ -185,16 +185,19 @@ static func _furnish_floor(group: Node3D, half: float, fy: float, world_seed: in
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "skyfloor", f))
 	var wall := _mat(Color(0.80, 0.80, 0.82), 0.9, 0.0)
 	var glass := _glass_mat_clear()
-	var xf: Array = []   # furniture instance transforms
-	var cf: Array = []   # furniture instance colours
-	_fit_core(group, fy, wall, xf, cf)
-	var zones: Array = _fit_conference(group, half, fy, rng, glass, xf, cf)
-	_fit_cubicles(half, fy, rng, zones, xf, cf)
-	_fit_plants(half, fy, rng, xf, cf)
+	var xf: Array = []   # visual furniture instance transforms
+	var cf: Array = []   # visual furniture instance colours
+	var sx: Array = []   # solid-furniture colliders: [center, size, yaw]
+	_fit_core(group, fy, wall, xf, cf, sx)
+	var zones: Array = _fit_conference(group, half, fy, rng, glass, xf, cf, sx)
+	_fit_cubicles(half, fy, rng, zones, xf, cf, sx)
+	_fit_plants(half, fy, rng, xf, cf, sx)
+	_ceiling_lights(group, half, fy, xf, cf)
 	if xf.size() > 0:
 		var mesh := BoxMesh.new()
 		mesh.size = Vector3.ONE
 		MultiMeshScatter.build(group, "Furniture", mesh, MultiMeshScatter.instance_color_material(0.8), xf, cf)
+	_build_furn_collision(group, sx)
 
 
 # One coloured unit-cube furniture instance: size + yaw + position.
@@ -203,39 +206,54 @@ static func _furn(xf: Array, cf: Array, center: Vector3, size: Vector3, color: C
 	cf.append(color)
 
 
+# Furniture that also blocks the player: the visual instance plus a box collider (built later
+# into one per-floor StaticBody, so it's culled and cheap with the rest of the storey).
+static func _furn_solid(xf: Array, cf: Array, sx: Array, center: Vector3, size: Vector3, color: Color, yaw: float = 0.0) -> void:
+	_furn(xf, cf, center, size, color, yaw)
+	sx.append([center, size, yaw])
+
+
+# A chair facing `yaw`: the backrest sits BEHIND the sitter (away from the desk/table they face).
 static func _chair(xf: Array, cf: Array, base: Vector3, yaw: float) -> void:
 	var c := Color(0.14, 0.15, 0.19)
-	var back: Vector3 = Vector3(sin(yaw), 0.0, cos(yaw)) * 0.22
-	_furn(xf, cf, base + Vector3(0.0, 0.46, 0.0), Vector3(0.5, 0.09, 0.5), c, yaw)       # seat
-	_furn(xf, cf, base + Vector3(0.0, 0.72, 0.0) + back, Vector3(0.5, 0.52, 0.07), c, yaw)  # back
+	var back: Vector3 = Vector3(sin(yaw), 0.0, cos(yaw)) * -0.22
+	_furn(xf, cf, base + Vector3(0.0, 0.46, 0.0), Vector3(0.5, 0.09, 0.5), c, yaw)            # seat
+	_furn(xf, cf, base + Vector3(0.0, 0.72, 0.0) + back, Vector3(0.5, 0.52, 0.07), c, yaw)    # backrest
 
 
-static func _workstation(xf: Array, cf: Array, base: Vector3, yaw: float) -> void:
+static func _workstation(xf: Array, cf: Array, sx: Array, base: Vector3, yaw: float) -> void:
 	var fwd: Vector3 = Vector3(sin(yaw), 0.0, cos(yaw))
 	var side: Vector3 = Vector3(cos(yaw), 0.0, -sin(yaw))
-	_furn(xf, cf, base + Vector3(0.0, 0.37, 0.0), Vector3(1.4, 0.74, 0.62), Color(0.60, 0.56, 0.50), yaw)  # desk
-	_chair(xf, cf, base - fwd * 0.55, yaw)                                                                 # chair
-	_furn(xf, cf, base + fwd * 0.40 + Vector3(0.0, 0.62, 0.0), Vector3(1.5, 1.24, 0.05), Color(0.44, 0.48, 0.54), yaw)  # spine partition
-	_furn(xf, cf, base + side * 0.74 + Vector3(0.0, 0.55, 0.0), Vector3(0.05, 1.1, 1.4), Color(0.44, 0.48, 0.54), yaw)  # side partition
+	_furn_solid(xf, cf, sx, base + Vector3(0.0, 0.37, 0.0), Vector3(1.4, 0.74, 0.62), Color(0.60, 0.56, 0.50), yaw)  # desk
+	_chair(xf, cf, base - fwd * 0.55, yaw)                                                                           # chair faces the desk
+	_furn_solid(xf, cf, sx, base + fwd * 0.40 + Vector3(0.0, 0.62, 0.0), Vector3(1.5, 1.24, 0.05), Color(0.44, 0.48, 0.54), yaw)  # spine partition
+	_furn_solid(xf, cf, sx, base + side * 0.74 + Vector3(0.0, 0.55, 0.0), Vector3(0.05, 1.1, 1.4), Color(0.44, 0.48, 0.54), yaw)  # side partition
 
 
-# Elevator block (-z of the stair) with door faces, plus two restrooms flanking it.
-static func _fit_core(group: Node3D, fy: float, wall: Material, xf: Array, cf: Array) -> void:
-	_box(group, Vector3(0.0, fy + FIT_H * 0.5, -9.0), Vector3(14.0, FIT_H, 4.0), wall, true)   # elevator bank block
-	for i in range(4):
-		var ex: float = -5.25 + float(i) * 3.5
-		_furn(xf, cf, Vector3(ex, fy + 1.2, -7.0), Vector3(1.5, 2.4, 0.10), Color(0.50, 0.53, 0.58))  # door
-		_furn(xf, cf, Vector3(ex, fy + 1.2, -6.95), Vector3(0.05, 2.4, 0.12), Color(0.18, 0.20, 0.24))  # door split
+# Elevator car (3 solid walls + open +z front: you ride from inside it, at (0,-9)) flanked by
+# visual bank doors, plus two restrooms with stall dividers. The car position is shared with
+# Main (_skyscraper_elevator_xz) for the ride interaction.
+static func _fit_core(group: Node3D, fy: float, wall: Material, xf: Array, cf: Array, sx: Array) -> void:
+	var h: float = FIT_H
+	_box(group, Vector3(0.0, fy + h * 0.5, -10.6), Vector3(5.0, h, 0.2), wall, true)    # car back wall
+	_box(group, Vector3(-2.4, fy + h * 0.5, -9.3), Vector3(0.2, h, 2.8), wall, true)    # car left wall
+	_box(group, Vector3(2.4, fy + h * 0.5, -9.3), Vector3(0.2, h, 2.8), wall, true)     # car right wall
+	_furn(xf, cf, Vector3(0.0, fy + 0.04, -9.3), Vector3(4.6, 0.06, 2.6), Color(0.27, 0.29, 0.33))   # car floor pad
+	_furn(xf, cf, Vector3(0.0, fy + h - 0.1, -9.3), Vector3(4.6, 0.12, 2.6), Color(0.30, 0.32, 0.36))  # car ceiling
+	# flanking visual bank doors (other shafts)
+	for sgn in [-1.0, 1.0]:
+		_furn_solid(xf, cf, sx, Vector3(sgn * 5.0, fy + 1.2, -7.8), Vector3(2.4, 2.4, 0.18), Color(0.50, 0.53, 0.58))
+		_furn(xf, cf, Vector3(sgn * 5.0, fy + 1.2, -7.68), Vector3(0.05, 2.4, 0.12), Color(0.16, 0.18, 0.22))
 	# restrooms left/right, doors facing the core lobby
-	_room(group, 11.0, -9.0, 5.0, 5.0, fy, FIT_H, 3, wall)
-	_room(group, -11.0, -9.0, 5.0, 5.0, fy, FIT_H, 2, wall)
+	_room(group, 11.0, -9.0, 5.0, 5.0, fy, h, 3, wall)
+	_room(group, -11.0, -9.0, 5.0, 5.0, fy, h, 2, wall)
 	for rx in [11.0, -11.0]:
 		for s in range(3):
-			_furn(xf, cf, Vector3(rx - 1.6 + float(s) * 1.6, fy + 0.6, -10.6), Vector3(0.05, 1.2, 1.3), Color(0.72, 0.73, 0.75))
+			_furn_solid(xf, cf, sx, Vector3(rx - 1.6 + float(s) * 1.6, fy + 0.6, -10.6), Vector3(0.05, 1.2, 1.3), Color(0.72, 0.73, 0.75))
 
 
 # A few glass-walled conference rooms along the perimeter. Returns keep-out rects for cubicles.
-static func _fit_conference(group: Node3D, half: float, fy: float, rng: StableRng, glass: Material, xf: Array, cf: Array) -> Array:
+static func _fit_conference(group: Node3D, half: float, fy: float, rng: StableRng, glass: Material, xf: Array, cf: Array, sx: Array) -> Array:
 	var zones: Array = []
 	var n: int = rng.randi_range(2, 3)
 	for i in range(n):
@@ -254,16 +272,16 @@ static func _fit_conference(group: Node3D, half: float, fy: float, rng: StableRn
 		if absf(cx) < CORE_HALF + 4.0 and absf(cz) < CORE_HALF + 4.0:
 			continue
 		_room(group, cx, cz, w, d, fy, 2.6, door, glass, 1.4)
-		_conf_table(xf, cf, Vector3(cx, fy, cz), w, d)
+		_conf_table(xf, cf, sx, Vector3(cx, fy, cz), w, d)
 		zones.append(Rect2(cx - w * 0.5 - 1.5, cz - d * 0.5 - 1.5, w + 3.0, d + 3.0))
 	return zones
 
 
-static func _conf_table(xf: Array, cf: Array, base: Vector3, w: float, d: float) -> void:
+static func _conf_table(xf: Array, cf: Array, sx: Array, base: Vector3, w: float, d: float) -> void:
 	var tw: float = w * 0.45
 	var td: float = d * 0.4
-	_furn(xf, cf, base + Vector3(0.0, 0.73, 0.0), Vector3(tw, 0.09, td), Color(0.30, 0.24, 0.18))   # tabletop
-	_furn(xf, cf, base + Vector3(0.0, 0.36, 0.0), Vector3(tw * 0.5, 0.72, td * 0.5), Color(0.26, 0.21, 0.16))
+	_furn_solid(xf, cf, sx, base + Vector3(0.0, 0.73, 0.0), Vector3(tw, 0.09, td), Color(0.30, 0.24, 0.18))   # tabletop
+	_furn_solid(xf, cf, sx, base + Vector3(0.0, 0.36, 0.0), Vector3(tw * 0.5, 0.72, td * 0.5), Color(0.26, 0.21, 0.16))
 	var nx: int = maxi(2, int(tw / 1.1))
 	for i in range(nx):
 		var x: float = base.x - tw * 0.5 + (float(i) + 0.5) * tw / float(nx)
@@ -272,7 +290,7 @@ static func _conf_table(xf: Array, cf: Array, base: Vector3, w: float, d: float)
 
 
 # Cubicle neighbourhoods: a few dense grids of workstations in the open office.
-static func _fit_cubicles(half: float, fy: float, rng: StableRng, zones: Array, xf: Array, cf: Array) -> void:
+static func _fit_cubicles(half: float, fy: float, rng: StableRng, zones: Array, xf: Array, cf: Array, sx: Array) -> void:
 	var blocks: int = rng.randi_range(3, 4)
 	for b in range(blocks):
 		var w: float = rng.randf_range(9.0, 14.0)
@@ -291,12 +309,12 @@ static func _fit_cubicles(half: float, fy: float, rng: StableRng, zones: Array, 
 			var pz: float = cz - d * 0.5 + 1.3
 			while pz <= cz + d * 0.5 - 1.0:
 				if not _near_col(px, pz):
-					_workstation(xf, cf, Vector3(px, fy, pz), yaw)
+					_workstation(xf, cf, sx, Vector3(px, fy, pz), yaw)
 				pz += 2.6
 			px += 2.6
 
 
-static func _fit_plants(half: float, fy: float, rng: StableRng, xf: Array, cf: Array) -> void:
+static func _fit_plants(half: float, fy: float, rng: StableRng, xf: Array, cf: Array, sx: Array) -> void:
 	for i in range(8):
 		var x: float = rng.randf_range(-(half - 4.0), half - 4.0)
 		var z: float = rng.randf_range(-(half - 4.0), half - 4.0)
@@ -304,8 +322,42 @@ static func _fit_plants(half: float, fy: float, rng: StableRng, xf: Array, cf: A
 			continue
 		if _near_col(x, z):
 			continue
-		_furn(xf, cf, Vector3(x, fy + 0.3, z), Vector3(0.4, 0.6, 0.4), Color(0.30, 0.24, 0.18))   # pot
-		_furn(xf, cf, Vector3(x, fy + 1.1, z), Vector3(0.9, 1.1, 0.9), Color(0.18, 0.42, 0.20))   # foliage
+		_furn_solid(xf, cf, sx, Vector3(x, fy + 0.3, z), Vector3(0.4, 0.6, 0.4), Color(0.30, 0.24, 0.18))   # pot
+		_furn(xf, cf, Vector3(x, fy + 1.1, z), Vector3(0.9, 1.1, 0.9), Color(0.18, 0.42, 0.20))             # foliage
+
+
+# One per-floor StaticBody holding every solid furniture piece as a box collider (no meshes;
+# the visuals come from the MultiMesh). Hidden with the floor, so it costs nothing off-storey.
+static func _build_furn_collision(group: Node3D, sx: Array) -> void:
+	if sx.is_empty():
+		return
+	var body := StaticBody3D.new()
+	body.name = "FurnitureColliders"
+	for s in sx:
+		var cs := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = s[1]
+		cs.shape = shape
+		cs.transform = Transform3D(Basis(Vector3.UP, s[2]), s[0])
+		body.add_child(cs)
+	group.add_child(body)
+
+
+# A grid of shadowless ceiling lights + flush fixtures. They live in the floor group, so the
+# culling that hides off-storey floors also switches their lights off — only the player's
+# storey is ever lit, keeping a fully-lit office cheap.
+static func _ceiling_lights(group: Node3D, half: float, fy: float, xf: Array, cf: Array) -> void:
+	var ly: float = fy + STORY_H - 0.3
+	for gx in [-42.0, -14.0, 14.0, 42.0]:
+		for gz in [-42.0, -14.0, 14.0, 42.0]:
+			var lamp := OmniLight3D.new()
+			lamp.position = Vector3(gx, ly, gz)
+			lamp.light_color = Color(1.0, 0.96, 0.88)
+			lamp.light_energy = 1.4
+			lamp.omni_range = 30.0
+			lamp.shadow_enabled = false
+			group.add_child(lamp)
+			_furn(xf, cf, Vector3(gx, ly + 0.16, gz), Vector3(1.4, 0.12, 1.4), Color(0.96, 0.96, 0.9))   # fixture
 
 
 # Four walls around [cx+-w/2, cz+-d/2] with a door gap on `door_side` (0:+z 1:-z 2:+x 3:-x).

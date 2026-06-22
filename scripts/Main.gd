@@ -267,6 +267,7 @@ func _process(_delta: float) -> void:
 		return
 	_poll_gate_use_input()
 	_poll_hub_use_input()
+	_poll_elevator_use_input()
 	_update_gate_room_ambience(_delta)
 	if not _is_current_map_gate_room() and not _is_current_map_cave() and not _is_current_map_map_nexus():
 		_cycle_time += _delta * cycle_speed_multiplier
@@ -3174,6 +3175,38 @@ func _update_skyscraper_floor_culling() -> void:
 			node.visible = (n >= pf - 1 and n <= pf + 2)
 
 
+# Ride the central elevator: stand in the car (around (0,-9)) and press E to jump to the next
+# stop (cycling lobby -> gate storeys -> top). Floor culling repaints the destination instantly.
+func _poll_elevator_use_input() -> void:
+	if not _is_current_map_skyscraper() or _map_loading or _skyscraper_elevator_dests.is_empty():
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var in_car: bool = Vector2(player.global_position.x, player.global_position.z + 9.0).length() < 2.6
+	var pressed: bool = Input.is_key_pressed(KEY_E)
+	var just: bool = pressed and not _elevator_use_was_pressed
+	_elevator_use_was_pressed = pressed
+	if not in_car:
+		return
+	var dest: int = int(_skyscraper_elevator_dests[_skyscraper_elevator_idx])
+	last_discovery_text = "[E] Elevator → Floor " + str(dest + 1)
+	if just and Time.get_ticks_msec() >= _elevator_cooldown_msec:
+		_ride_elevator()
+
+
+func _ride_elevator() -> void:
+	var player: CharacterBody3D = _get_player()
+	if player == null or _skyscraper_elevator_dests.is_empty():
+		return
+	var dest: int = int(_skyscraper_elevator_dests[_skyscraper_elevator_idx])
+	player.global_position = Vector3(0.0, float(dest) * SkyscraperFactory.STORY_H + 1.2, -9.0)
+	player.velocity = Vector3.ZERO
+	_skyscraper_safe_spawn = player.global_position
+	_skyscraper_elevator_idx = (_skyscraper_elevator_idx + 1) % _skyscraper_elevator_dests.size()
+	_elevator_cooldown_msec = Time.get_ticks_msec() + 600
+
+
 func _keep_player_inside_skyscraper() -> void:
 	if not _is_current_map_skyscraper():
 		return
@@ -4845,6 +4878,14 @@ func _scatter_skyscraper() -> void:
 	_begin_generation_channel("gates")
 	var positions: Array = SkyscraperFactory.build(generated_root, world_seed)
 	_cache_skyscraper_floors()
+	# Elevator stops: lobby, top, and every gate's storey, sorted + de-duped.
+	var stops: Dictionary = {1: true, SkyscraperFactory.STORIES - 1: true}
+	for p in positions:
+		stops[int(round(p.y / SkyscraperFactory.STORY_H))] = true
+	var dests: Array = stops.keys()
+	dests.sort()
+	_skyscraper_elevator_dests = dests
+	_skyscraper_elevator_idx = 0
 	var target_seeds: Array[int] = []
 	for gi in range(positions.size()):
 		target_seeds.append(_gate_target_seed(gi))
@@ -5037,6 +5078,12 @@ var _skyscraper_safe_spawn: Vector3 = Vector3(0.0, 1.2, 11.0)
 # opaque windows you can never see another floor, so the other ~49 cost nothing to render.
 var _skyscraper_floor_nodes: Array = []
 var _skyscraper_visible_floor: int = -999
+# Elevator: the car stands at (0,-9) on every storey; pressing E inside rides to the next stop
+# (lobby, gate storeys, top), so the upper gates don't mean a 50-floor stair climb.
+var _skyscraper_elevator_dests: Array = []
+var _skyscraper_elevator_idx: int = 0
+var _elevator_use_was_pressed: bool = false
+var _elevator_cooldown_msec: int = 0
 
 
 func _gate_positions_to_wonders() -> void:
