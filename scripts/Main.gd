@@ -3184,13 +3184,13 @@ func _poll_elevator_use_input() -> void:
 	if player == null:
 		return
 	var in_car: bool = Vector2(player.global_position.x, player.global_position.z + 9.0).length() < 2.6
-	var pressed: bool = Input.is_key_pressed(KEY_E)
+	var pressed: bool = Input.is_key_pressed(KEY_Q)
 	var just: bool = pressed and not _elevator_use_was_pressed
 	_elevator_use_was_pressed = pressed
 	if not in_car:
 		return
 	var dest: int = int(_skyscraper_elevator_dests[_skyscraper_elevator_idx])
-	last_discovery_text = "[E] Elevator → Floor " + str(dest + 1)
+	last_discovery_text = "[Q] Elevator → Floor " + str(dest + 1)
 	if just and Time.get_ticks_msec() >= _elevator_cooldown_msec:
 		_ride_elevator()
 

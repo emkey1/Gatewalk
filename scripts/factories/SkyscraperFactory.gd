@@ -213,12 +213,15 @@ static func _furn_solid(xf: Array, cf: Array, sx: Array, center: Vector3, size: 
 	sx.append([center, size, yaw])
 
 
-# A chair facing `yaw`: the backrest sits BEHIND the sitter (away from the desk/table they face).
+# An office chair facing `yaw` (the way the sitter looks). Wheel base + gas cylinder + seat +
+# a backrest set at the BACK edge of the seat (behind the sitter, away from the desk/table).
 static func _chair(xf: Array, cf: Array, base: Vector3, yaw: float) -> void:
-	var c := Color(0.14, 0.15, 0.19)
-	var back: Vector3 = Vector3(sin(yaw), 0.0, cos(yaw)) * -0.22
-	_furn(xf, cf, base + Vector3(0.0, 0.46, 0.0), Vector3(0.5, 0.09, 0.5), c, yaw)            # seat
-	_furn(xf, cf, base + Vector3(0.0, 0.72, 0.0) + back, Vector3(0.5, 0.52, 0.07), c, yaw)    # backrest
+	var c := Color(0.13, 0.14, 0.18)
+	var behind: Vector3 = Vector3(sin(yaw), 0.0, cos(yaw)) * -0.21   # toward the chair's back
+	_furn(xf, cf, base + Vector3(0.0, 0.05, 0.0), Vector3(0.52, 0.07, 0.52), c, yaw)          # wheel base
+	_furn(xf, cf, base + Vector3(0.0, 0.28, 0.0), Vector3(0.1, 0.42, 0.1), c, yaw)            # gas cylinder
+	_furn(xf, cf, base + Vector3(0.0, 0.47, 0.0), Vector3(0.5, 0.1, 0.5), c, yaw)             # seat
+	_furn(xf, cf, base + Vector3(0.0, 0.76, 0.0) + behind, Vector3(0.48, 0.52, 0.08), c, yaw)  # backrest
 
 
 static func _workstation(xf: Array, cf: Array, sx: Array, base: Vector3, yaw: float) -> void:
@@ -240,6 +243,18 @@ static func _fit_core(group: Node3D, fy: float, wall: Material, xf: Array, cf: A
 	_box(group, Vector3(2.4, fy + h * 0.5, -9.3), Vector3(0.2, h, 2.8), wall, true)     # car right wall
 	_furn(xf, cf, Vector3(0.0, fy + 0.04, -9.3), Vector3(4.6, 0.06, 2.6), Color(0.27, 0.29, 0.33))   # car floor pad
 	_furn(xf, cf, Vector3(0.0, fy + h - 0.1, -9.3), Vector3(4.6, 0.12, 2.6), Color(0.30, 0.32, 0.36))  # car ceiling
+	# Make the elevator a findable beacon in the dim office: a lit sign over the open front, a
+	# glowing call panel beside it, and a cyan light filling the car.
+	var sign := _emissive_mat(Color(0.35, 0.85, 1.0))
+	_box(group, Vector3(0.0, fy + h - 0.12, -7.9), Vector3(4.6, 0.28, 0.12), sign, false)   # header sign over the door
+	_box(group, Vector3(2.9, fy + 1.2, -8.0), Vector3(0.22, 0.5, 0.1), sign, false)         # call panel
+	var car_lamp := OmniLight3D.new()
+	car_lamp.position = Vector3(0.0, fy + h - 0.4, -9.3)
+	car_lamp.light_color = Color(0.6, 0.85, 1.0)
+	car_lamp.light_energy = 2.4
+	car_lamp.omni_range = 9.0
+	car_lamp.shadow_enabled = false
+	group.add_child(car_lamp)
 	# flanking visual bank doors (other shafts)
 	for sgn in [-1.0, 1.0]:
 		_furn_solid(xf, cf, sx, Vector3(sgn * 5.0, fy + 1.2, -7.8), Vector3(2.4, 2.4, 0.18), Color(0.50, 0.53, 0.58))
@@ -432,6 +447,15 @@ static func _mat(color: Color, rough: float, metallic: float) -> StandardMateria
 	m.albedo_color = color
 	m.roughness = rough
 	m.metallic = metallic
+	return m
+
+
+static func _emissive_mat(color: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_energy_multiplier = 4.0
 	return m
 
 
