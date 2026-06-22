@@ -213,10 +213,16 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var win_h: float = clampf(rng.randf_range(1.9, 2.5), 1.6, sh - sill_h - 1.0)
 	var win_w: float = rng.randf_range(1.0, 1.5)   # portrait (H:W ~1.5-2.2); solid piers fill the rest
 	var bay_target: float = rng.randf_range(2.8, 4.6)  # per-building bay spacing -> window count = round(width/bay)
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z < -0.5 else 0.0), sill_h, win_h, win_w, bay_target)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x < -0.5 else 0.0), sill_h, win_h, win_w, bay_target)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x > 0.5 else 0.0), sill_h, win_h, win_w, bay_target)
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z > 0.5 else 0.0), sill_h, win_h, win_w, bay_target)
+	# Irregular window spacing: the jitter scales with footprint — small houses come out
+	# quite asymmetric, big blocks nearly regular (just slight spacing variation). Front/back
+	# share a facade seed (left/right share another) so partition pier-snapping still lines up.
+	var irr: float = clampf(remap(minf(w, d), 8.0, 26.0, 0.85, 0.15), 0.15, 0.85)
+	var fseed_w: int = rng.randi_range(1, 1 << 30)
+	var fseed_d: int = rng.randi_range(1, 1 << 30)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z < -0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_w, irr)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x < -0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_d, irr)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x > 0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_d, irr)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z > 0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_w, irr)
 	# A roof-access building gets a walkable holed deck + parapet instead of this solid cap.
 	if not roof_access:
 		_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), roof_mat)
@@ -224,8 +230,12 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
 	var land_d: float = 1.5
 	_cull_dist = INTERIOR_CULL_DIST   # floors / rooms / stairs are interior -> distance-cap them
-	_piers_x = _facade_layout(w * 0.5, win_w, bay_target)["piers"]   # interior cuts snap to facade piers
-	_piers_z = _facade_layout(d * 0.5, win_w, bay_target)["piers"]
+	_piers_x = []   # interior cuts snap to facade pier CENTRES (same seed/irr as front/back walls)
+	for pr in _facade_layout(w * 0.5, win_w, bay_target, fseed_w, irr)["piers"]:
+		_piers_x.append(float(pr["c"]))
+	_piers_z = []
+	for pr in _facade_layout(d * 0.5, win_w, bay_target, fseed_d, irr)["piers"]:
+		_piers_z.append(float(pr["c"]))
 	for lvl in range(base_level, stories):
 		var fy: float = float(lvl) * sh
 		var fth: float = 0.7 if lvl == 0 else 0.2     # ground floor is a thick foundation slab
@@ -457,35 +467,54 @@ static func _floor_material(rng: StableRng) -> ShaderMaterial:
 # lines, parapet) leaving real window openings between them, so light gets in and you
 # can see out. `along` is the in-plane horizontal axis, `normal` points outward; the
 # front wall passes door_w > 0 for a ground-level doorway gap. Wall rises y=0..top_y.
-# Facade rhythm shared by exterior walls AND interior dividers, so a divider can land
-# on a solid pier and never split a window. Fixed-width windows; solid piers (>= min)
-# absorb the leftover wall, so a wider wall gets MORE windows, not wider ones.
-static func _facade_layout(half_len: float, win_w: float, bay_target: float = 3.4) -> Dictionary:
+static func _sum(a: Array) -> float:
+	var s: float = 0.0
+	for v in a:
+		s += float(v)
+	return s
+
+
+# Facade rhythm shared by exterior walls AND interior dividers, so a divider can land on a
+# solid pier and never split a window. Window count from a per-building bay spacing, but the
+# gap (pier) AND window widths are JITTERED so the facade isn't graph-paper-regular. `irr`
+# scales the jitter: ~0.15 for big regular blocks, ~0.85 for small asymmetric houses. Returns
+# piers as {c, w} (varying widths) and window centres.
+static func _facade_layout(half_len: float, win_w: float, bay_target: float = 3.4, seed: int = 0, irr: float = 0.0) -> Dictionary:
 	var length: float = half_len * 2.0
-	# Window count from a per-building bay spacing (n = round(width / bay)) so wider walls
-	# carry more windows and the count varies between buildings — not a fixed grid.
 	var cols: int = clampi(int(round(length / bay_target)), 1, 8)
-	# Don't let windows crowd out the piers; drop a column until a sane pier fits.
 	while cols > 1 and (length - float(cols) * win_w) / float(cols + 1) < 0.5:
 		cols -= 1
-	var pier_w: float = (length - float(cols) * win_w) / float(cols + 1)
-	var piers: Array[float] = []
-	var windows: Array[float] = []
-	for i in range(cols + 1):
-		piers.append(-half_len + float(i) * (pier_w + win_w) + pier_w * 0.5)
+	var rng := StableRng.new(seed)
+	var win_ws: Array[float] = []
 	for i in range(cols):
-		windows.append(-half_len + float(i) * (pier_w + win_w) + pier_w + win_w * 0.5)
-	return {"piers": piers, "windows": windows, "pier_w": pier_w}
+		win_ws.append(win_w * clampf(1.0 + rng.randf_range(-0.25, 0.35) * irr, 0.7, 1.4))
+	var base_pier: float = maxf(0.3, (length - _sum(win_ws)) / float(cols + 1))
+	var pier_ws: Array[float] = []
+	for i in range(cols + 1):
+		pier_ws.append(base_pier * clampf(1.0 + rng.randf_range(-0.6, 0.9) * irr, 0.5, 1.9))
+	var scale: float = length / (_sum(win_ws) + _sum(pier_ws))   # normalise to fill the wall exactly
+	var piers: Array = []
+	var windows: Array[float] = []
+	var x: float = -half_len
+	for i in range(cols):
+		var pw: float = pier_ws[i] * scale
+		piers.append({"c": x + pw * 0.5, "w": pw})
+		x += pw
+		var ww: float = win_ws[i] * scale
+		windows.append(x + ww * 0.5)
+		x += ww
+	var lpw: float = pier_ws[cols] * scale
+	piers.append({"c": x + lpw * 0.5, "w": lpw})
+	return {"piers": piers, "windows": windows}
 
 
-static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float, bay_target: float = 3.4) -> void:
+static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float, bay_target: float = 3.4, seed: int = 0, irr: float = 0.0) -> void:
 	var th: float = 0.3
 	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
-	var lay: Dictionary = _facade_layout(half_len, win_w, bay_target)
-	var pier_w: float = lay["pier_w"]
-	for t in lay["piers"]:
-		var p: Vector3 = center_xz + along * t
-		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), along.abs() * pier_w + Vector3(0.0, top_y, 0.0) + normal.abs() * th, mat)
+	var lay: Dictionary = _facade_layout(half_len, win_w, bay_target, seed, irr)
+	for pr in lay["piers"]:
+		var p: Vector3 = center_xz + along * float(pr["c"])
+		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), along.abs() * float(pr["w"]) + Vector3(0.0, top_y, 0.0) + normal.abs() * th, mat)
 	# Door sits in the window cell nearest the wall centre (a real opening, no pier in it).
 	var door_t: float = 0.0
 	if door_w > 0.0:
