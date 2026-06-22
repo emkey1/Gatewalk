@@ -659,7 +659,8 @@ func _poll_gate_room_slot_fallback() -> void:
 		var was_near: bool = bool(_gate_room_slot_active.get(slot_index, false))
 		if near and not was_near:
 			_gate_room_slot_active[slot_index] = true
-			_on_gate_room_gate_body_entered(player, slot_index)
+			if Time.get_ticks_msec() >= _gate_trigger_enable_time_msec:
+				_on_gate_room_gate_body_entered(player, slot_index)
 		elif not near and was_near:
 			_gate_room_slot_active.erase(slot_index)
 	if best_dist > 8.5:
@@ -685,7 +686,8 @@ func _poll_gate_room_return_fallback() -> void:
 	_gate_room_return_in_range = dist <= 4.0
 	if _gate_room_return_in_range and not _gate_room_return_active:
 		_gate_room_return_active = true
-		_on_gate_room_return_body_entered(player)
+		if Time.get_ticks_msec() >= _gate_trigger_enable_time_msec:
+			_on_gate_room_return_body_entered(player)
 	elif not _gate_room_return_in_range and _gate_room_return_active:
 		_gate_room_return_active = false
 
@@ -715,7 +717,8 @@ func _poll_map_nexus_slot_fallback() -> void:
 		var was_near: bool = bool(_nexus_slot_active.get(slot_index, false))
 		if near and not was_near:
 			_nexus_slot_active[slot_index] = true
-			_on_map_nexus_gate_body_entered(player, slot_index)
+			if Time.get_ticks_msec() >= _gate_trigger_enable_time_msec:
+				_on_map_nexus_gate_body_entered(player, slot_index)
 		elif not near and was_near:
 			_nexus_slot_active.erase(slot_index)
 
