@@ -24,6 +24,15 @@ const CEIL_GAP: float = 0.06    # interior walls stop just under the ceiling sla
 # meet the outer wall between windows (on a solid pier), never bisecting a window.
 static var _piers_x: Array = []   # x-positions of piers on the front/back walls
 static var _piers_z: Array = []   # z-positions of piers on the left/right walls
+# Small houses run the floor plan in "record" mode first (no geometry) to collect where its
+# interior walls meet each exterior wall, then place that wall's windows to suit ITS rooms.
+static var _plan_build: bool = true
+static var _plan_hw: float = 0.0
+static var _plan_hd: float = 0.0
+static var _mull_fx: Array = []   # interior-wall meets on the +z (front) wall, as x-positions
+static var _mull_bx: Array = []   # ... on the -z (back) wall
+static var _mull_lz: Array = []   # ... on the -x (left) wall, as z-positions
+static var _mull_rz: Array = []   # ... on the +x (right) wall
 
 
 static func scatter_city(parent: Node3D, world_seed: int, density_level: int, context: MapContext) -> Array:
@@ -141,6 +150,7 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	b.position = pos
 	parent.add_child(b)
 	_cull_dist = 0.0                              # exterior shell is always-visible; never inherit a stray cap
+	_plan_build = true                           # default to building geometry (record mode is set transiently)
 	var mat := _exterior_material(rng)            # outer cladding + stairs
 	# One interior paint shared by the room dividers AND the inward face of the outer
 	# walls, so the inside of the building reads as a single consistent finish.
@@ -219,10 +229,28 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	var irr: float = clampf(remap(minf(w, d), 8.0, 26.0, 0.85, 0.15), 0.15, 0.85)
 	var fseed_w: int = rng.randi_range(1, 1 << 30)
 	var fseed_d: int = rng.randi_range(1, 1 << 30)
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z < -0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_w, irr)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x < -0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_d, irr)
-	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x > 0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_d, irr)
-	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z > 0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_w, irr)
+	# Small house (< 12m): rooms come first; each wall's windows then follow ITS rooms (per-wall
+	# asymmetric). Record the room layout (no geometry) so we know where the interior walls land;
+	# the floors then stack that same plan, so window columns line up. Large blocks: bay grid,
+	# and the rooms snap to it (handled in the floor loop below).
+	var small: bool = minf(w, d) < 12.0
+	var plan_seed: int = rng.randi_range(1, 1 << 30)
+	if small:
+		_piers_x = []
+		_piers_z = []
+		_mull_fx = []
+		_mull_bx = []
+		_mull_lz = []
+		_mull_rz = []
+		_plan_build = false
+		_plan_hw = w * 0.5
+		_plan_hd = d * 0.5
+		_floor_plan(b, w, d, hx1, hz1, 0.0, sh, div_mat, door_h, StableRng.new(plan_seed))
+		_plan_build = true
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, -d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z < -0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_w, irr, _mull_bx, small)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0), Vector3(-w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x < -0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_d, irr, _mull_lz, small)
+	_grid_wall(b, Vector3(0.0, 0.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(w * 0.5, 0.0, 0.0), d * 0.5, height, wall_mat, (door_w if door_normal.x > 0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_d, irr, _mull_rz, small)
+	_grid_wall(b, Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, d * 0.5), w * 0.5, height, wall_mat, (door_w if door_normal.z > 0.5 else 0.0), sill_h, win_h, win_w, bay_target, fseed_w, irr, _mull_fx, small)
 	# A roof-access building gets a walkable holed deck + parapet instead of this solid cap.
 	if not roof_access:
 		_decor_box(b, Vector3(0.0, height + 0.15, 0.0), Vector3(w + 0.4, 0.3, d + 0.4), roof_mat)
@@ -230,12 +258,15 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 	# --- Walkable floors (stairwell hole + solid landing strip) + rooms ---
 	var land_d: float = 1.5
 	_cull_dist = INTERIOR_CULL_DIST   # floors / rooms / stairs are interior -> distance-cap them
-	_piers_x = []   # interior cuts snap to facade pier CENTRES (same seed/irr as front/back walls)
-	for pr in _facade_layout(w * 0.5, win_w, bay_target, fseed_w, irr)["piers"]:
-		_piers_x.append(float(pr["c"]))
-	_piers_z = []
-	for pr in _facade_layout(d * 0.5, win_w, bay_target, fseed_d, irr)["piers"]:
-		_piers_z.append(float(pr["c"]))
+	if not small:
+		# Large block: interior cuts snap to facade pier CENTRES so rooms follow the windows.
+		# (Small houses left _piers_* empty above -> rooms stay natural, windows follow them.)
+		_piers_x = []
+		for pr in _facade_layout(w * 0.5, win_w, bay_target, fseed_w, irr)["piers"]:
+			_piers_x.append(float(pr["c"]))
+		_piers_z = []
+		for pr in _facade_layout(d * 0.5, win_w, bay_target, fseed_d, irr)["piers"]:
+			_piers_z.append(float(pr["c"]))
 	for lvl in range(base_level, stories):
 		var fy: float = float(lvl) * sh
 		var fth: float = 0.7 if lvl == 0 else 0.2     # ground floor is a thick foundation slab
@@ -248,7 +279,9 @@ static func _build_building(parent: Node3D, pos: Vector3, w: float, d: float, st
 			_wall(b, Vector3((hx1 + w * 0.5) * 0.5, fcy, 0.0), Vector3(w * 0.5 - hx1, fth, d), floor_mat)
 			_wall(b, Vector3((-w * 0.5 + hx1) * 0.5, fcy, (hz1 + d * 0.5) * 0.5), Vector3(stair_w, fth, d * 0.5 - hz1), floor_mat)
 		if lvl >= 0:   # a real interior floor plan above ground (the basement stays open)
-			_floor_plan(b, w, d, hx1, hz1, fy, sh, div_mat, door_h, rng)
+			# Small houses stack the SAME plan up every floor (window columns line up); large
+			# blocks let each floor's plan vary off the running rng.
+			_floor_plan(b, w, d, hx1, hz1, fy, sh, div_mat, door_h, StableRng.new(plan_seed) if small else rng)
 
 	# --- U-shaped half-landing stair per level (two short flights + a landing) ---
 	for lvl in range(base_level, stories - 1):
@@ -324,9 +357,9 @@ static func _floor_plan(parent: Node3D, w: float, d: float, hx1: float, hz1: flo
 	if w >= 9.0 and d >= 9.0 and front_depth > HALL_W + ROOM_MIN + 0.4 and has_back:
 		# Hall (full width) right in front of the stairwell — you step off the stairs into it.
 		var cz1: float = hz1 + HALL_W
-		_wall_with_door(parent, false, cz1, -half_w, half_w, fy, sh, door_h, _rand_door(rng, -half_w, half_w), mat)
-		_wall_with_door(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat)
-		_seg(parent, true, hx1, -half_d, hz1, fy + (sh - CEIL_GAP) * 0.5, sh - CEIL_GAP, 0.18, mat)   # seal the stairwell's open side
+		_plan_wall(parent, false, cz1, -half_w, half_w, fy, sh, door_h, _rand_door(rng, -half_w, half_w), mat, false)
+		_plan_wall(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat, false)
+		_plan_wall(parent, true, hx1, -half_d, hz1, fy, sh, door_h, 0.0, mat, true)   # seal the stairwell's open side
 		_subdivide(parent, -half_w, half_w, cz1, half_d, fy, sh, mat, door_h, rng, 0)   # rooms ahead of the hall
 		_subdivide(parent, hx1, half_w, -half_d, hz1, fy, sh, mat, door_h, rng, 0)      # rooms behind-right of it
 	else:
@@ -334,8 +367,8 @@ static func _floor_plan(parent: Node3D, w: float, d: float, hx1: float, hz1: flo
 		# the landing); a back-right pocket, if any, becomes its own room with a door in.
 		_subdivide(parent, -half_w, half_w, hz1, half_d, fy, sh, mat, door_h, rng, 0)
 		if has_back:
-			_wall_with_door(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat)
-			_seg(parent, true, hx1, -half_d, hz1, fy + (sh - CEIL_GAP) * 0.5, sh - CEIL_GAP, 0.18, mat)
+			_plan_wall(parent, false, hz1, hx1, half_w, fy, sh, door_h, _rand_door(rng, hx1, half_w), mat, false)
+			_plan_wall(parent, true, hx1, -half_d, hz1, fy, sh, door_h, 0.0, mat, true)
 			_subdivide(parent, hx1, half_w, -half_d, hz1, fy, sh, mat, door_h, rng, 0)
 
 
@@ -358,6 +391,56 @@ static func _snap_cut(val: float, lo: float, hi: float, piers: Array) -> float:
 			bestd = absf(pf - val)
 			best = pf
 	return best
+
+
+# Every interior wall goes through here: in build mode it makes the geometry; in record mode
+# (small houses) it instead notes where the wall touches an exterior wall, so windows can be
+# placed between rooms afterwards. The rng draws are identical either way, so the recorded
+# layout and the later built layout are the same plan.
+static func _plan_wall(parent: Node3D, is_x: bool, fixed: float, span0: float, span1: float, fy: float, sh: float, door_h: float, door_pos: float, mat: Material, solid: bool) -> void:
+	if _plan_build:
+		if solid:
+			_seg(parent, is_x, fixed, span0, span1, fy + (sh - CEIL_GAP) * 0.5, sh - CEIL_GAP, 0.18, mat)
+		else:
+			_wall_with_door(parent, is_x, fixed, span0, span1, fy, sh, door_h, door_pos, mat)
+		return
+	if is_x:   # wall along Z at x=fixed -> meets front (+z) / back (-z) walls
+		if span1 >= _plan_hd - 0.05: _mull_fx.append(fixed)
+		if span0 <= -_plan_hd + 0.05: _mull_bx.append(fixed)
+	else:      # wall along X at z=fixed -> meets right (+x) / left (-x) walls
+		if span1 >= _plan_hw - 0.05: _mull_rz.append(fixed)
+		if span0 <= -_plan_hw + 0.05: _mull_lz.append(fixed)
+
+
+# Windows-follow-rooms (small houses): given where interior walls meet THIS wall, drop one
+# centred window into each wide-enough room segment; solid piers flank them. Returns the same
+# {piers:[{c,w}], windows:[centres]} shape as _facade_layout.
+static func _facade_windows(half_len: float, mullions: Array, win_w: float) -> Dictionary:
+	var bounds: Array[float] = [-half_len]
+	var ms: Array[float] = []
+	for m in mullions:
+		var mf: float = float(m)
+		if mf > -half_len + 0.3 and mf < half_len - 0.3:
+			ms.append(mf)
+	ms.sort()
+	for mf in ms:
+		if mf - bounds[bounds.size() - 1] > 0.4:   # dedup near-equal boundaries
+			bounds.append(mf)
+	bounds.append(half_len)
+	var windows: Array[float] = []
+	for i in range(bounds.size() - 1):
+		if bounds[i + 1] - bounds[i] > win_w + 0.8:   # room wide enough for a window
+			windows.append((bounds[i] + bounds[i + 1]) * 0.5)
+	var piers: Array = []
+	var prev: float = -half_len
+	for wc in windows:
+		var wl: float = wc - win_w * 0.5
+		if wl - prev > 0.15:
+			piers.append({"c": (prev + wl) * 0.5, "w": wl - prev})
+		prev = wc + win_w * 0.5
+	if half_len - prev > 0.15:
+		piers.append({"c": (prev + half_len) * 0.5, "w": half_len - prev})
+	return {"piers": piers, "windows": windows}
 
 
 # Recursively split a rectangle with full-span doorway-walls, cutting the longer side so
@@ -384,12 +467,12 @@ static func _subdivide(parent: Node3D, x0: float, x1: float, z0: float, z1: floa
 		split_x = true
 	if split_x:
 		var cut: float = _snap_cut(rng.randf_range(x0 + ROOM_MIN, x1 - ROOM_MIN), x0, x1, _piers_x)
-		_wall_with_door(parent, true, cut, z0, z1, fy, sh, door_h, _rand_door(rng, z0, z1), mat)
+		_plan_wall(parent, true, cut, z0, z1, fy, sh, door_h, _rand_door(rng, z0, z1), mat, false)
 		_subdivide(parent, x0, cut, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
 		_subdivide(parent, cut, x1, z0, z1, fy, sh, mat, door_h, rng, depth + 1)
 	else:
 		var cz: float = _snap_cut(rng.randf_range(z0 + ROOM_MIN, z1 - ROOM_MIN), z0, z1, _piers_z)
-		_wall_with_door(parent, false, cz, x0, x1, fy, sh, door_h, _rand_door(rng, x0, x1), mat)
+		_plan_wall(parent, false, cz, x0, x1, fy, sh, door_h, _rand_door(rng, x0, x1), mat, false)
 		_subdivide(parent, x0, x1, z0, cz, fy, sh, mat, door_h, rng, depth + 1)
 		_subdivide(parent, x0, x1, cz, z1, fy, sh, mat, door_h, rng, depth + 1)
 
@@ -508,10 +591,11 @@ static func _facade_layout(half_len: float, win_w: float, bay_target: float = 3.
 	return {"piers": piers, "windows": windows}
 
 
-static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float, bay_target: float = 3.4, seed: int = 0, irr: float = 0.0) -> void:
+static func _grid_wall(parent: Node3D, along: Vector3, normal: Vector3, center_xz: Vector3, half_len: float, top_y: float, mat: Material, door_w: float, sill_h: float, win_h: float, win_w: float, bay_target: float = 3.4, seed: int = 0, irr: float = 0.0, mullions: Array = [], from_rooms: bool = false) -> void:
 	var th: float = 0.3
 	var rows: int = maxi(1, int(top_y / STORY_H + 0.5))
-	var lay: Dictionary = _facade_layout(half_len, win_w, bay_target, seed, irr)
+	# from_rooms (small houses): windows placed to suit THIS wall's rooms; else a bay grid.
+	var lay: Dictionary = _facade_windows(half_len, mullions, win_w) if from_rooms else _facade_layout(half_len, win_w, bay_target, seed, irr)
 	for pr in lay["piers"]:
 		var p: Vector3 = center_xz + along * float(pr["c"])
 		_wall(parent, Vector3(p.x, top_y * 0.5, p.z), along.abs() * float(pr["w"]) + Vector3(0.0, top_y, 0.0) + normal.abs() * th, mat)
