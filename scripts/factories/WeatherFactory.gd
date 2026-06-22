@@ -45,7 +45,7 @@ static func _build_rain() -> Node3D:
 	# far overhead. Emit instead across a TALL box that straddles eye level, in a TIGHT column
 	# right around the player, with lots of drops — so a horizontal sightline crosses dense rain
 	# too, not just a sparse slice. The column follows the player (Main._update_weather_follow).
-	particles.amount = 4000
+	particles.amount = 3000
 	particles.lifetime = 0.95
 	particles.preprocess = 0.95
 	particles.local_coords = false
@@ -59,16 +59,17 @@ static func _build_rain() -> Node3D:
 	process.initial_velocity_min = 12.0
 	process.initial_velocity_max = 18.0
 	process.gravity = Vector3(0.0, -20.0, 0.0)
-	process.scale_min = 0.7
-	process.scale_max = 1.2
+	process.scale_min = 0.6
+	process.scale_max = 1.0
 	particles.process_material = process
 
-	# Longer streaks so a drop overlaps itself between frames (a short streak moving fast
-	# strobes into sparse dots — readable along the fall axis, not across it).
+	# Thin, fairly translucent streaks — long enough to overlap frame-to-frame (so a fast drop
+	# doesn't strobe into dots) but slim and see-through so the rain reads without becoming a
+	# wall of bright bars.
 	var streak := QuadMesh.new()
-	streak.size = Vector2(0.06, 0.95)
+	streak.size = Vector2(0.035, 0.8)
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.68, 0.76, 0.92, 0.62)
+	mat.albedo_color = Color(0.66, 0.72, 0.82, 0.38)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
