@@ -146,7 +146,7 @@ func biome_value(wx: float, wz: float) -> float:
 
 
 func river_distance(wx: float, wz: float) -> float:
-	if map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_RUINED_CITY:
+	if map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_RUINED_CITY or map_type == WorldGraph.MAP_SKYSCRAPER:
 		return 999.0
 	# Two sines of different wavelength + noise so the river snakes naturally instead of
 	# tracing one predictable curve.
@@ -185,7 +185,7 @@ func city_point_in_basement(wx: float, wz: float) -> bool:
 
 
 func height_at_world(wx: float, wz: float) -> float:
-	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_NEXUS:
+	if map_type == WorldGraph.MAP_GATE_ROOM or map_type == WorldGraph.MAP_CAVE or map_type == WorldGraph.MAP_NEXUS or map_type == WorldGraph.MAP_SKYSCRAPER:
 		return 0.0
 
 	if map_type == WorldGraph.MAP_RUINED_CITY:

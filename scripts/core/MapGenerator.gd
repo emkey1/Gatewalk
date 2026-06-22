@@ -65,6 +65,8 @@ func generate(root: Node3D) -> void:
 		_create_world_bounds()
 		_create_water()
 		_create_sky_clouds()
+	elif map_type == WorldGraph.MAP_SKYSCRAPER:
+		pass   # no terrain/water — the sealed tower (built in Main's scatter) is the whole world
 	else:
 		_build_height_values()
 		_create_terrain_mesh()

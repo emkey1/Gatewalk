@@ -82,6 +82,48 @@ static func create_gates(
 		gate.add_child(glow)
 
 
+# Build gates at explicit world positions (e.g. scattered inside a building) instead of the
+# terrain-cardinal placement. Same Gate_<i> node structure, so Main's proximity poll and the
+# index-based transition resolve them exactly like normal gates.
+static func create_gates_at_positions(parent: Node3D, world_seed: int, target_seeds: Array[int], positions: Array) -> void:
+	var gate_root := Node3D.new()
+	gate_root.name = "Gates"
+	parent.add_child(gate_root)
+	var gate_mat := _gate_material()
+	var post_mesh := _gate_post_mesh()
+	var arch_mesh := _gate_arch_mesh()
+	for gate_index in range(positions.size()):
+		var gate := Node3D.new()
+		gate.name = "Gate_" + str(gate_index)
+		gate.position = positions[gate_index]
+		gate_root.add_child(gate)
+		var left_post := MeshInstance3D.new()
+		left_post.mesh = post_mesh
+		left_post.position = Vector3(-1.1, 2.0, 0.0)
+		left_post.material_override = gate_mat
+		gate.add_child(left_post)
+		var right_post := MeshInstance3D.new()
+		right_post.mesh = post_mesh
+		right_post.position = Vector3(1.1, 2.0, 0.0)
+		right_post.material_override = gate_mat
+		gate.add_child(right_post)
+		var arch := MeshInstance3D.new()
+		arch.mesh = arch_mesh
+		arch.position = Vector3(0.0, 4.0, 0.0)
+		arch.material_override = gate_mat
+		gate.add_child(arch)
+		var glow := MeshInstance3D.new()
+		glow.name = "GateGlow_" + str(gate_index)
+		var glow_mesh := PlaneMesh.new()
+		glow_mesh.size = Vector2(1.6, 2.7)
+		glow.mesh = glow_mesh
+		var target_seed: int = target_seeds[gate_index] if gate_index < target_seeds.size() else _preview_gate_seed(world_seed, gate_index)
+		glow.material_override = _gate_glow_material(target_seed)
+		glow.position = Vector3(0.0, 2.0, 0.03)
+		glow.rotation_degrees.x = 90.0
+		gate.add_child(glow)
+
+
 static func scatter_gate_room_gates(parent: Node3D, slot_count: int) -> void:
 	var stone_mat := StandardMaterial3D.new()
 	stone_mat.albedo_color = Color(0.18, 0.21, 0.29)

@@ -350,6 +350,7 @@ func _populate_right(vbox: VBoxContainer) -> void:
 		{"id": "water", "label": "New Water Map"},
 		{"id": "cave", "label": "New Cave Map"},
 		{"id": "ruined_city", "label": "New Ruined City"},
+		{"id": "skyscraper", "label": "New Skyscraper"},
 		{"id": "moon", "label": "Go to Moon"},
 		{"id": "gate_room", "label": "Go to Gate Room"},
 		{"id": "map_nexus", "label": "Go to Map Nexus"},
@@ -413,7 +414,7 @@ func _on_quick_map(map_type: String, world_id: String) -> void:
 			save_world_data_fn.call()
 			load_map_fn.call(world_id, "map_nexus")
 			return
-		"normal", "water", "cave", "ruined_city":
+		"normal", "water", "cave", "ruined_city", "skyscraper":
 			var mid: String = new_id_fn.call("map")
 			var seed_val: int = seed_for_new_record_fn.call(mid)
 			match map_type:
@@ -421,6 +422,7 @@ func _on_quick_map(map_type: String, world_id: String) -> void:
 				"water": _store_map(maps, mid, create_water_map_record_fn.call(seed_val))
 				"cave": _store_map(maps, mid, create_cave_map_record_fn.call(seed_val))
 				"ruined_city": _store_map(maps, mid, WorldGraph.create_map_record(seed_val, WorldGraph.MAP_RUINED_CITY))
+				"skyscraper": _store_map(maps, mid, WorldGraph.create_map_record(seed_val, WorldGraph.MAP_SKYSCRAPER))
 			world["maps"] = maps
 			set_world_fn.call(world_id, world)
 			save_world_data_fn.call()

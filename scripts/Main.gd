@@ -14,6 +14,7 @@ const LandmarkFactory = preload("res://scripts/factories/LandmarkFactory.gd")
 const RoadFactory = preload("res://scripts/factories/RoadFactory.gd")
 const BridgeFactory = preload("res://scripts/factories/BridgeFactory.gd")
 const CityFactory = preload("res://scripts/factories/CityFactory.gd")
+const SkyscraperFactory = preload("res://scripts/factories/SkyscraperFactory.gd")
 const FlowerFactory = preload("res://scripts/factories/FlowerFactory.gd")
 const CreatureFactory = preload("res://scripts/factories/CreatureFactory.gd")
 const WeatherFactory = preload("res://scripts/factories/WeatherFactory.gd")
@@ -3954,6 +3955,8 @@ func _map_type_label(map_type: String) -> String:
 			return "World Nexus"
 		WorldGraph.MAP_RUINED_CITY:
 			return "Ruined City"
+		WorldGraph.MAP_SKYSCRAPER:
+			return "Skyscraper"
 		_:
 			return map_type
 
@@ -4058,6 +4061,11 @@ func _is_current_map_floating_island() -> bool:
 func _is_current_map_ruined_city() -> bool:
 	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
 	return str(raw.get("type", "")) == WorldGraph.MAP_RUINED_CITY
+
+
+func _is_current_map_skyscraper() -> bool:
+	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
+	return str(raw.get("type", "")) == WorldGraph.MAP_SKYSCRAPER
 
 
 func _current_map_type() -> String:
@@ -4318,6 +4326,9 @@ func _load_map(world_id: String, map_id: String) -> void:
 		_gate_positions_to_wonders()
 	elif _is_current_map_map_nexus():
 		GateFactory.scatter_map_nexus_gates(generated_root, 4)
+	elif _is_current_map_skyscraper():
+		_scatter_skyscraper()
+		await get_tree().process_frame
 	else:
 		if _is_current_map_arctic():
 			AudioManager.setup_arctic_audio(generated_root)
@@ -4402,8 +4413,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_store_current_map_available_discoveries()
 	await get_tree().process_frame
 
-	if _is_current_map_gate_room() or _is_current_map_map_nexus():
-		pass
+	if _is_current_map_gate_room() or _is_current_map_map_nexus() or _is_current_map_skyscraper():
+		pass   # tower / hub walls already carry their own collision
 	else:
 		_add_environment_collision()
 
@@ -4645,6 +4656,18 @@ func _setup_environment() -> void:
 			sun_light.light_color = Color(1.0, 0.97, 0.92)
 			sun_light.light_energy = 1.7
 			sun_light.rotation_degrees = Vector3(-46.0, -24.0, 0.0)
+	elif _is_current_map_skyscraper():
+		# Sealed tower in the void: dark space outside the glass, sun raking in.
+		world_environment.background_mode = Environment.BG_COLOR
+		world_environment.background_color = Color(0.012, 0.014, 0.028)
+		world_environment.ambient_light_color = Color(0.44, 0.47, 0.55)
+		world_environment.ambient_light_energy = 0.55
+		world_environment.fog_density = 0.0
+		world_environment.fog_light_color = Color(0.10, 0.12, 0.18)
+		if sun_light != null:
+			sun_light.light_color = Color(1.0, 0.98, 0.92)
+			sun_light.light_energy = 2.2
+			sun_light.rotation_degrees = Vector3(-35.0, -50.0, 0.0)
 	else:
 		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.55, 0.72, 0.95)
@@ -4765,6 +4788,18 @@ func _scatter_fish_schools() -> void:
 func _scatter_critter_herds() -> void:
 	_begin_generation_channel("critters")
 	CreatureFactory.scatter_critters(generated_root, world_seed, map_context)
+
+
+func _scatter_skyscraper() -> void:
+	# Build the sealed tower and place its four exit gates (returned by the factory at random
+	# spots in the usable ring, on different floors).
+	_begin_generation_channel("gates")
+	var positions: Array = SkyscraperFactory.build(generated_root, world_seed)
+	var target_seeds: Array[int] = []
+	for gi in range(positions.size()):
+		target_seeds.append(_gate_target_seed(gi))
+	GateFactory.create_gates_at_positions(generated_root, world_seed, target_seeds, positions)
+	_gate_positions_to_wonders()
 
 
 func _scatter_city() -> void:
@@ -5586,7 +5621,7 @@ func _spawn_player() -> void:
 		player.set("gravity_multiplier", 1.0)
 		player.set("jump_multiplier", 1.0)
 		# Ruined cities are drained, so disable the water/drowning line entirely there.
-		player.set("water_level", -100000.0 if _is_current_map_ruined_city() else WATER_LEVEL)
+		player.set("water_level", -100000.0 if (_is_current_map_ruined_city() or _is_current_map_skyscraper()) else WATER_LEVEL)
 	add_child(player)
 	_player_ref = player
 	if _is_current_map_cave():
@@ -5641,6 +5676,9 @@ func _find_spawn_position() -> Vector3:
 
 	if _is_current_map_ruined_city():
 		return Vector3(0.0, _height_at_world(0.0, 0.0) + 1.2, 0.0)
+
+	if _is_current_map_skyscraper():
+		return Vector3(0.0, 1.2, 11.0)   # ground-floor ring, clear of the central core/stairs
 
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "spawn"))
 	var half: float = _world_half_size() * 0.84
