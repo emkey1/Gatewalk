@@ -281,6 +281,7 @@ func _process(_delta: float) -> void:
 	_update_bioscan()
 	_update_weather_follow()
 	_recover_fallen_player()
+	_keep_player_inside_skyscraper()
 	_enforce_world_bounds()
 	_update_hud(_delta)
 
@@ -3139,6 +3140,22 @@ func _recover_fallen_player() -> void:
 	player.velocity = Vector3.ZERO
 
 
+# Safety net for the sealed tower: if the player ever ends up outside the glass curtain (a
+# stale save position, a physics clip), snap them back to the inside arrival spot.
+func _keep_player_inside_skyscraper() -> void:
+	if not _is_current_map_skyscraper():
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var p: Vector3 = player.global_position
+	var half_in: float = SkyscraperFactory.FOOTPRINT * 0.5 - 0.4   # just inside the glass
+	var top: float = float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 1.5
+	if absf(p.x) > half_in or absf(p.z) > half_in or p.y < -1.5 or p.y > top:
+		player.global_position = _skyscraper_safe_spawn
+		player.velocity = Vector3.ZERO
+
+
 func _enforce_world_bounds() -> void:
 	var player: CharacterBody3D = _get_player()
 	if player == null:
@@ -4800,6 +4817,34 @@ func _scatter_skyscraper() -> void:
 		target_seeds.append(_gate_target_seed(gi))
 	GateFactory.create_gates_at_positions(generated_root, world_seed, target_seeds, positions)
 	_gate_positions_to_wonders()
+	# Arrive INSIDE, a few metres in front of the first gate (your way out) rather than at a
+	# fixed standard-map spawn point — the tower's gates sit at random ring positions, so the
+	# arrival has to follow them. Overrides whatever the spawn/save-restore left us at.
+	if positions.size() > 0:
+		_skyscraper_safe_spawn = _skyscraper_arrival_near_gate(positions[0])
+		if is_instance_valid(_player_ref):
+			_player_ref.global_position = _skyscraper_safe_spawn
+			_player_ref.velocity = Vector3.ZERO
+			var g0: Vector3 = positions[0]
+			_player_ref.rotation.y = atan2(
+				-(g0.x - _skyscraper_safe_spawn.x), -(g0.z - _skyscraper_safe_spawn.z))
+
+
+# Pick a standing spot in the usable ring a few metres in front of `gate_pos`, pulled toward
+# the core so we clear the gate's ~1.4 m activation radius (no insta-gate on arrival).
+func _skyscraper_arrival_near_gate(gate_pos: Vector3) -> Vector3:
+	var core: float = SkyscraperFactory.CORE * 0.5     # core half-extent (~7)
+	var inner: float = core + 1.2                      # just outside the core wall
+	var cross: float = core - 1.0                      # keep the lateral coord inside the strip
+	var ax: float = gate_pos.x
+	var az: float = gate_pos.z
+	if absf(gate_pos.x) >= absf(gate_pos.z):
+		ax = signf(gate_pos.x) * inner
+		az = clampf(gate_pos.z, -cross, cross)
+	else:
+		az = signf(gate_pos.z) * inner
+		ax = clampf(gate_pos.x, -cross, cross)
+	return Vector3(ax, gate_pos.y + 1.15, az)          # gate y is floor*STORY_H + 0.05
 
 
 func _scatter_city() -> void:
@@ -4959,6 +5004,9 @@ var _wonder_positions: Array = []
 var _landmark_positions: Array = []
 var _bridge_positions: Array = []
 var _city_core_positions: Array = []
+# Skyscraper: the inside arrival spot (a few metres in front of the first gate). Also the
+# fallback the containment net snaps the player back to if they ever clip outside the tower.
+var _skyscraper_safe_spawn: Vector3 = Vector3(0.0, 1.2, 11.0)
 
 
 func _gate_positions_to_wonders() -> void:
@@ -5712,6 +5760,10 @@ func _ensure_player_above_surface(player: CharacterBody3D) -> bool:
 	if player == null:
 		return false
 	if _is_current_map_cave() or _is_current_map_gate_room() or _is_current_map_map_nexus():
+		return false
+	# The skyscraper is a sealed multi-storey volume with no terrain; _keep_player_inside_skyscraper
+	# handles containment there. A terrain-height rescue would just pin the player at y≈1.2.
+	if _is_current_map_skyscraper():
 		return false
 	# Inside a ruined-city basement the ground is holed and being below grade is
 	# legitimate — rescuing here would pogo-stick the player back to the surface.
