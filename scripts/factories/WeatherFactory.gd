@@ -45,7 +45,7 @@ static func _build_rain() -> Node3D:
 	# far overhead. Emit instead across a TALL box that straddles eye level, in a TIGHT column
 	# right around the player, with lots of drops — so a horizontal sightline crosses dense rain
 	# too, not just a sparse slice. The column follows the player (Main._update_weather_follow).
-	particles.amount = 3000
+	particles.amount = 2400
 	particles.lifetime = 0.95
 	particles.preprocess = 0.95
 	particles.local_coords = false
@@ -69,7 +69,7 @@ static func _build_rain() -> Node3D:
 	var streak := QuadMesh.new()
 	streak.size = Vector2(0.035, 0.8)
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.66, 0.72, 0.82, 0.38)
+	mat.albedo_color = Color(0.66, 0.72, 0.82, 0.30)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
