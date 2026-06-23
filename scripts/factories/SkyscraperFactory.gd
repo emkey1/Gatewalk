@@ -175,21 +175,21 @@ static func _build_rooftop_courts(parent: Node3D, top_y: float) -> void:
 	# Regulation scale: tennis 23.77x10.97, pickleball 13.41x6.10, shuffleboard 12.2x1.83.
 	_shuffleboard_court(parent, top_y, -46.0, 14.0, 1.9, 12.2, shuffle, line)
 	_shuffleboard_court(parent, top_y, -46.0, -14.0, 1.9, 12.2, shuffle, line)
-	# Courtside furniture: umpire chairs by the tennis nets, benches in the gaps.
-	_umpire_chair(parent, top_y, 24.0, 21.8)
-	_umpire_chair(parent, top_y, 24.0, -21.8)
-	_court_bench(parent, top_y, 9.0, 15.0, false)
-	_court_bench(parent, top_y, 9.0, -15.0, false)
-	_court_bench(parent, top_y, -13.0, 13.0, false)
-	_court_bench(parent, top_y, -13.0, -13.0, false)
+	# Courtside furniture, each oriented to face the court (or pool) it serves.
+	_umpire_chair(parent, top_y, 24.0, 21.8, -1.0)   # +z tennis court is to its -z
+	_umpire_chair(parent, top_y, 24.0, -21.8, 1.0)   # -z tennis court is to its +z
+	_court_bench(parent, top_y, 9.0, 15.0, false, 1.0)     # tennis courts at +x
+	_court_bench(parent, top_y, 9.0, -15.0, false, 1.0)
+	_court_bench(parent, top_y, -13.0, 13.0, false, -1.0)  # pickleball courts at -x
+	_court_bench(parent, top_y, -13.0, -13.0, false, -1.0)
 	# Pool, hot tub & sauna lounge on the open far -z deck (basins sit entirely above the roof).
 	_pool(parent, top_y, -4.0, -38.0, 18.0, 14.0)
 	_hot_tub(parent, top_y, 9.0, -38.0)
 	_sauna(parent, top_y, 16.0, -38.0)
-	_lounger(parent, top_y, -12.0, -28.0)
-	_lounger(parent, top_y, -6.0, -28.0)
-	_lounger(parent, top_y, 0.0, -28.0)
-	_lounger(parent, top_y, 6.0, -28.0)
+	_lounger(parent, top_y, -12.0, -28.0, -1.0)   # face -z toward the pool
+	_lounger(parent, top_y, -6.0, -28.0, -1.0)
+	_lounger(parent, top_y, 0.0, -28.0, -1.0)
+	_lounger(parent, top_y, 6.0, -28.0, -1.0)
 	_umbrella(parent, top_y, -9.0, -28.0)
 	_umbrella(parent, top_y, 3.0, -28.0)
 
@@ -247,15 +247,16 @@ static func _shuffleboard_court(parent: Node3D, top_y: float, cx: float, cz: flo
 
 
 # A simple park bench (seat + backrest + end legs). along_x: bench runs along x; else along z.
-static func _court_bench(parent: Node3D, top_y: float, cx: float, cz: float, along_x: bool) -> void:
+# face: which way the sitter looks — +-z if along_x, else +-x — so it can face its court.
+static func _court_bench(parent: Node3D, top_y: float, cx: float, cz: float, along_x: bool, face: float) -> void:
 	var wood := _mat(Color(0.46, 0.34, 0.22), 0.9, 0.0)
 	var sl: float = 1.8
 	var sx: float = sl if along_x else 0.5
 	var sz: float = 0.5 if along_x else sl
 	_box(parent, Vector3(cx, top_y + 0.45, cz), Vector3(sx, 0.1, sz), wood, true)
 	var back: Vector3 = Vector3(sl, 0.5, 0.1) if along_x else Vector3(0.1, 0.5, sl)
-	var bdx: float = 0.0 if along_x else -0.2
-	var bdz: float = -0.2 if along_x else 0.0
+	var bdx: float = 0.0 if along_x else -0.2 * face
+	var bdz: float = -0.2 * face if along_x else 0.0
 	_box(parent, Vector3(cx + bdx, top_y + 0.75, cz + bdz), back, wood, true)
 	for s in [-1.0, 1.0]:
 		var lx: float = cx + (s * sl * 0.4 if along_x else 0.0)
@@ -263,25 +264,27 @@ static func _court_bench(parent: Node3D, top_y: float, cx: float, cz: float, alo
 		_box(parent, Vector3(lx, top_y + 0.225, lz), Vector3(0.1, 0.45, 0.1), wood, true)
 
 
-# Tall tennis umpire chair: four legs up to a seat ~1.8 m, a seat, a backrest, and front rungs.
-static func _umpire_chair(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
+# Tall tennis umpire chair: four legs up to a seat ~1.8 m, a seat, a backrest, and climb rungs.
+# face: +-z the umpire looks; the backrest and rungs go on the opposite (back) side.
+static func _umpire_chair(parent: Node3D, top_y: float, cx: float, cz: float, face: float) -> void:
 	var metal := _mat(Color(0.55, 0.56, 0.60), 0.5, 0.5)
 	var seat := _mat(Color(0.20, 0.30, 0.55), 0.8, 0.0)
 	for sx in [-0.5, 0.5]:
 		for sz in [-0.5, 0.5]:
 			_box(parent, Vector3(cx + sx, top_y + 0.9, cz + sz), Vector3(0.1, 1.8, 0.1), metal, true)
 	_box(parent, Vector3(cx, top_y + 1.8, cz), Vector3(1.3, 0.12, 1.0), seat, true)
-	_box(parent, Vector3(cx, top_y + 2.2, cz - 0.45), Vector3(1.3, 0.8, 0.12), seat, true)
+	_box(parent, Vector3(cx, top_y + 2.2, cz - 0.45 * face), Vector3(1.3, 0.8, 0.12), seat, true)
 	for i in range(3):
-		_box(parent, Vector3(cx, top_y + 0.5 + 0.4 * float(i), cz + 0.5), Vector3(1.0, 0.06, 0.06), metal, true)
+		_box(parent, Vector3(cx, top_y + 0.5 + 0.4 * float(i), cz - 0.5 * face), Vector3(1.0, 0.06, 0.06), metal, true)
 
 
-# Poolside sun lounger: a padded deck on short legs with a raised head section.
-static func _lounger(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
+# Poolside sun lounger: a padded deck on short legs with a raised head section. face: +-z the
+# recliner looks (head end at the opposite side), so it can face the pool.
+static func _lounger(parent: Node3D, top_y: float, cx: float, cz: float, face: float) -> void:
 	var frame := _mat(Color(0.85, 0.86, 0.88), 0.6, 0.2)
 	var pad := _mat(Color(0.90, 0.55, 0.30), 0.9, 0.0)
 	_box(parent, Vector3(cx, top_y + 0.3, cz), Vector3(0.7, 0.08, 1.9), pad, true)
-	_box(parent, Vector3(cx, top_y + 0.55, cz - 0.75), Vector3(0.7, 0.08, 0.5), pad, true)
+	_box(parent, Vector3(cx, top_y + 0.55, cz - 0.75 * face), Vector3(0.7, 0.08, 0.5), pad, true)
 	for s in [-1.0, 1.0]:
 		_box(parent, Vector3(cx + s * 0.3, top_y + 0.13, cz), Vector3(0.06, 0.26, 1.7), frame, true)
 
@@ -392,17 +395,54 @@ static func _cyl(parent: Node3D, center: Vector3, radius: float, height: float, 
 		parent.add_child(mi)
 
 
-# Round above-ground hot tub: a solid tub body (collidable) with a warm glossy water surface set
-# just below a wood lip, a warm glow light, and a few soft mist puffs rising off the water.
+# A circle of box segments — a hollow round wall (so you can see down into a basin, unlike a solid
+# cylinder which would cap it). cy is the segment centre height; each box is tangent to the circle.
+static func _ring_segments(parent: Node3D, cx: float, cz: float, cy: float, radius: float, height: float, depth: float, mat: Material, collide: bool) -> void:
+	var seg: int = 16
+	var seg_w: float = radius * TAU / float(seg) * 1.25   # slight overlap so the ring is closed
+	for i in range(seg):
+		var a: float = TAU * float(i) / float(seg)
+		var pos := Vector3(cx + cos(a) * radius, cy, cz + sin(a) * radius)
+		_oriented_box(parent, pos, Vector3(seg_w, height, depth), PI * 0.5 - a, mat, collide)
+
+
+# A box with a Y rotation (the plain _box is axis-aligned). Used for ring-wall segments.
+static func _oriented_box(parent: Node3D, center: Vector3, size: Vector3, yaw: float, mat: Material, collide: bool) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	if collide:
+		var body := StaticBody3D.new()
+		body.position = center
+		body.rotation.y = yaw
+		body.add_child(mi)
+		var cs := CollisionShape3D.new()
+		var sh := BoxShape3D.new()
+		sh.size = size
+		cs.shape = sh
+		body.add_child(cs)
+		parent.add_child(body)
+	else:
+		mi.position = center
+		mi.rotation.y = yaw
+		parent.add_child(mi)
+
+
+# Round above-ground hot tub: a HOLLOW basin (ring-wall sides + tiled floor + contained warm water
+# below a wood lip) so you see the water rather than a solid cap, plus a warm glow and mist puffs.
 static func _hot_tub(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
-	var body_mat := _mat(Color(0.28, 0.24, 0.20), 0.8, 0.0)
-	var rim_mat := _mat(Color(0.52, 0.43, 0.32), 0.7, 0.0)
+	var cedar := _mat(Color(0.45, 0.30, 0.20), 0.85, 0.0)
+	var lip_mat := _mat(Color(0.54, 0.42, 0.30), 0.7, 0.0)
+	var tile := _mat(Color(0.32, 0.56, 0.62), 0.4, 0.1)
 	var water := _pool_water_mat(true)
 	var r: float = 1.7
-	var hgt: float = 0.9
-	_cyl(parent, Vector3(cx, top_y + hgt * 0.5, cz), r, hgt, body_mat, true)
-	_cyl(parent, Vector3(cx, top_y + hgt + 0.02, cz), r + 0.15, 0.14, rim_mat, false)
-	_cyl(parent, Vector3(cx, top_y + hgt - 0.12, cz), r - 0.18, 0.12, water, false)
+	var wall_h: float = 0.9
+	_ring_segments(parent, cx, cz, top_y + wall_h * 0.5, r, wall_h, 0.2, cedar, true)        # tub wall (collidable)
+	_ring_segments(parent, cx, cz, top_y + wall_h - 0.05, r, 0.14, 0.36, lip_mat, false)     # wood lip on top
+	_cyl(parent, Vector3(cx, top_y + 0.07, cz), r - 0.1, 0.14, tile, false)                  # interior floor
+	_cyl(parent, Vector3(cx, top_y + 0.42, cz), r - 0.16, 0.6, water, false)                 # contained water (0.12-0.72)
 	var lamp := OmniLight3D.new()
 	lamp.position = Vector3(cx, top_y + 0.9, cz)
 	lamp.light_color = Color(1.0, 0.7, 0.45)
