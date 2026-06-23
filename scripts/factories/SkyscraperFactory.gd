@@ -667,6 +667,13 @@ static func _build_crown(env: Node3D, top_y: float) -> void:
 	crown.name = "Crown"
 	env.add_child(crown)
 	var y0: float = top_y + 3.0   # sit on the bulkhead cap
+	# Corner support columns down to the roof deck: the tiers are wider than the bulkhead they perch
+	# on, so the corner fins otherwise overhang nothing. These continue the first-tier fins to the deck.
+	var cr: float = 9.0 - 0.3   # first-tier corner-fin offset
+	var col_h: float = y0 - top_y + 0.5
+	for sx0 in [-1.0, 1.0]:
+		for sz0 in [-1.0, 1.0]:
+			_box(crown, Vector3(sx0 * cr, top_y + col_h * 0.5, sz0 * cr), Vector3(0.7, col_h, 0.7), stone, true)
 	var y: float = y0
 	for tier in [[9.0, 6.0], [6.5, 5.0], [4.6, 4.0], [3.0, 3.5]]:
 		var r: float = float(tier[0])
