@@ -62,6 +62,9 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	_glass_face(glass_group, true, -half, half, top_y, glass, trim, 0.0)
 	_glass_face(glass_group, false, half, half, top_y, glass, trim, 0.0)
 	_glass_face(glass_group, false, -half, half, top_y, glass, trim, 0.0)
+	# Art-Deco stone dressing proud of the glass: vertical piers, corner pilasters, belt courses,
+	# a stepped crown cornice and an entrance surround — a 1930s ribbed look, not a flat box.
+	_facade_deco(env, half, top_y)
 
 	# --- Per-storey groups (Floor_<n>) so Main can hide every storey except the player's: with
 	# opaque windows you can never see another floor, so only one needs to draw. Floor_n carries
@@ -487,6 +490,52 @@ static func _columns(parent: Node3D, half: float, top_y: float, mat: Material) -
 				_box(parent, Vector3(c, col_h * 0.5, d), Vector3(COL_SIZE, col_h, COL_SIZE), mat, true)
 			d += COL_GRID
 		c += COL_GRID
+
+
+# --- Art-Deco facade dressing: light-stone verticals + horizontals proud of the dark glass, so the
+# tower reads as a 1930s ribbed skyscraper instead of a flat box. Visual only (the glass already
+# walls it in); drawn with the envelope. From outside the windows are opaque, so the stone stands
+# out strongly; from inside the clear glass shows it as window structure. -------------------------
+static func _facade_deco(env: Node3D, half: float, top_y: float) -> void:
+	var stone := _mat(Color(0.80, 0.76, 0.68), 0.85, 0.0)
+	var facade := Node3D.new()
+	facade.name = "Facade"
+	env.add_child(facade)
+	var p: float = half + 0.45   # pier centre, proud of the glass (outer face ~half+0.15)
+	# Vertical piers up every face, offset so none lands on the +z ground-floor doorway.
+	for o in [-49.0, -35.0, -21.0, -7.0, 7.0, 21.0, 35.0, 49.0]:
+		_box(facade, Vector3(o, top_y * 0.5, p), Vector3(2.0, top_y, 0.9), stone, false)
+		_box(facade, Vector3(o, top_y * 0.5, -p), Vector3(2.0, top_y, 0.9), stone, false)
+		_box(facade, Vector3(p, top_y * 0.5, o), Vector3(0.9, top_y, 2.0), stone, false)
+		_box(facade, Vector3(-p, top_y * 0.5, o), Vector3(0.9, top_y, 2.0), stone, false)
+	# Emphasised square corner pilasters.
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_box(facade, Vector3(sx * half, top_y * 0.5, sz * half), Vector3(3.4, top_y, 3.4), stone, false)
+	# Belt courses dividing the shaft + a base course.
+	for by in [14.0, 70.0, 136.0]:
+		_facade_ring(facade, half, by, 1.4, 0.7, stone)
+	# Stepped crown cornice just below the roof.
+	_facade_ring(facade, half, top_y - 4.0, 2.0, 0.7, stone)
+	_facade_ring(facade, half, top_y - 1.7, 2.2, 1.3, stone)
+	# Entrance surround on the +z doorway: jambs, lintel and a small stepped pediment.
+	var dz: float = half + 0.5
+	_box(facade, Vector3(-3.4, 1.9, dz), Vector3(1.2, 4.0, 1.0), stone, false)
+	_box(facade, Vector3(3.4, 1.9, dz), Vector3(1.2, 4.0, 1.0), stone, false)
+	_box(facade, Vector3(0.0, 4.1, dz), Vector3(7.8, 0.9, 1.0), stone, false)
+	_box(facade, Vector3(0.0, 4.8, dz), Vector3(5.6, 0.6, 1.1), stone, false)
+	_box(facade, Vector3(0.0, 5.3, dz), Vector3(3.4, 0.5, 1.2), stone, false)
+
+
+# A horizontal ring (one box per face, overlapping at the corners) proud of the glass — a belt
+# course or cornice. proj = how far it projects; h = its height.
+static func _facade_ring(facade: Node3D, half: float, y: float, h: float, proj: float, mat: Material) -> void:
+	var c: float = half + 0.15 + proj * 0.5
+	var w: float = FOOTPRINT + proj * 2.0 + 0.6
+	_box(facade, Vector3(0.0, y, c), Vector3(w, h, proj), mat, false)
+	_box(facade, Vector3(0.0, y, -c), Vector3(w, h, proj), mat, false)
+	_box(facade, Vector3(c, y, 0.0), Vector3(proj, h, w), mat, false)
+	_box(facade, Vector3(-c, y, 0.0), Vector3(proj, h, w), mat, false)
 
 
 # --- Compact switchback for one storey in the central stairwell (real-proportioned solid
