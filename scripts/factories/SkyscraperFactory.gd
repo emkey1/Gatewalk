@@ -73,7 +73,9 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 		root.add_child(fl)
 		floors.append(fl)
 	_box(floors[0], Vector3(0.0, -TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
-	_box(floors[STORIES], Vector3(0.0, top_y + TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
+	# Roof goes in the always-drawn Envelope, not a per-storey group: the floors get culled when
+	# you step outside, and a culled roof left the tower looking open-topped and hollow from the grass.
+	_box(env, Vector3(0.0, top_y + TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
 	for f in range(1, STORIES):
 		_floor_slab(floors[f], half, float(f) * STORY_H, floor_mat)
 	for f in range(STORIES):
@@ -554,16 +556,27 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 
 	_build_world_sphere(out, grass, center, WORLD_R)
 
-	# Globe-sun on the roof.
+	# Globe-sun floating at the sphere's centre. A single point source there lights every wall
+	# evenly — all walls are equidistant from the centre — instead of a distant directional sun that
+	# brightened the tower base and read as an inverted shadow.
 	var globe := MeshInstance3D.new()
 	globe.name = "GlobeSun"
 	var gm := SphereMesh.new()
 	gm.radius = GLOBE_R
 	gm.height = GLOBE_R * 2.0
 	globe.mesh = gm
-	globe.position = Vector3(0.0, top_y + GLOBE_R + 3.0, 0.0)
+	globe.position = center
 	globe.material_override = _emissive_mat(Color(1.0, 0.93, 0.66))
 	out.add_child(globe)
+	var sun := OmniLight3D.new()
+	sun.name = "GlobeLight"
+	sun.position = center
+	sun.light_color = Color(1.0, 0.95, 0.85)
+	sun.light_energy = 8.0   # Main's day/night drives this; gentle falloff reaches the far walls
+	sun.omni_range = WORLD_R + 80.0
+	sun.omni_attenuation = 0.4
+	sun.shadow_enabled = false
+	out.add_child(sun)
 
 	# Trees all over the inner surface, pointing inward (toward the centre = local "up"). Skip the
 	# very bottom where the tower is.

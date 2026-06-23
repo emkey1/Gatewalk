@@ -3170,6 +3170,7 @@ func _cache_skyscraper_floors() -> void:
 	var globe: Node = sky.get_node_or_null("Outside/GlobeSun")
 	if globe is MeshInstance3D:
 		_skyscraper_globe_mat = (globe as MeshInstance3D).material_override as StandardMaterial3D
+	_skyscraper_sun_omni = sky.get_node_or_null("Outside/GlobeLight") as OmniLight3D
 	var dome: Node = sky.get_node_or_null("Outside/SkyDome")
 	if dome is MeshInstance3D:
 		_skyscraper_dome_mat = (dome as MeshInstance3D).material_override as StandardMaterial3D
@@ -3257,9 +3258,13 @@ func _update_skyscraper_daynight() -> void:
 	world_environment.ambient_light_energy = lerp(0.12, 0.7, dd)
 	world_environment.ambient_light_color = Color(0.07, 0.08, 0.13).lerp(Color(0.58, 0.64, 0.72), dd)
 	world_environment.fog_density = 0.0
-	sun_light.light_energy = lerp(0.05, 2.0, dd)
-	sun_light.light_color = Color(1.0, 0.96, 0.88)
-	sun_light.rotation_degrees = Vector3(-78.0, -28.0, 0.0)   # globe high overhead
+	# Light the hollow sphere from the central globe-sun (even on every wall). The distant
+	# directional sun is off in here — it lit the tower base brightly and read as an inverted shadow.
+	if _skyscraper_sun_omni != null:
+		_skyscraper_sun_omni.light_energy = lerp(1.0, 9.0, dd)
+		_skyscraper_sun_omni.light_color = Color(1.0, 0.95, 0.85)
+	if sun_light != null:
+		sun_light.visible = false
 
 
 func _set_skyscraper_glass_opaque(opaque: bool) -> void:
@@ -3590,6 +3595,11 @@ func _determine_weather() -> String:
 
 func _setup_weather() -> void:
 	_weather_root = null
+	# The skyscraper is a sealed sphere terrarium: no sky for rain to fall from, no clouds. Keep it clear.
+	if _is_current_map_skyscraper():
+		_weather_type = WeatherFactory.CLEAR
+		_weather_sun_mult = 1.0
+		return
 	_weather_type = _determine_weather()
 	# Storms dim the directional sun for a gloomier, overcast feel (applied each frame
 	# on top of the day/night energy in _update_day_night_cycle).
@@ -5227,6 +5237,7 @@ var _skyscraper_outside: bool = false
 # evening, driven by the shared _cycle_time.
 var _skyscraper_globe_mat: StandardMaterial3D = null
 var _skyscraper_dome_mat: StandardMaterial3D = null
+var _skyscraper_sun_omni: OmniLight3D = null
 # Grassland re-entry portals: step into one to warp back into the tower on a random storey.
 var _skyscraper_return_gates: Array = []
 var _skyscraper_return_cooldown_msec: int = 0
