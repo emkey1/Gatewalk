@@ -3332,12 +3332,20 @@ func _keep_player_inside_skyscraper() -> void:
 	var p: Vector3 = player.global_position
 	# You can now roam the grassland, so keep the player inside the SPHERE, not the tower.
 	var horiz: Vector2 = Vector2(p.x, p.z)
+	var r: float = horiz.length()
 	var limit: float = SkyscraperFactory.GROUND_HALF - 5.0
-	if horiz.length() > limit:
+	if r > limit:
 		horiz = horiz.normalized() * limit
 		player.global_position = Vector3(horiz.x, p.y, horiz.y)
 		player.velocity = Vector3.ZERO
-	elif p.y < -2.0 or p.y > float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 30.0:
+		return
+	if r > SkyscraperFactory.FOOTPRINT * 0.5 + 2.0:
+		# Outside on the bowl: if a clip drops us below the grass, lift back onto the surface.
+		var ground: float = SkyscraperFactory._bowl_y(r)
+		if p.y < ground - 3.0:
+			player.global_position = Vector3(p.x, ground + 1.5, p.z)
+			player.velocity = Vector3.ZERO
+	elif p.y < -3.0 or p.y > float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 30.0:
 		player.global_position = _skyscraper_safe_spawn
 		player.velocity = Vector3.ZERO
 

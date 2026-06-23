@@ -28,6 +28,7 @@ const GROUND_HALF: float = 290.0   # grassland extent
 const PLAZA_R: float = 95.0        # flat grass plaza under the tower
 const BOWL_EDGE: float = 285.0     # bowl rim radius (= the roam limit)
 const BOWL_H: float = 55.0         # how high the grass bowl rises at the rim
+const BOWL_PLAZA_Y: float = -0.4   # plaza sits below the tower base slab so they don't z-fight
 const GLOBE_R: float = 13.0        # globe-sun radius (sits on the roof)
 
 
@@ -565,13 +566,22 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 	sphere.radial_segments = 48
 	sphere.rings = 24
 	dome.mesh = sphere
-	dome.position = Vector3(0.0, BOWL_H, 0.0)
+	var dome_c: Vector3 = Vector3(0.0, BOWL_PLAZA_Y + BOWL_H, 0.0)   # equator on the bowl rim
+	dome.position = dome_c
 	var sky := StandardMaterial3D.new()
 	sky.albedo_color = Color(0.46, 0.56, 0.48)   # hazy distant grass, not blue sky
 	sky.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	sky.cull_mode = BaseMaterial3D.CULL_FRONT
 	dome.material_override = sky
 	out.add_child(dome)
+	# Dome collision: its inner wall (curving up past the bowl rim) keeps you from walking off
+	# the edge of the bowl.
+	var dome_body := StaticBody3D.new()
+	dome_body.position = dome_c
+	var dome_cs := CollisionShape3D.new()
+	dome_cs.shape = sphere.create_trimesh_shape()
+	dome_body.add_child(dome_cs)
+	out.add_child(dome_body)
 
 	# Globe-sun on the roof.
 	var globe := MeshInstance3D.new()
@@ -589,21 +599,24 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 		var p := _ring_point(rng, half + 10.0, BOWL_EDGE - 8.0)
 		_place_tree(out, Vector3(p.x, _bowl_y(p.length()), p.y), Vector3.UP, rng.randf_range(3.5, 6.5), rng.randf_range(2.2, 3.8), bark, leaf, true)
 	for i in range(8):
-		var pp := _ring_point(rng, half + 18.0, BOWL_EDGE - 30.0)
+		var pp := _ring_point(rng, half + 18.0, 160.0)   # gentler inner slopes
+		var pr: float = pp.length()
+		var pa: float = atan2(pp.y, pp.x)
+		var ps: float = _bowl_slope(pr)
+		var pn := Vector3(-cos(pa) * ps, 1.0, -sin(pa) * ps).normalized()   # bowl surface normal
 		var pond := MeshInstance3D.new()
 		var cm := CylinderMesh.new()
-		var rad: float = rng.randf_range(6.0, 13.0)
+		var rad: float = rng.randf_range(6.0, 12.0)
 		cm.top_radius = rad
 		cm.bottom_radius = rad
-		cm.height = 0.2
+		cm.height = 0.3
 		pond.mesh = cm
-		pond.position = Vector3(pp.x, _bowl_y(pp.length()) + 0.05, pp.y)
+		pond.transform = Transform3D(_basis_from_up(pn), Vector3(pp.x, _bowl_y(pr) - 0.12, pp.y))
 		pond.material_override = water
 		out.add_child(pond)
 
 	# Grassland overhead: trees over the dome's upper inner surface, pointing inward toward the
 	# globe (the Dyson-sphere look).
-	var dome_c := Vector3(0.0, BOWL_H, 0.0)
 	for i in range(44):
 		var dir := _rand_up_dir(rng)
 		_place_tree(out, dome_c + dir * (BOWL_EDGE - 1.0), -dir, rng.randf_range(4.0, 7.0), rng.randf_range(2.6, 4.2), bark, leaf, false)
@@ -639,9 +652,9 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 # Bowl ground profile: flat plaza, then smoothstep up to the rim.
 static func _bowl_y(r: float) -> float:
 	if r <= PLAZA_R:
-		return 0.0
+		return BOWL_PLAZA_Y
 	var t: float = clampf((r - PLAZA_R) / (BOWL_EDGE - PLAZA_R), 0.0, 1.0)
-	return BOWL_H * (t * t * (3.0 - 2.0 * t))
+	return BOWL_PLAZA_Y + BOWL_H * (t * t * (3.0 - 2.0 * t))
 
 
 static func _bowl_slope(r: float) -> float:
