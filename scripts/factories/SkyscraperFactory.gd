@@ -75,7 +75,8 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	_box(floors[0], Vector3(0.0, -TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
 	# Roof goes in the always-drawn Envelope, not a per-storey group: the floors get culled when
 	# you step outside, and a culled roof left the tower looking open-topped and hollow from the grass.
-	_box(env, Vector3(0.0, top_y + TH * 0.5, 0.0), Vector3(FOOTPRINT + 1.0, TH, FOOTPRINT + 1.0), concrete, true)
+	# It's a walkable observation deck — hatch over the stairwell, a bulkhead, and a glass parapet.
+	_build_roof_deck(env, half, top_y, concrete, core_mat)
 	for f in range(1, STORIES):
 		_floor_slab(floors[f], half, float(f) * STORY_H, floor_mat)
 	for f in range(STORIES):
@@ -115,6 +116,37 @@ static func _floor_slab(parent: Node3D, half: float, fy: float, mat: Material) -
 	# left (-x) and right (+x) strips spanning the stairwell's depth
 	_box(parent, Vector3((sh + half) * 0.5, fcy, 0.0), Vector3(span, TH, sh * 2.0), mat, true)
 	_box(parent, Vector3(-(sh + half) * 0.5, fcy, 0.0), Vector3(span, TH, sh * 2.0), mat, true)
+
+
+# --- Walkable rooftop observation deck. The top flight of the central stair already climbs to
+# roof level; we carve a matching hatch through the roof slab, cap it with a short stair bulkhead
+# you step out of, and ring the perimeter with a tall glass parapet — see out over the grassland,
+# but no falling or jumping off. ---------------------------------------------------------------
+static func _build_roof_deck(parent: Node3D, half: float, top_y: float, concrete: Material, core_mat: Material) -> void:
+	# Roof slab with the central stairwell hatch (same 4-strip carve as every floor slab), so the
+	# top flight emerges onto the deck instead of dead-ending under a solid roof.
+	_floor_slab(parent, half, top_y, concrete)
+
+	# Glass parapet: clear, collidable, 3 m tall — above the ~2 m jump apex, so it stops a running
+	# jump as well as a walk-off. Its own material (not the shared curtain wall), so it stays clear
+	# when Main flips the windows opaque from outside.
+	var rail := _glass_mat_clear()
+	var ph: float = 3.0
+	var pcy: float = top_y + ph * 0.5
+	_box(parent, Vector3(0.0, pcy, half), Vector3(FOOTPRINT, ph, TH), rail, true)
+	_box(parent, Vector3(0.0, pcy, -half), Vector3(FOOTPRINT, ph, TH), rail, true)
+	_box(parent, Vector3(half, pcy, 0.0), Vector3(TH, ph, FOOTPRINT), rail, true)
+	_box(parent, Vector3(-half, pcy, 0.0), Vector3(TH, ph, FOOTPRINT), rail, true)
+
+	# Stair bulkhead capping the hatch: back + side walls and a cap, open on +z where the stair
+	# tops out, so you walk straight out of the stairwell onto the deck.
+	var sh: float = STAIR_HALF
+	var bh: float = 3.0
+	var bcy: float = top_y + bh * 0.5
+	_box(parent, Vector3(0.0, bcy, -sh - TH * 0.5), Vector3(sh * 2.0 + TH * 2.0, bh, TH), core_mat, true)
+	_box(parent, Vector3(-sh - TH * 0.5, bcy, 0.0), Vector3(TH, bh, sh * 2.0), core_mat, true)
+	_box(parent, Vector3(sh + TH * 0.5, bcy, 0.0), Vector3(TH, bh, sh * 2.0), core_mat, true)
+	_box(parent, Vector3(0.0, top_y + bh + TH * 0.5, 0.0), Vector3(sh * 2.0 + TH * 2.0, TH, sh * 2.0 + TH * 2.0), concrete, true)
 
 
 # --- Stairwell shaft walls: back (-z) and the two sides (+-x), full height. Front (+z) is the
