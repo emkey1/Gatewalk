@@ -22,6 +22,13 @@ const STAIR_STEPS: int = 6         # steps per flight -> ~0.33 m rise, ~0.45 m r
 const COL_SIZE: float = 0.7        # structural column side
 const COL_GRID: float = 20.0       # column spacing
 
+const DOOR_HALF: float = 2.5       # ground-floor exit doorway half-width (in the +z glass)
+const DOOR_H: float = 3.2          # exit doorway height
+const GROUND_HALF: float = 290.0   # grassland extent (a flat disc around the tower)
+const SPHERE_R: float = 300.0      # enclosing sphere radius
+const SPHERE_CY: float = 60.0      # sphere centre height (so it clears the 200 m tower)
+const GLOBE_R: float = 13.0        # globe-sun radius (sits on the roof)
+
 
 # Build the tower into `parent`. Returns an Array of 4 gate world-positions (scattered across
 # the floors; gate 0 is on a low storey near the arrival point).
@@ -48,9 +55,15 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	root.add_child(env)
 	_stair_walls(env, top_y, core_mat)
 	_columns(env, half, top_y, col_mat)
-	for sgn in [-1.0, 1.0]:
-		_glass_face(env, true, sgn * half, half, top_y, glass, trim)
-		_glass_face(env, false, sgn * half, half, top_y, glass, trim)
+	# Glass curtain, grouped so Main can flip the whole envelope clear<->opaque. The +z face
+	# carries a ground-floor doorway out to the grassland.
+	var glass_group := Node3D.new()
+	glass_group.name = "Glass"
+	env.add_child(glass_group)
+	_glass_face(glass_group, true, half, half, top_y, glass, trim, DOOR_HALF)
+	_glass_face(glass_group, true, -half, half, top_y, glass, trim, 0.0)
+	_glass_face(glass_group, false, half, half, top_y, glass, trim, 0.0)
+	_glass_face(glass_group, false, -half, half, top_y, glass, trim, 0.0)
 
 	# --- Per-storey groups (Floor_<n>) so Main can hide every storey except the player's: with
 	# opaque windows you can never see another floor, so only one needs to draw. Floor_n carries
@@ -68,6 +81,11 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	for f in range(STORIES):
 		_ustair(floors[f], float(f) * STORY_H, float(f + 1) * STORY_H, core_mat)
 		_furnish_floor(floors[f], half, float(f) * STORY_H, world_seed, f)
+
+	# --- The world outside the glass: a domed grassland terrarium lit by a globe-sun on the
+	# roof (Main runs its day/night). Always drawn; the opaque-from-outside glass lets Main hide
+	# the whole interior while you're out here. ---
+	_build_outside(root, world_seed, half, top_y)
 
 	# --- Four gates scattered across the floors. Gate 0 sits low (near the arrival spot) so the
 	# player can always leave without a marathon climb; the rest are spread higher. ---
@@ -147,9 +165,15 @@ static func _flight(parent: Node3D, x0: float, x1: float, z_lo: float, z_hi: flo
 
 # --- One glass face + its mullion grid. wall_is_z: face lies on z=fixed (spans x); else on
 # x=fixed (spans z). ----------------------------------------------------------------------
-static func _glass_face(parent: Node3D, wall_is_z: bool, fixed: float, half: float, top_y: float, glass: Material, trim: Material) -> void:
+static func _glass_face(parent: Node3D, wall_is_z: bool, fixed: float, half: float, top_y: float, glass: Material, trim: Material, door_half: float = 0.0) -> void:
 	var gth: float = 0.08
-	if wall_is_z:
+	if door_half > 0.0 and wall_is_z:
+		# ground-floor doorway out to the grassland: left + right panes + a header above
+		var seg: float = half - door_half
+		_box(parent, Vector3(-(half + door_half) * 0.5, top_y * 0.5, fixed), Vector3(seg, top_y, gth), glass, true)
+		_box(parent, Vector3((half + door_half) * 0.5, top_y * 0.5, fixed), Vector3(seg, top_y, gth), glass, true)
+		_box(parent, Vector3(0.0, (DOOR_H + top_y) * 0.5, fixed), Vector3(door_half * 2.0, top_y - DOOR_H, gth), glass, true)
+	elif wall_is_z:
 		_box(parent, Vector3(0.0, top_y * 0.5, fixed), Vector3(FOOTPRINT, top_y, gth), glass, true)
 	else:
 		_box(parent, Vector3(fixed, top_y * 0.5, 0.0), Vector3(gth, top_y, FOOTPRINT), glass, true)
@@ -480,12 +504,14 @@ static func _emissive_mat(color: Color) -> StandardMaterial3D:
 
 
 static func _glass_mat() -> StandardMaterial3D:
-	# Opaque dark-tinted curtain wall: you can't see out (so Main can cull every other floor)
-	# and it's cheaper than transparent overdraw. Reads as mirror glass inside and out.
+	# One-way curtain wall. Default = CLEAR: you spawn inside looking out at the grassland. Main
+	# flips this same shared material to opaque mirror glass whenever you step outside, so the
+	# whole interior can stop rendering (see Main._update_skyscraper_inside_outside).
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.09, 0.12, 0.17)
-	m.roughness = 0.12
-	m.metallic = 0.85
+	m.albedo_color = Color(0.58, 0.72, 0.82, 0.16)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.08
+	m.metallic = 0.25
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
@@ -499,3 +525,97 @@ static func _glass_mat_clear() -> StandardMaterial3D:
 	m.metallic = 0.3
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
+
+
+static func _pond_mat() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.16, 0.34, 0.50, 0.85)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.04
+	m.metallic = 0.6
+	return m
+
+
+# --- The domed grassland world outside the tower -------------------------------------------
+# A flat grass disc around the tower under an enclosing sky dome, with occasional trees + ponds
+# and a globe-sun on the roof. Parented under "Outside" (always drawn — it's the world).
+static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: float) -> void:
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "skyoutside", 1))
+	var out := Node3D.new()
+	out.name = "Outside"
+	root.add_child(out)
+
+	# Ground: a big grass slab, top 0.08 m under floor 0 so the two don't z-fight under the tower.
+	var grass := _mat(Color(0.27, 0.45, 0.21), 0.95, 0.0)
+	_box(out, Vector3(0.0, -0.58, 0.0), Vector3(GROUND_HALF * 2.0, 1.0, GROUND_HALF * 2.0), grass, true)
+
+	# Enclosing sky dome, seen from the inside (cull the outer faces). Unshaded so Main can tint
+	# it across the day.
+	var dome := MeshInstance3D.new()
+	dome.name = "SkyDome"
+	var sphere := SphereMesh.new()
+	sphere.radius = SPHERE_R
+	sphere.height = SPHERE_R * 2.0
+	sphere.radial_segments = 48
+	sphere.rings = 24
+	dome.mesh = sphere
+	dome.position = Vector3(0.0, SPHERE_CY, 0.0)
+	var sky := StandardMaterial3D.new()
+	sky.albedo_color = Color(0.50, 0.68, 0.92)
+	sky.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sky.cull_mode = BaseMaterial3D.CULL_FRONT
+	dome.material_override = sky
+	out.add_child(dome)
+
+	# Globe-sun on the roof (Main pulses its brightness over the day).
+	var globe := MeshInstance3D.new()
+	globe.name = "GlobeSun"
+	var gm := SphereMesh.new()
+	gm.radius = GLOBE_R
+	gm.height = GLOBE_R * 2.0
+	globe.mesh = gm
+	globe.position = Vector3(0.0, top_y + GLOBE_R + 3.0, 0.0)
+	globe.material_override = _emissive_mat(Color(1.0, 0.93, 0.66))
+	out.add_child(globe)
+
+	# Occasional trees + ponds on the grassland ring (kept clear of the tower footprint).
+	var bark := _mat(Color(0.34, 0.24, 0.16), 0.9, 0.0)
+	var leaf := _mat(Color(0.19, 0.42, 0.18), 0.85, 0.0)
+	var water := _pond_mat()
+	for i in range(46):
+		var p := _ring_point(rng, half + 10.0, GROUND_HALF - 14.0)
+		var th: float = rng.randf_range(3.5, 6.5)
+		_box(out, Vector3(p.x, th * 0.5, p.y), Vector3(0.7, th, 0.7), bark, true)
+		var foliage := MeshInstance3D.new()
+		var fm := SphereMesh.new()
+		var fr: float = rng.randf_range(2.2, 3.8)
+		fm.radius = fr
+		fm.height = fr * 2.0
+		foliage.mesh = fm
+		foliage.position = Vector3(p.x, th + fr * 0.4, p.y)
+		foliage.material_override = leaf
+		out.add_child(foliage)
+	for i in range(8):
+		var pp := _ring_point(rng, half + 18.0, GROUND_HALF - 24.0)
+		var pond := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		var rad: float = rng.randf_range(6.0, 13.0)
+		cm.top_radius = rad
+		cm.bottom_radius = rad
+		cm.height = 0.2
+		pond.mesh = cm
+		pond.position = Vector3(pp.x, -0.04, pp.y)
+		pond.material_override = water
+		out.add_child(pond)
+
+
+# A random ground point with radius in [inner, outer], kept out of the tower's square footprint.
+static func _ring_point(rng: StableRng, inner: float, outer: float) -> Vector2:
+	var keep: float = FOOTPRINT * 0.5 + 6.0
+	for _i in range(10):
+		var ang: float = rng.randf_range(0.0, TAU)
+		var r: float = rng.randf_range(inner, outer)
+		var p := Vector2(cos(ang) * r, sin(ang) * r)
+		if absf(p.x) > keep or absf(p.y) > keep:
+			return p
+	return Vector2(inner, 0.0)

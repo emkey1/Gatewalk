@@ -3154,25 +3154,74 @@ func _cache_skyscraper_floors() -> void:
 		return
 	for n in range(SkyscraperFactory.STORIES + 1):
 		_skyscraper_floor_nodes.append(sky.get_node_or_null("Floor_" + str(n)))
+	# Grab the shared curtain-wall material (so we can flip the whole envelope clear<->opaque).
+	_skyscraper_glass_mat = null
+	_skyscraper_outside = false
+	var glass_group: Node = sky.get_node_or_null("Envelope/Glass")
+	if glass_group != null:
+		for body in glass_group.get_children():
+			for mi in body.get_children():
+				if mi is MeshInstance3D and (mi as MeshInstance3D).material_override is StandardMaterial3D:
+					_skyscraper_glass_mat = (mi as MeshInstance3D).material_override
+					break
+			if _skyscraper_glass_mat != null:
+				break
 
 
-# Draw only the player's storey (+/- one for stair transitions). Sealed tower, opaque windows:
-# no other floor is ever visible, so hiding them is free framerate for the dense fit-out.
+# Inside the tower: draw only the player's storey (+/- one for stair transitions) and keep the
+# glass clear so you see the grassland. Outside in the grassland: flip the glass opaque and hide
+# EVERY interior storey — the opaque-from-outside windows mean none of it can be seen.
 func _update_skyscraper_floor_culling() -> void:
 	if not _is_current_map_skyscraper() or _skyscraper_floor_nodes.is_empty():
 		return
 	var player: CharacterBody3D = _get_player()
 	if player == null:
 		return
-	var pf: int = int(floor(player.global_position.y / SkyscraperFactory.STORY_H))
-	pf = clampi(pf, 0, _skyscraper_floor_nodes.size() - 1)
+	var p: Vector3 = player.global_position
+	var half: float = SkyscraperFactory.FOOTPRINT * 0.5
+	var reach: float = maxf(absf(p.x), absf(p.z))
+	# Hysteresis so the glass/cull doesn't flicker right at the doorway.
+	if _skyscraper_outside and reach < half - 1.0:
+		_skyscraper_outside = false
+		_set_skyscraper_glass_opaque(false)
+		_skyscraper_visible_floor = -999
+	elif not _skyscraper_outside and reach > half + 0.5:
+		_skyscraper_outside = true
+		_set_skyscraper_glass_opaque(true)
+		_skyscraper_visible_floor = -999
+
+	if _skyscraper_outside:
+		if _skyscraper_visible_floor != -1:
+			_skyscraper_visible_floor = -1
+			for node in _skyscraper_floor_nodes:
+				if is_instance_valid(node):
+					(node as Node3D).visible = false
+		return
+
+	var pf: int = clampi(int(floor(p.y / SkyscraperFactory.STORY_H)), 0, _skyscraper_floor_nodes.size() - 1)
 	if pf == _skyscraper_visible_floor:
 		return
 	_skyscraper_visible_floor = pf
 	for n in range(_skyscraper_floor_nodes.size()):
-		var node: Node3D = _skyscraper_floor_nodes[n] as Node3D
-		if is_instance_valid(node):
-			node.visible = (n >= pf - 1 and n <= pf + 2)
+		var node2: Node3D = _skyscraper_floor_nodes[n] as Node3D
+		if is_instance_valid(node2):
+			node2.visible = (n >= pf - 1 and n <= pf + 2)
+
+
+func _set_skyscraper_glass_opaque(opaque: bool) -> void:
+	if _skyscraper_glass_mat == null:
+		return
+	var m: StandardMaterial3D = _skyscraper_glass_mat
+	if opaque:
+		m.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		m.albedo_color = Color(0.09, 0.12, 0.17)
+		m.metallic = 0.85
+		m.roughness = 0.12
+	else:
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_color = Color(0.58, 0.72, 0.82, 0.16)
+		m.metallic = 0.25
+		m.roughness = 0.08
 
 
 # Ride the central elevator: stand in the car (around (0,-9)) and press E to jump to the next
@@ -3214,9 +3263,14 @@ func _keep_player_inside_skyscraper() -> void:
 	if player == null:
 		return
 	var p: Vector3 = player.global_position
-	var half_in: float = SkyscraperFactory.FOOTPRINT * 0.5 - 0.4   # just inside the glass
-	var top: float = float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 1.5
-	if absf(p.x) > half_in or absf(p.z) > half_in or p.y < -1.5 or p.y > top:
+	# You can now roam the grassland, so keep the player inside the SPHERE, not the tower.
+	var horiz: Vector2 = Vector2(p.x, p.z)
+	var limit: float = SkyscraperFactory.GROUND_HALF - 5.0
+	if horiz.length() > limit:
+		horiz = horiz.normalized() * limit
+		player.global_position = Vector3(horiz.x, p.y, horiz.y)
+		player.velocity = Vector3.ZERO
+	elif p.y < -2.0 or p.y > float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 30.0:
 		player.global_position = _skyscraper_safe_spawn
 		player.velocity = Vector3.ZERO
 
@@ -4739,17 +4793,18 @@ func _setup_environment() -> void:
 			sun_light.light_energy = 1.7
 			sun_light.rotation_degrees = Vector3(-46.0, -24.0, 0.0)
 	elif _is_current_map_skyscraper():
-		# Sealed tower in the void: dark space outside the glass, sun raking in.
+		# Tower in a domed grassland terrarium: sky-blue dome, globe-sun overhead. (Day/night
+		# pulses these in _update_day_night_cycle.)
 		world_environment.background_mode = Environment.BG_COLOR
-		world_environment.background_color = Color(0.012, 0.014, 0.028)
-		world_environment.ambient_light_color = Color(0.44, 0.47, 0.55)
-		world_environment.ambient_light_energy = 0.55
+		world_environment.background_color = Color(0.50, 0.68, 0.92)
+		world_environment.ambient_light_color = Color(0.58, 0.64, 0.72)
+		world_environment.ambient_light_energy = 0.7
 		world_environment.fog_density = 0.0
-		world_environment.fog_light_color = Color(0.10, 0.12, 0.18)
+		world_environment.fog_light_color = Color(0.55, 0.68, 0.85)
 		if sun_light != null:
-			sun_light.light_color = Color(1.0, 0.98, 0.92)
-			sun_light.light_energy = 2.2
-			sun_light.rotation_degrees = Vector3(-35.0, -50.0, 0.0)
+			sun_light.light_color = Color(1.0, 0.96, 0.88)
+			sun_light.light_energy = 1.9
+			sun_light.rotation_degrees = Vector3(-78.0, -28.0, 0.0)   # globe is high overhead
 	else:
 		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.55, 0.72, 0.95)
@@ -5078,6 +5133,11 @@ var _skyscraper_safe_spawn: Vector3 = Vector3(0.0, 1.2, 11.0)
 # opaque windows you can never see another floor, so the other ~49 cost nothing to render.
 var _skyscraper_floor_nodes: Array = []
 var _skyscraper_visible_floor: int = -999
+# Step outside into the domed grassland and the windows flip opaque + the whole interior stops
+# drawing; come back in and they go clear again. _skyscraper_glass_mat is the shared curtain-wall
+# material we retint.
+var _skyscraper_glass_mat: StandardMaterial3D = null
+var _skyscraper_outside: bool = false
 # Elevator: the car stands at (0,-9) on every storey; pressing E inside rides to the next stop
 # (lobby, gate storeys, top), so the upper gates don't mean a 50-floor stair climb.
 var _skyscraper_elevator_dests: Array = []
