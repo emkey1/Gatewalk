@@ -3198,7 +3198,10 @@ func _update_skyscraper_floor_culling() -> void:
 	# Inside the tower = within the footprint column and below its roof. Crossing the threshold
 	# flips the glass AND the gravity mode (spherical out on the grass, normal in the tower).
 	# Hysteresis so it doesn't chatter at the doorway.
-	var clearly_in: bool = reach < 59.0 and p.y > -3.0 and p.y < top_y + 6.0
+	# reach<62 (not 59) so the whole rooftop deck — walkable out to the parapet at 60 — reads as
+	# inside; otherwise the deck edge sat in the ambiguous band and a stale "outside" state (spherical
+	# gravity) could persist up there. The ground-door exit still flips to outside at reach>63.
+	var clearly_in: bool = reach < 62.0 and p.y > -3.0 and p.y < top_y + 6.0
 	var clearly_out: bool = reach > 63.0 or p.y > top_y + 12.0 or p.y < -3.5
 	if _skyscraper_outside and clearly_in:
 		_set_skyscraper_world_mode(player, false)
@@ -3353,8 +3356,15 @@ func _keep_player_inside_skyscraper() -> void:
 			player.velocity = Vector3.ZERO
 	else:
 		# Inside the tower (normal gravity): catch falls through the floor.
-		if p.y < -3.0 or p.y > float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 30.0:
+		var top: float = float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H
+		if p.y < -3.0 or p.y > top + 30.0:
 			player.global_position = _skyscraper_safe_spawn
+			player.velocity = Vector3.ZERO
+		elif p.y > top - 6.0 and (absf(p.x) > 59.7 or absf(p.z) > 59.7):
+			# On the rooftop deck a fast run can occasionally clip past the parapet (player capsule
+			# radius 0.45 keeps normal walking under ~59.4). Pull them straight back onto the deck
+			# rather than let them fall down the outside, which the y<-3 net would snap to the lobby.
+			player.global_position = Vector3(clampf(p.x, -59.0, 59.0), maxf(p.y, top + 0.6), clampf(p.z, -59.0, 59.0))
 			player.velocity = Vector3.ZERO
 
 

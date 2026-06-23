@@ -82,6 +82,8 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	for f in range(STORIES):
 		_ustair(floors[f], float(f) * STORY_H, float(f + 1) * STORY_H, core_mat)
 		_furnish_floor(floors[f], half, float(f) * STORY_H, world_seed, f)
+	# Rooftop rec deck. Goes in the top-floor cull group so it only draws when you're up top.
+	_build_rooftop_courts(floors[STORIES], top_y)
 
 	# --- The world outside the glass: a domed grassland terrarium lit by a globe-sun on the
 	# roof (Main runs its day/night). Always drawn; the opaque-from-outside glass lets Main hide
@@ -127,16 +129,23 @@ static func _build_roof_deck(parent: Node3D, half: float, top_y: float, concrete
 	# top flight emerges onto the deck instead of dead-ending under a solid roof.
 	_floor_slab(parent, half, top_y, concrete)
 
-	# Glass parapet: clear, collidable, 3 m tall — above the ~2 m jump apex, so it stops a running
-	# jump as well as a walk-off. Its own material (not the shared curtain wall), so it stays clear
-	# when Main flips the windows opaque from outside.
+	# Parapet around the perimeter: a solid knee-high kerb (thick, so a fast run can't clip through
+	# at the very edge) topped by clear glass to 3 m total — above the ~2 m jump apex, so it stops a
+	# running jump as well as a walk-off. The glass has its own material (not the shared curtain
+	# wall), so it stays clear when Main flips the windows opaque from outside. Main also backstops
+	# any edge clip that does slip past.
 	var rail := _glass_mat_clear()
-	var ph: float = 3.0
-	var pcy: float = top_y + ph * 0.5
-	_box(parent, Vector3(0.0, pcy, half), Vector3(FOOTPRINT, ph, TH), rail, true)
-	_box(parent, Vector3(0.0, pcy, -half), Vector3(FOOTPRINT, ph, TH), rail, true)
-	_box(parent, Vector3(half, pcy, 0.0), Vector3(TH, ph, FOOTPRINT), rail, true)
-	_box(parent, Vector3(-half, pcy, 0.0), Vector3(TH, ph, FOOTPRINT), rail, true)
+	var kerb_t: float = 0.6
+	var kh: float = 0.8
+	var kcy: float = top_y + kh * 0.5
+	var gh: float = 2.2
+	var gcy: float = top_y + kh + gh * 0.5
+	for side in [Vector3(0.0, 0.0, half), Vector3(0.0, 0.0, -half), Vector3(half, 0.0, 0.0), Vector3(-half, 0.0, 0.0)]:
+		var along_z: bool = absf(side.x) > 0.5
+		var ksize: Vector3 = Vector3(kerb_t, kh, FOOTPRINT) if along_z else Vector3(FOOTPRINT, kh, kerb_t)
+		var gsize: Vector3 = Vector3(TH, gh, FOOTPRINT) if along_z else Vector3(FOOTPRINT, gh, TH)
+		_box(parent, Vector3(side.x, kcy, side.z), ksize, concrete, true)
+		_box(parent, Vector3(side.x, gcy, side.z), gsize, rail, true)
 
 	# Stair bulkhead capping the hatch: back + side walls and a cap, open on +z where the stair
 	# tops out, so you walk straight out of the stairwell onto the deck.
@@ -147,6 +156,76 @@ static func _build_roof_deck(parent: Node3D, half: float, top_y: float, concrete
 	_box(parent, Vector3(-sh - TH * 0.5, bcy, 0.0), Vector3(TH, bh, sh * 2.0), core_mat, true)
 	_box(parent, Vector3(sh + TH * 0.5, bcy, 0.0), Vector3(TH, bh, sh * 2.0), core_mat, true)
 	_box(parent, Vector3(0.0, top_y + bh + TH * 0.5, 0.0), Vector3(sh * 2.0 + TH * 2.0, TH, sh * 2.0 + TH * 2.0), concrete, true)
+
+
+# --- Rooftop rec deck: tennis, pickleball and shuffleboard courts painted on the deck (flat colour
+# panels + white lines + nets). Fixed, non-overlapping layout (deterministic): two tennis (+x), two
+# pickleball (-x), two shuffleboard (far -x), all clear of the central bulkhead and the parapet. ---
+static func _build_rooftop_courts(parent: Node3D, top_y: float) -> void:
+	var line := _mat(Color(0.95, 0.96, 0.97), 0.5, 0.0)
+	var net_mat := _mat(Color(0.10, 0.11, 0.13), 0.8, 0.0)
+	var post_mat := _mat(Color(0.22, 0.23, 0.26), 0.5, 0.4)
+	var tennis := _mat(Color(0.17, 0.43, 0.31), 0.92, 0.0)   # green
+	var pickle := _mat(Color(0.15, 0.33, 0.60), 0.92, 0.0)   # blue
+	var shuffle := _mat(Color(0.72, 0.45, 0.30), 0.93, 0.0)  # terracotta
+	_racquet_court(parent, top_y, 24.0, 15.0, 23.8, 11.0, 1.07, tennis, line, net_mat, post_mat)
+	_racquet_court(parent, top_y, 24.0, -15.0, 23.8, 11.0, 1.07, tennis, line, net_mat, post_mat)
+	_racquet_court(parent, top_y, -22.0, 13.0, 13.4, 6.1, 0.86, pickle, line, net_mat, post_mat)
+	_racquet_court(parent, top_y, -22.0, -13.0, 13.4, 6.1, 0.86, pickle, line, net_mat, post_mat)
+	_shuffleboard_court(parent, top_y, -46.0, 14.0, 2.5, 14.0, shuffle, line)
+	_shuffleboard_court(parent, top_y, -46.0, -14.0, 2.5, 14.0, shuffle, line)
+
+
+# A flat colour court surface, lifted just above the deck slab to avoid z-fighting.
+static func _court_panel(parent: Node3D, cx: float, cz: float, w: float, d: float, top_y: float, surf: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(w, 0.04, d)
+	mi.mesh = bm
+	mi.position = Vector3(cx, top_y + 0.03, cz)
+	mi.material_override = surf
+	parent.add_child(mi)
+
+
+# A thin white marking just above the surface. horizontal: spans x (length=len); else spans z.
+static func _court_line(parent: Node3D, cx: float, cz: float, length: float, top_y: float, horizontal: bool, mat: Material) -> void:
+	var lw: float = 0.13
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(length, 0.02, lw) if horizontal else Vector3(lw, 0.02, length)
+	mi.mesh = bm
+	mi.position = Vector3(cx, top_y + 0.06, cz)
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
+# Tennis/pickleball court: surface + boundary + centre line + a walk-through net between two posts.
+static func _racquet_court(parent: Node3D, top_y: float, cx: float, cz: float, w: float, d: float, net_h: float, surf: Material, line: Material, net_mat: Material, post_mat: Material) -> void:
+	_court_panel(parent, cx, cz, w, d, top_y, surf)
+	var hw: float = w * 0.5
+	var hd: float = d * 0.5
+	_court_line(parent, cx, cz + hd, w, top_y, true, line)
+	_court_line(parent, cx, cz - hd, w, top_y, true, line)
+	_court_line(parent, cx + hw, cz, d, top_y, false, line)
+	_court_line(parent, cx - hw, cz, d, top_y, false, line)
+	_court_line(parent, cx, cz, w * 0.62, top_y, true, line)   # centre service line
+	# Net across the width at mid-length: a thin walk-through panel between two solid posts.
+	_box(parent, Vector3(cx, top_y + net_h * 0.5, cz), Vector3(0.06, net_h, d), net_mat, false)
+	_box(parent, Vector3(cx, top_y + (net_h + 0.1) * 0.5, cz + hd), Vector3(0.14, net_h + 0.1, 0.14), post_mat, true)
+	_box(parent, Vector3(cx, top_y + (net_h + 0.1) * 0.5, cz - hd), Vector3(0.14, net_h + 0.1, 0.14), post_mat, true)
+
+
+# Shuffleboard court: long narrow surface + boundary + scoring divisions near each end (no net).
+static func _shuffleboard_court(parent: Node3D, top_y: float, cx: float, cz: float, w: float, d: float, surf: Material, line: Material) -> void:
+	_court_panel(parent, cx, cz, w, d, top_y, surf)
+	var hw: float = w * 0.5
+	var hd: float = d * 0.5
+	_court_line(parent, cx, cz + hd, w, top_y, true, line)
+	_court_line(parent, cx, cz - hd, w, top_y, true, line)
+	_court_line(parent, cx + hw, cz, d, top_y, false, line)
+	_court_line(parent, cx - hw, cz, d, top_y, false, line)
+	for zz in [cz + hd - 1.8, cz + hd - 3.2, cz - hd + 1.8, cz - hd + 3.2]:
+		_court_line(parent, cx, zz, w, top_y, true, line)
 
 
 # --- Stairwell shaft walls: back (-z) and the two sides (+-x), full height. Front (+z) is the
@@ -437,8 +516,10 @@ static func _ceiling_lights(group: Node3D, half: float, fy: float, xf: Array, cf
 # so culling shows exactly the storey you're standing on.
 static func _floor_sign(group: Node3D, fy: float, number: int) -> void:
 	var txt: String = str(number)
-	# [z position, yaw]: back wall outward face (faces -z), front opening (faces +z)
-	for spec in [[-2.7, PI], [2.6, 0.0]]:
+	# [x, y_offset, z, yaw]: back wall outward face on the solid -z wall (faces the elevator), and
+	# the front. The front sits in the open doorway, so raise it and shift it off-centre toward the
+	# +x jamb so the whole number reads on the wall instead of floating over the stair below.
+	for spec in [[0.0, 2.3, -2.7, PI], [1.3, 3.2, 2.6, 0.0]]:
 		var lbl := Label3D.new()
 		lbl.text = txt
 		lbl.font_size = 200
@@ -446,8 +527,8 @@ static func _floor_sign(group: Node3D, fy: float, number: int) -> void:
 		lbl.modulate = Color(0.72, 0.92, 1.0)
 		lbl.outline_size = 18
 		lbl.outline_modulate = Color(0.02, 0.05, 0.09)
-		lbl.position = Vector3(0.0, fy + 2.3, float(spec[0]))
-		lbl.rotation.y = float(spec[1])
+		lbl.position = Vector3(float(spec[0]), fy + float(spec[1]), float(spec[2]))
+		lbl.rotation.y = float(spec[3])
 		group.add_child(lbl)
 
 
