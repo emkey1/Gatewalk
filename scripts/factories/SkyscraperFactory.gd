@@ -65,6 +65,9 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	# Art-Deco stone dressing proud of the glass: vertical piers, corner pilasters, belt courses,
 	# a stepped crown cornice and an entrance surround — a 1930s ribbed look, not a flat box.
 	_facade_deco(env, half, top_y)
+	# Grand base: a wider stone podium, an entrance canopy, and a forecourt (fountain, flagpoles,
+	# lamps, planters) seated on the bowl ground around the entrance.
+	_grand_base(env, half)
 
 	# --- Per-storey groups (Floor_<n>) so Main can hide every storey except the player's: with
 	# opaque windows you can never see another floor, so only one needs to draw. Floor_n carries
@@ -536,6 +539,103 @@ static func _facade_ring(facade: Node3D, half: float, y: float, h: float, proj: 
 	_box(facade, Vector3(0.0, y, -c), Vector3(w, h, proj), mat, false)
 	_box(facade, Vector3(c, y, 0.0), Vector3(proj, h, w), mat, false)
 	_box(facade, Vector3(-c, y, 0.0), Vector3(proj, h, w), mat, false)
+
+
+# World y of the bowl ground at horizontal (x,z) — the inner sphere's lower surface. Used to seat
+# ground props around the tower (the grass curves up away from the seam, so they can't all sit at 0).
+static func _ground_y(cy: float, x: float, z: float) -> float:
+	return cy - sqrt(maxf(1.0, WORLD_R * WORLD_R - (x * x + z * z)))
+
+
+# --- Grand base: a wider stone podium (the bottom setback tier), an entrance canopy, and forecourt
+# furniture seated on the bowl ground. Built in the tower frame (vertical), like the tower itself,
+# which already sits embedded in the bowl. ------------------------------------------------------
+static func _grand_base(env: Node3D, half: float) -> void:
+	var stone := _mat(Color(0.74, 0.70, 0.62), 0.9, 0.0)
+	var base := Node3D.new()
+	base.name = "Base"
+	env.add_child(base)
+	var cy: float = _world_center().y
+	var pr: float = half + 8.0   # podium reach (8 m wider than the shaft)
+	var ph: float = 14.0
+	var t: float = 1.2
+	var gap: float = 7.0         # +z entrance gap half-width
+	# Podium skirt; the +z wall is split around the entrance.
+	_box(base, Vector3(-(gap + pr) * 0.5, ph * 0.5, pr), Vector3(pr - gap, ph, t), stone, true)
+	_box(base, Vector3((gap + pr) * 0.5, ph * 0.5, pr), Vector3(pr - gap, ph, t), stone, true)
+	_box(base, Vector3(0.0, ph * 0.5, -pr), Vector3(pr * 2.0, ph, t), stone, true)
+	_box(base, Vector3(pr, ph * 0.5, 0.0), Vector3(t, ph, pr * 2.0), stone, true)
+	_box(base, Vector3(-pr, ph * 0.5, 0.0), Vector3(t, ph, pr * 2.0), stone, true)
+	# Podium cornice stepping in to the shaft (sized to the podium, not the shaft).
+	var cc: float = pr + 0.6
+	var cw: float = pr * 2.0 + 2.4
+	_box(base, Vector3(0.0, ph + 0.3, cc), Vector3(cw, 1.4, 1.2), stone, false)
+	_box(base, Vector3(0.0, ph + 0.3, -cc), Vector3(cw, 1.4, 1.2), stone, false)
+	_box(base, Vector3(cc, ph + 0.3, 0.0), Vector3(1.2, 1.4, cw), stone, false)
+	_box(base, Vector3(-cc, ph + 0.3, 0.0), Vector3(1.2, 1.4, cw), stone, false)
+	# Entrance canopy on two columns.
+	_box(base, Vector3(0.0, 6.4, pr - 1.5), Vector3(16.0, 0.8, 6.0), stone, false)
+	_box(base, Vector3(-6.5, 3.2, pr + 0.8), Vector3(1.1, 6.4, 1.1), stone, true)
+	_box(base, Vector3(6.5, 3.2, pr + 0.8), Vector3(1.1, 6.4, 1.1), stone, true)
+	# Forecourt furniture, each seated on the bowl ground.
+	_fountain(base, cy, 0.0, pr + 8.0)
+	_flagpole(base, cy, -13.0, pr + 4.0, Color(0.72, 0.20, 0.20))
+	_flagpole(base, cy, 13.0, pr + 4.0, Color(0.20, 0.30, 0.70))
+	for s in [Vector2(-pr - 4.0, 8.0), Vector2(pr + 4.0, 8.0), Vector2(-pr - 4.0, -42.0), Vector2(pr + 4.0, -42.0)]:
+		_lamp_post(base, cy, s.x, s.y)
+	_planter(base, cy, -22.0, pr + 6.0)
+	_planter(base, cy, 22.0, pr + 6.0)
+
+
+static func _fountain(parent: Node3D, cy: float, x: float, z: float) -> void:
+	var gy: float = _ground_y(cy, x, z)
+	var stone := _mat(Color(0.72, 0.68, 0.60), 0.9, 0.0)
+	var water := _pool_water_mat(false)
+	_cyl(parent, Vector3(x, gy + 0.5, z), 6.0, 1.0, stone, true)     # basin
+	_cyl(parent, Vector3(x, gy + 1.0, z), 5.4, 0.2, water, false)    # water surface
+	_cyl(parent, Vector3(x, gy + 1.9, z), 0.5, 2.2, stone, false)    # central pillar
+	_cyl(parent, Vector3(x, gy + 3.1, z), 1.6, 0.3, stone, false)    # upper bowl
+	_cyl(parent, Vector3(x, gy + 3.25, z), 1.4, 0.15, water, false)  # upper water
+
+
+static func _flagpole(parent: Node3D, cy: float, x: float, z: float, flag_color: Color) -> void:
+	var gy: float = _ground_y(cy, x, z)
+	_box(parent, Vector3(x, gy + 8.0, z), Vector3(0.3, 16.0, 0.3), _mat(Color(0.80, 0.80, 0.82), 0.4, 0.6), true)
+	var flag := MeshInstance3D.new()
+	var fb := BoxMesh.new()
+	fb.size = Vector3(3.4, 2.0, 0.1)
+	flag.mesh = fb
+	flag.position = Vector3(x + 1.85, gy + 14.5, z)
+	flag.material_override = _mat(flag_color, 0.8, 0.0)
+	parent.add_child(flag)
+
+
+static func _lamp_post(parent: Node3D, cy: float, x: float, z: float) -> void:
+	var gy: float = _ground_y(cy, x, z)
+	_box(parent, Vector3(x, gy + 3.0, z), Vector3(0.3, 6.0, 0.3), _mat(Color(0.28, 0.28, 0.30), 0.5, 0.4), true)
+	var head := MeshInstance3D.new()
+	var hm := SphereMesh.new()
+	hm.radius = 0.5
+	hm.height = 1.0
+	hm.radial_segments = 8
+	hm.rings = 4
+	head.mesh = hm
+	head.position = Vector3(x, gy + 6.2, z)
+	head.material_override = _emissive_mat(Color(1.0, 0.92, 0.70))
+	parent.add_child(head)
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(x, gy + 6.0, z)
+	lamp.light_color = Color(1.0, 0.9, 0.7)
+	lamp.light_energy = 1.6
+	lamp.omni_range = 16.0
+	lamp.shadow_enabled = false
+	parent.add_child(lamp)
+
+
+static func _planter(parent: Node3D, cy: float, x: float, z: float) -> void:
+	var gy: float = _ground_y(cy, x, z)
+	_box(parent, Vector3(x, gy + 0.6, z), Vector3(5.0, 1.2, 3.0), _mat(Color(0.70, 0.66, 0.58), 0.9, 0.0), true)
+	_box(parent, Vector3(x, gy + 1.6, z), Vector3(4.4, 1.0, 2.4), _mat(Color(0.20, 0.40, 0.18), 0.9, 0.0), false)
 
 
 # --- Compact switchback for one storey in the central stairwell (real-proportioned solid
