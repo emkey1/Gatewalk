@@ -3346,6 +3346,10 @@ func _enforce_world_bounds() -> void:
 	var player: CharacterBody3D = _get_player()
 	if player == null:
 		return
+	# The skyscraper is a sphere, not a finite terrain square: _keep_player_inside_skyscraper
+	# already holds the player inside the dome, so skip the square world-bounds clamp here.
+	if _is_current_map_skyscraper():
+		return
 	var pos: Vector3 = player.global_position
 	var half: float = _world_half_size() * 0.98
 	if _is_current_map_gate_room():
