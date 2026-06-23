@@ -381,6 +381,10 @@ func _poll_primary_gate_activation() -> void:
 		return
 	var proximity_radius: float = 6.0
 	var activation_radius: float = 1.4
+	# The proximity test is horizontal (x,z) only. In the skyscraper, gates are stacked on different
+	# storeys at scattered x,z, so without a storey check, running under/over a gate on another floor
+	# would auto-fire it and teleport you. Only count a gate on the player's storey (|dy| within a floor).
+	var is_sky: bool = _is_current_map_skyscraper()
 	_last_gate_index_in_range = -1
 	var best_dist: float = INF
 	var now_msec: int = Time.get_ticks_msec()
@@ -395,6 +399,8 @@ func _poll_primary_gate_activation() -> void:
 				continue
 			var gate_index: int = int(gate_name.trim_prefix("Gate_"))
 			var delta: Vector3 = gate_node.global_position - player.global_position
+			if is_sky and absf(delta.y) > 3.0:
+				continue
 			var dist: float = Vector2(delta.x, delta.z).length()
 			if dist <= proximity_radius and dist < best_dist:
 				best_dist = dist
@@ -455,6 +461,9 @@ func _nearest_gate_index(player: CharacterBody3D, max_radius: float) -> int:
 	if player == null or generated_root == null:
 		return -1
 	var gate_root: Node = generated_root.get_node_or_null("Gates")
+	# Skyscraper gates are stacked on different storeys at scattered x,z; the distance test is
+	# horizontal, so restrict it to the gate on the player's own storey (|dy| within a floor).
+	var is_sky: bool = _is_current_map_skyscraper()
 	if gate_root == null:
 		var all_gate_nodes: Array = generated_root.find_children("Gate_*", "Node3D", true, false)
 		var best_gate_global: int = -1
@@ -465,6 +474,8 @@ func _nearest_gate_index(player: CharacterBody3D, max_radius: float) -> int:
 				continue
 			var gate_name_global: String = str(gate_node_global.name)
 			if not gate_name_global.begins_with("Gate_"):
+				continue
+			if is_sky and absf(gate_node_global.global_position.y - player.global_position.y) > 3.0:
 				continue
 			var gate_index_global: int = int(gate_name_global.trim_prefix("Gate_"))
 			var dg: float = Vector2(
@@ -483,6 +494,8 @@ func _nearest_gate_index(player: CharacterBody3D, max_radius: float) -> int:
 			continue
 		var gate_name: String = str(gate_node.name)
 		if not gate_name.begins_with("Gate_"):
+			continue
+		if is_sky and absf(gate_node.global_position.y - player.global_position.y) > 3.0:
 			continue
 		var gate_index: int = int(gate_name.trim_prefix("Gate_"))
 		var d: float = Vector2(
