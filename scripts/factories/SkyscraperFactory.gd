@@ -193,6 +193,7 @@ static func _furnish_floor(group: Node3D, half: float, fy: float, world_seed: in
 	_fit_cubicles(half, fy, rng, zones, xf, cf, sx)
 	_fit_plants(half, fy, rng, xf, cf, sx)
 	_ceiling_lights(group, half, fy, xf, cf)
+	_floor_sign(group, fy, f + 1)
 	if xf.size() > 0:
 		var mesh := BoxMesh.new()
 		mesh.size = Vector3.ONE
@@ -373,6 +374,25 @@ static func _ceiling_lights(group: Node3D, half: float, fy: float, xf: Array, cf
 			lamp.shadow_enabled = false
 			group.add_child(lamp)
 			_furn(xf, cf, Vector3(gx, ly + 0.16, gz), Vector3(1.4, 0.12, 1.4), Color(0.96, 0.96, 0.9))   # fixture
+
+
+# Big glowing storey number on the stair shaft: one on the back wall (-z, faces the elevator
+# car so you read it looking out) and one on the open front (+z, faces the office). Per-floor,
+# so culling shows exactly the storey you're standing on.
+static func _floor_sign(group: Node3D, fy: float, number: int) -> void:
+	var txt: String = str(number)
+	# [z position, yaw]: back wall outward face (faces -z), front opening (faces +z)
+	for spec in [[-2.7, PI], [2.6, 0.0]]:
+		var lbl := Label3D.new()
+		lbl.text = txt
+		lbl.font_size = 200
+		lbl.pixel_size = 0.006
+		lbl.modulate = Color(0.72, 0.92, 1.0)
+		lbl.outline_size = 18
+		lbl.outline_modulate = Color(0.02, 0.05, 0.09)
+		lbl.position = Vector3(0.0, fy + 2.3, float(spec[0]))
+		lbl.rotation.y = float(spec[1])
+		group.add_child(lbl)
 
 
 # Four walls around [cx+-w/2, cz+-d/2] with a door gap on `door_side` (0:+z 1:-z 2:+x 3:-x).

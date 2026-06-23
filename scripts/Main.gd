@@ -4878,8 +4878,8 @@ func _scatter_skyscraper() -> void:
 	_begin_generation_channel("gates")
 	var positions: Array = SkyscraperFactory.build(generated_root, world_seed)
 	_cache_skyscraper_floors()
-	# Elevator stops: lobby, top, and every gate's storey, sorted + de-duped.
-	var stops: Dictionary = {1: true, SkyscraperFactory.STORIES - 1: true}
+	# Elevator stops: ground lobby, top, and every gate's storey, sorted + de-duped.
+	var stops: Dictionary = {0: true, SkyscraperFactory.STORIES - 1: true}
 	for p in positions:
 		stops[int(round(p.y / SkyscraperFactory.STORY_H))] = true
 	var dests: Array = stops.keys()
