@@ -182,8 +182,9 @@ static func _build_rooftop_courts(parent: Node3D, top_y: float) -> void:
 	_court_bench(parent, top_y, 9.0, -15.0, false)
 	_court_bench(parent, top_y, -13.0, 13.0, false)
 	_court_bench(parent, top_y, -13.0, -13.0, false)
-	# Pool & sauna lounge on the open far -z deck (pool basin sits entirely above the roof).
+	# Pool, hot tub & sauna lounge on the open far -z deck (basins sit entirely above the roof).
 	_pool(parent, top_y, -4.0, -38.0, 18.0, 14.0)
+	_hot_tub(parent, top_y, 9.0, -38.0)
 	_sauna(parent, top_y, 16.0, -38.0)
 	_lounger(parent, top_y, -12.0, -28.0)
 	_lounger(parent, top_y, -6.0, -28.0)
@@ -301,9 +302,7 @@ static func _pool(parent: Node3D, top_y: float, cx: float, cz: float, w: float, 
 	var wall := _mat(Color(0.86, 0.88, 0.90), 0.6, 0.05)
 	var tile := _mat(Color(0.34, 0.66, 0.80), 0.4, 0.1)
 	var coping := _mat(Color(0.80, 0.81, 0.84), 0.6, 0.0)
-	var water := _mat(Color(0.27, 0.62, 0.80), 0.05, 0.25)
-	water.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	water.albedo_color = Color(0.27, 0.62, 0.80, 0.6)
+	var water := _pool_water_mat(false)
 	var wh: float = 0.95
 	var t: float = 0.25
 	var hw: float = w * 0.5
@@ -351,6 +350,78 @@ static func _sauna(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
 	win.position = Vector3(cx + 1.5, top_y + 1.3, cz + d * 0.5)
 	win.material_override = glow
 	parent.add_child(win)
+
+
+# Translucent, glossy water — see the basin floor through it and a sheen on the surface, so it
+# reads as water rather than a solid block. warm: a hot-tub tint with a faint heated glow.
+static func _pool_water_mat(warm: bool) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(0.30, 0.60, 0.64, 0.42) if warm else Color(0.22, 0.55, 0.76, 0.36)
+	m.roughness = 0.03
+	m.metallic = 0.0
+	if warm:
+		m.emission_enabled = true
+		m.emission = Color(0.45, 0.32, 0.18)
+		m.emission_energy_multiplier = 0.5
+	return m
+
+
+# A cylinder mesh (+ optional cylinder collision), for round props like the hot tub.
+static func _cyl(parent: Node3D, center: Vector3, radius: float, height: float, mat: Material, collide: bool) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = height
+	mi.mesh = cm
+	mi.material_override = mat
+	if collide:
+		var body := StaticBody3D.new()
+		body.position = center
+		body.add_child(mi)
+		var cs := CollisionShape3D.new()
+		var sh := CylinderShape3D.new()
+		sh.radius = radius
+		sh.height = height
+		cs.shape = sh
+		body.add_child(cs)
+		parent.add_child(body)
+	else:
+		mi.position = center
+		parent.add_child(mi)
+
+
+# Round above-ground hot tub: a solid tub body (collidable) with a warm glossy water surface set
+# just below a wood lip, a warm glow light, and a few soft mist puffs rising off the water.
+static func _hot_tub(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
+	var body_mat := _mat(Color(0.28, 0.24, 0.20), 0.8, 0.0)
+	var rim_mat := _mat(Color(0.52, 0.43, 0.32), 0.7, 0.0)
+	var water := _pool_water_mat(true)
+	var r: float = 1.7
+	var hgt: float = 0.9
+	_cyl(parent, Vector3(cx, top_y + hgt * 0.5, cz), r, hgt, body_mat, true)
+	_cyl(parent, Vector3(cx, top_y + hgt + 0.02, cz), r + 0.15, 0.14, rim_mat, false)
+	_cyl(parent, Vector3(cx, top_y + hgt - 0.12, cz), r - 0.18, 0.12, water, false)
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(cx, top_y + 0.9, cz)
+	lamp.light_color = Color(1.0, 0.7, 0.45)
+	lamp.light_energy = 1.4
+	lamp.omni_range = 7.0
+	lamp.shadow_enabled = false
+	parent.add_child(lamp)
+	var mist := _mat(Color(0.92, 0.94, 0.96), 1.0, 0.0)
+	mist.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mist.albedo_color = Color(0.92, 0.94, 0.96, 0.10)
+	for spec in [[0.3, 1.4, -0.2, 1.4], [-0.4, 1.9, 0.3, 1.0], [0.1, 2.3, 0.1, 0.8]]:
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = float(spec[3])
+		sm.height = float(spec[3]) * 1.2
+		mi.mesh = sm
+		mi.position = Vector3(cx + float(spec[0]), top_y + float(spec[1]), cz + float(spec[2]))
+		mi.material_override = mist
+		parent.add_child(mi)
 
 
 # --- Stairwell shaft walls: back (-z) and the two sides (+-x), full height. Front (+z) is the
@@ -648,7 +719,7 @@ static func _floor_sign(group: Node3D, fy: float, number: int) -> void:
 	# the front. The front sits in the open doorway, shifted toward the +x jamb (off the open stair)
 	# and at mid-doorway height so the whole number reads on the wall rather than riding up near the
 	# stairwell-wall top.
-	for spec in [[0.0, 2.3, -2.7, PI], [1.3, 2.4, 2.6, 0.0]]:
+	for spec in [[0.0, 2.3, -2.7, PI], [1.3, 2.8, 2.6, 0.0]]:
 		var lbl := Label3D.new()
 		lbl.text = txt
 		lbl.font_size = 200
