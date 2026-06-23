@@ -3203,11 +3203,12 @@ func _update_skyscraper_floor_culling() -> void:
 	# Inside the tower = within the footprint column and below its roof. Crossing the threshold
 	# flips the glass AND the gravity mode (spherical out on the grass, normal in the tower).
 	# Hysteresis so it doesn't chatter at the doorway.
-	# reach<62 (not 59) so the whole rooftop deck — walkable out to the parapet at 60 — reads as
-	# inside; otherwise the deck edge sat in the ambiguous band and a stale "outside" state (spherical
-	# gravity) could persist up there. The ground-door exit still flips to outside at reach>63.
-	var clearly_in: bool = reach < 62.0 and p.y > -3.0 and p.y < top_y + 6.0
-	var clearly_out: bool = reach > 63.0 or p.y > top_y + 12.0 or p.y < -3.5
+	# reach<68/>71 (not the old glass line ~60) so the recessed entrance forecourt between the glass
+	# and the stone podium (out to ~68) reads as INSIDE — otherwise stepping into the grand entrance
+	# flipped the building to outside mode (interior culled + opaque glass) and looking back in showed
+	# an empty shell. The roof deck (reach<=60) stays inside too.
+	var clearly_in: bool = reach < 68.0 and p.y > -3.0 and p.y < top_y + 6.0
+	var clearly_out: bool = reach > 71.0 or p.y > top_y + 12.0 or p.y < -3.5
 	if _skyscraper_outside and clearly_in:
 		_set_skyscraper_world_mode(player, false)
 	elif not _skyscraper_outside and clearly_out:
