@@ -283,8 +283,8 @@ func _process(_delta: float) -> void:
 	_update_bioscan()
 	_update_weather_follow()
 	_recover_fallen_player()
+	_update_skyscraper_floor_culling()   # sets inside/outside + gravity mode first
 	_keep_player_inside_skyscraper()
-	_update_skyscraper_floor_culling()
 	_enforce_world_bounds()
 	_update_hud(_delta)
 
@@ -3192,17 +3192,17 @@ func _update_skyscraper_floor_culling() -> void:
 	if player == null:
 		return
 	var p: Vector3 = player.global_position
-	var half: float = SkyscraperFactory.FOOTPRINT * 0.5
 	var reach: float = maxf(absf(p.x), absf(p.z))
-	# Hysteresis so the glass/cull doesn't flicker right at the doorway.
-	if _skyscraper_outside and reach < half - 1.0:
-		_skyscraper_outside = false
-		_set_skyscraper_glass_opaque(false)
-		_skyscraper_visible_floor = -999
-	elif not _skyscraper_outside and reach > half + 0.5:
-		_skyscraper_outside = true
-		_set_skyscraper_glass_opaque(true)
-		_skyscraper_visible_floor = -999
+	var top_y: float = float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H
+	# Inside the tower = within the footprint column and below its roof. Crossing the threshold
+	# flips the glass AND the gravity mode (spherical out on the grass, normal in the tower).
+	# Hysteresis so it doesn't chatter at the doorway.
+	var clearly_in: bool = reach < 59.0 and p.y > -3.0 and p.y < top_y + 6.0
+	var clearly_out: bool = reach > 63.0 or p.y > top_y + 12.0 or p.y < -3.5
+	if _skyscraper_outside and clearly_in:
+		_set_skyscraper_world_mode(player, false)
+	elif not _skyscraper_outside and clearly_out:
+		_set_skyscraper_world_mode(player, true)
 
 	if _skyscraper_outside:
 		if _skyscraper_visible_floor != -1:
@@ -3220,6 +3220,16 @@ func _update_skyscraper_floor_culling() -> void:
 		var node2: Node3D = _skyscraper_floor_nodes[n] as Node3D
 		if is_instance_valid(node2):
 			node2.visible = (n >= pf - 1 and n <= pf + 2)
+
+
+# Switch the skyscraper interior/exterior state: glass clarity, floor culling, and the player's
+# gravity mode (spherical hollow-planet outside; normal down-gravity inside the tower).
+func _set_skyscraper_world_mode(player: CharacterBody3D, outside: bool) -> void:
+	_skyscraper_outside = outside
+	_set_skyscraper_glass_opaque(outside)
+	_skyscraper_visible_floor = -999
+	if player.has_method("set_spherical_mode"):
+		player.call("set_spherical_mode", outside, SkyscraperFactory._world_center())
 
 
 # Pulse the roof globe-sun, sky dome, sun and ambient over the day. The globe brightens through
@@ -3301,7 +3311,7 @@ func _poll_skyscraper_return_gates() -> void:
 	var p: Vector3 = player.global_position
 	for gp in _skyscraper_return_gates:
 		var g: Vector3 = gp
-		if Vector2(p.x - g.x, p.z - g.z).length() < 2.2:
+		if (p - g).length() < 2.6:
 			var f: int = randi_range(1, SkyscraperFactory.STORIES - 2)
 			player.global_position = Vector3(0.0, float(f) * SkyscraperFactory.STORY_H + 1.2, -9.0)
 			player.velocity = Vector3.ZERO
@@ -3330,24 +3340,17 @@ func _keep_player_inside_skyscraper() -> void:
 	if player == null:
 		return
 	var p: Vector3 = player.global_position
-	# You can now roam the grassland, so keep the player inside the SPHERE, not the tower.
-	var horiz: Vector2 = Vector2(p.x, p.z)
-	var r: float = horiz.length()
-	var limit: float = SkyscraperFactory.GROUND_HALF - 5.0
-	if r > limit:
-		horiz = horiz.normalized() * limit
-		player.global_position = Vector3(horiz.x, p.y, horiz.y)
-		player.velocity = Vector3.ZERO
-		return
-	if r > SkyscraperFactory.FOOTPRINT * 0.5 + 2.0:
-		# Outside on the bowl: if a clip drops us below the grass, lift back onto the surface.
-		var ground: float = SkyscraperFactory._bowl_y(r)
-		if p.y < ground - 3.0:
-			player.global_position = Vector3(p.x, ground + 1.5, p.z)
+	if _skyscraper_outside:
+		# On the grass sphere: if a clip pushes the player through the shell, pull them back onto it.
+		var center: Vector3 = SkyscraperFactory._world_center()
+		if (p - center).length() > SkyscraperFactory.WORLD_R + 4.0:
+			player.global_position = center + (p - center).normalized() * (SkyscraperFactory.WORLD_R - 1.5)
 			player.velocity = Vector3.ZERO
-	elif p.y < -3.0 or p.y > float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 30.0:
-		player.global_position = _skyscraper_safe_spawn
-		player.velocity = Vector3.ZERO
+	else:
+		# Inside the tower (normal gravity): catch falls through the floor.
+		if p.y < -3.0 or p.y > float(SkyscraperFactory.STORIES) * SkyscraperFactory.STORY_H + 30.0:
+			player.global_position = _skyscraper_safe_spawn
+			player.velocity = Vector3.ZERO
 
 
 func _enforce_world_bounds() -> void:

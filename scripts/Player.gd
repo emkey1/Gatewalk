@@ -55,6 +55,38 @@ var sheltered: bool = false        # set by Main when near a warm landmark
 var _jump_hold_remaining: float = 0.0
 var _jump_hold_boost_per_sec: float = 0.0
 
+# Spherical "hollow-planet" gravity (skyscraper outside only): down always points at the nearest
+# sphere wall, so you walk the whole inner surface. Main flips this on/off via set_spherical_mode.
+var spherical_gravity: bool = false
+var sphere_center: Vector3 = Vector3.ZERO
+var _look_fwd: Vector3 = Vector3(0.0, 0.0, -1.0)   # heading, kept in the local tangent plane
+
+
+# Switch hollow-planet gravity on/off, smoothing the orientation handoff both ways.
+func set_spherical_mode(on: bool, center: Vector3) -> void:
+	sphere_center = center
+	if on == spherical_gravity:
+		return
+	if on:
+		# seed the heading from the current facing
+		var f: Vector3 = -global_transform.basis.z
+		f.y = 0.0
+		if f.length() < 0.01:
+			f = Vector3(0.0, 0.0, -1.0)
+		_look_fwd = f.normalized()
+		spherical_gravity = true
+	else:
+		# back to upright +Y: keep yaw, drop the tilt
+		var f2: Vector3 = -global_transform.basis.z
+		f2.y = 0.0
+		if f2.length() < 0.01:
+			f2 = _look_fwd
+			f2.y = 0.0
+		spherical_gravity = false
+		up_direction = Vector3.UP
+		global_transform.basis = Basis()
+		rotation.y = atan2(-f2.x, -f2.z)
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -95,7 +127,11 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
+		if spherical_gravity:
+			var up: Vector3 = (sphere_center - global_position).normalized()
+			_look_fwd = _look_fwd.rotated(up, -event.relative.x * MOUSE_SENSITIVITY).normalized()
+		else:
+			rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
 		pitch = clamp(pitch - event.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-89.0), deg_to_rad(89.0))
 		camera.rotation.x = pitch
 
@@ -118,6 +154,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if spherical_gravity:
+		_physics_spherical(delta)
+		return
 	var input_dir := Vector2(Input.get_vector("move_left", "move_right", "move_forward", "move_back"))
 	var underwater: bool = global_position.y + 1.65 < water_level
 
@@ -207,6 +246,52 @@ func _physics_process(delta: float) -> void:
 	if flashlight_requested_on and not flashlight_on and flashlight_charge >= FLASHLIGHT_ENABLE_THRESHOLD:
 		flashlight_on = true
 		flashlight.light_energy = 10.5
+
+
+# Hollow-planet movement: "up" points from the player toward the sphere centre, so you can walk
+# the entire inner surface. Reuses _look_fwd (heading) and the camera pitch.
+func _physics_spherical(delta: float) -> void:
+	var up: Vector3 = sphere_center - global_position
+	if up.length() < 0.05:
+		up = Vector3.UP
+	up = up.normalized()
+	up_direction = up
+	# Re-orient: +Y = up, -Z = heading (kept in the tangent plane).
+	var f: Vector3 = _look_fwd - up * _look_fwd.dot(up)
+	if f.length() < 0.01:
+		var bz: Vector3 = -global_transform.basis.z
+		f = bz - up * bz.dot(up)
+	f = f.normalized()
+	_look_fwd = f
+	var zaxis: Vector3 = -f
+	var xaxis: Vector3 = up.cross(zaxis).normalized()
+	var yaxis: Vector3 = zaxis.cross(xaxis).normalized()
+	global_transform.basis = Basis(xaxis, yaxis, zaxis)
+
+	var input_dir: Vector2 = Vector2(Input.get_vector("move_left", "move_right", "move_forward", "move_back"))
+	var direction: Vector3 = xaxis * input_dir.x + f * -input_dir.y
+	if direction.length() > 0.0:
+		direction = direction.normalized()
+
+	var speed: float = WALK_SPEED
+	var wants_sprint: bool = Input.is_action_pressed("sprint") and input_dir.length() > 0.0 and sprint_stamina > 0.0
+	if wants_sprint:
+		speed = SPRINT_SPEED
+		sprint_stamina = max(sprint_stamina - delta, 0.0)
+	else:
+		sprint_stamina = min(sprint_stamina + delta * sprint_regen_per_sec, max_sprint_stamina)
+	breath = min(breath + delta * 2.0, max_breath)
+
+	var v_up: float = velocity.dot(up)
+	if is_on_floor():
+		if Input.is_action_just_pressed("jump"):
+			v_up = JUMP_VELOCITY * jump_multiplier
+		else:
+			v_up = -0.1
+	else:
+		v_up -= GRAVITY * gravity_multiplier * delta
+	velocity = direction * speed + up * v_up
+	move_and_slide()
 
 
 # Raise capability ceilings from a ProgressionService capabilities dict and top up
