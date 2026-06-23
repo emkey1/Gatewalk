@@ -268,6 +268,7 @@ func _process(_delta: float) -> void:
 	_poll_gate_use_input()
 	_poll_hub_use_input()
 	_poll_elevator_use_input()
+	_poll_skyscraper_return_gates()
 	_update_gate_room_ambience(_delta)
 	if not _is_current_map_gate_room() and not _is_current_map_cave() and not _is_current_map_map_nexus():
 		_cycle_time += _delta * cycle_speed_multiplier
@@ -3172,6 +3173,13 @@ func _cache_skyscraper_floors() -> void:
 	var dome: Node = sky.get_node_or_null("Outside/SkyDome")
 	if dome is MeshInstance3D:
 		_skyscraper_dome_mat = (dome as MeshInstance3D).material_override as StandardMaterial3D
+	_skyscraper_return_gates.clear()
+	var outside: Node = sky.get_node_or_null("Outside")
+	if outside != null:
+		for ch in outside.get_children():
+			if str(ch.name).begins_with("ReturnGate_"):
+				_skyscraper_return_gates.append((ch as Node3D).position)
+	_skyscraper_return_cooldown_msec = Time.get_ticks_msec() + 1500
 
 
 # Inside the tower: draw only the player's storey (+/- one for stair transitions) and keep the
@@ -3278,6 +3286,29 @@ func _poll_elevator_use_input() -> void:
 	last_discovery_text = "[Q] Elevator → Floor " + str(dest + 1)
 	if just and Time.get_ticks_msec() >= _elevator_cooldown_msec:
 		_ride_elevator()
+
+
+# Walk into a grassland portal to warp back into the tower on a random storey (in the elevator
+# car, so you land somewhere known and lit).
+func _poll_skyscraper_return_gates() -> void:
+	if not _is_current_map_skyscraper() or _map_loading or _skyscraper_return_gates.is_empty():
+		return
+	if Time.get_ticks_msec() < _skyscraper_return_cooldown_msec:
+		return
+	var player: CharacterBody3D = _get_player()
+	if player == null:
+		return
+	var p: Vector3 = player.global_position
+	for gp in _skyscraper_return_gates:
+		var g: Vector3 = gp
+		if Vector2(p.x - g.x, p.z - g.z).length() < 2.2:
+			var f: int = randi_range(1, SkyscraperFactory.STORIES - 2)
+			player.global_position = Vector3(0.0, float(f) * SkyscraperFactory.STORY_H + 1.2, -9.0)
+			player.velocity = Vector3.ZERO
+			_skyscraper_safe_spawn = player.global_position
+			_skyscraper_return_cooldown_msec = Time.get_ticks_msec() + 1500
+			last_discovery_text = "Returned to the tower — Floor " + str(f + 1)
+			return
 
 
 func _ride_elevator() -> void:
@@ -5181,6 +5212,9 @@ var _skyscraper_outside: bool = false
 # evening, driven by the shared _cycle_time.
 var _skyscraper_globe_mat: StandardMaterial3D = null
 var _skyscraper_dome_mat: StandardMaterial3D = null
+# Grassland re-entry portals: step into one to warp back into the tower on a random storey.
+var _skyscraper_return_gates: Array = []
+var _skyscraper_return_cooldown_msec: int = 0
 # Elevator: the car stands at (0,-9) on every storey; pressing E inside rides to the next stop
 # (lobby, gate storeys, top), so the upper gates don't mean a 50-floor stair climb.
 var _skyscraper_elevator_dests: Array = []

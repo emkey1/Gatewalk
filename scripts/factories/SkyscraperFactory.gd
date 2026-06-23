@@ -608,6 +608,33 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 		pond.material_override = water
 		out.add_child(pond)
 
+	# Re-entry portals: step into one to warp back into the tower on a random storey.
+	var portal := _emissive_mat(Color(0.45, 1.0, 0.62))
+	var post_mat := _mat(Color(0.30, 0.32, 0.36), 0.6, 0.4)
+	for i in range(3):
+		var gp := _ring_point(rng, half + 35.0, 165.0)   # within the player's roam limit
+		var g := Node3D.new()
+		g.name = "ReturnGate_" + str(i)
+		g.position = Vector3(gp.x, 0.0, gp.y)
+		out.add_child(g)
+		_box(g, Vector3(-1.7, 2.1, 0.0), Vector3(0.4, 4.2, 0.4), post_mat, true)
+		_box(g, Vector3(1.7, 2.1, 0.0), Vector3(0.4, 4.2, 0.4), post_mat, true)
+		_box(g, Vector3(0.0, 4.4, 0.0), Vector3(3.8, 0.4, 0.4), post_mat, true)
+		var pane := MeshInstance3D.new()
+		var pm := BoxMesh.new()
+		pm.size = Vector3(2.9, 3.9, 0.15)
+		pane.mesh = pm
+		pane.position = Vector3(0.0, 2.1, 0.0)
+		pane.material_override = portal
+		g.add_child(pane)
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, 2.3, 0.0)
+		lamp.light_color = Color(0.5, 1.0, 0.66)
+		lamp.light_energy = 2.2
+		lamp.omni_range = 16.0
+		lamp.shadow_enabled = false
+		g.add_child(lamp)
+
 
 # A random ground point with radius in [inner, outer], kept out of the tower's square footprint.
 static func _ring_point(rng: StableRng, inner: float, outer: float) -> Vector2:
