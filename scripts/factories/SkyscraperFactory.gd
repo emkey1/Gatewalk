@@ -594,12 +594,25 @@ static func _grand_base(env: Node3D, half: float) -> void:
 static func _fountain(parent: Node3D, cy: float, x: float, z: float) -> void:
 	var gy: float = _ground_y(cy, x, z)
 	var stone := _mat(Color(0.72, 0.68, 0.60), 0.9, 0.0)
-	var water := _pool_water_mat(false)
-	_cyl(parent, Vector3(x, gy + 0.5, z), 6.0, 1.0, stone, true)     # basin
-	_cyl(parent, Vector3(x, gy + 1.0, z), 5.4, 0.2, water, false)    # water surface
-	_cyl(parent, Vector3(x, gy + 1.9, z), 0.5, 2.2, stone, false)    # central pillar
-	_cyl(parent, Vector3(x, gy + 3.1, z), 1.6, 0.3, stone, false)    # upper bowl
-	_cyl(parent, Vector3(x, gy + 3.25, z), 1.4, 0.15, water, false)  # upper water
+	var dark := _mat(Color(0.12, 0.16, 0.18), 0.6, 0.1)   # dark basin floor so the water reads blue
+	var water := StandardMaterial3D.new()
+	water.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	water.albedo_color = Color(0.16, 0.42, 0.60, 0.78)    # mostly opaque blue (not a pale tint)
+	water.roughness = 0.05
+	water.metallic = 0.1
+	# A narrow pedestal sunk well below the bowl ground: its only collider, deep enough that the
+	# sloping ground leaves no floating lip to snag the player on. Top sits ~1.3 m proud all round.
+	var t: float = gy + 1.3
+	_cyl(parent, Vector3(x, gy - 1.0, z), 3.0, 4.6, stone, true)
+	# Shallow basin on top: dark floor + blue water inside a low stone rim (visual only).
+	_cyl(parent, Vector3(x, t + 0.05, z), 2.7, 0.1, dark, false)
+	_cyl(parent, Vector3(x, t + 0.2, z), 2.6, 0.25, water, false)
+	_ring_segments(parent, x, z, t + 0.15, 2.9, 0.6, 0.35, stone, false)
+	# Central tiered spout with a small upper bowl.
+	_cyl(parent, Vector3(x, t + 1.1, z), 0.4, 1.8, stone, false)
+	_cyl(parent, Vector3(x, t + 2.05, z), 1.1, 0.18, dark, false)
+	_cyl(parent, Vector3(x, t + 2.16, z), 1.0, 0.16, water, false)
+	_cyl(parent, Vector3(x, t + 2.45, z), 0.18, 0.6, stone, false)
 
 
 static func _flagpole(parent: Node3D, cy: float, x: float, z: float, flag_color: Color) -> void:
@@ -638,8 +651,10 @@ static func _lamp_post(parent: Node3D, cy: float, x: float, z: float) -> void:
 
 static func _planter(parent: Node3D, cy: float, x: float, z: float) -> void:
 	var gy: float = _ground_y(cy, x, z)
-	_box(parent, Vector3(x, gy + 0.6, z), Vector3(5.0, 1.2, 3.0), _mat(Color(0.70, 0.66, 0.58), 0.9, 0.0), true)
-	_box(parent, Vector3(x, gy + 1.6, z), Vector3(4.4, 1.0, 2.4), _mat(Color(0.20, 0.40, 0.18), 0.9, 0.0), false)
+	# Base extends ~1.6 m below the seated point so it meets the sloping bowl ground all round
+	# instead of floating on the low edge.
+	_box(parent, Vector3(x, gy - 0.3, z), Vector3(5.0, 2.6, 3.0), _mat(Color(0.70, 0.66, 0.58), 0.9, 0.0), true)
+	_box(parent, Vector3(x, gy + 1.3, z), Vector3(4.4, 0.9, 2.4), _mat(Color(0.20, 0.40, 0.18), 0.9, 0.0), false)
 
 
 # --- Stepped Art-Deco crown + spire (the top setback tier), rising from the bulkhead at the deck
