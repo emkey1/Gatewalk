@@ -3166,6 +3166,12 @@ func _cache_skyscraper_floors() -> void:
 					break
 			if _skyscraper_glass_mat != null:
 				break
+	var globe: Node = sky.get_node_or_null("Outside/GlobeSun")
+	if globe is MeshInstance3D:
+		_skyscraper_globe_mat = (globe as MeshInstance3D).material_override as StandardMaterial3D
+	var dome: Node = sky.get_node_or_null("Outside/SkyDome")
+	if dome is MeshInstance3D:
+		_skyscraper_dome_mat = (dome as MeshInstance3D).material_override as StandardMaterial3D
 
 
 # Inside the tower: draw only the player's storey (+/- one for stair transitions) and keep the
@@ -3206,6 +3212,36 @@ func _update_skyscraper_floor_culling() -> void:
 		var node2: Node3D = _skyscraper_floor_nodes[n] as Node3D
 		if is_instance_valid(node2):
 			node2.visible = (n >= pf - 1 and n <= pf + 2)
+
+
+# Pulse the roof globe-sun, sky dome, sun and ambient over the day. The globe brightens through
+# the morning, holds at midday, and dims toward evening; night is a faint glow under a dark dome.
+func _update_skyscraper_daynight() -> void:
+	var hour: float = (_cycle_time / CYCLE_LENGTH) * 24.0
+	var d: float = 0.0
+	if hour < 5.5:
+		d = 0.0
+	elif hour < 7.5:
+		d = (hour - 5.5) / 2.0
+	elif hour < 16.5:
+		d = 1.0
+	elif hour < 18.5:
+		d = 1.0 - (hour - 16.5) / 2.0
+	var dd: float = d * d * (3.0 - 2.0 * d)   # smoothstep
+	if _skyscraper_globe_mat != null:
+		_skyscraper_globe_mat.emission = Color(1.0, 0.93, 0.66) * lerp(0.3, 1.0, dd)
+		_skyscraper_globe_mat.emission_energy_multiplier = lerp(0.5, 6.0, dd)
+	var night_sky: Color = Color(0.02, 0.03, 0.08)
+	var day_sky: Color = Color(0.50, 0.68, 0.92)
+	if _skyscraper_dome_mat != null:
+		_skyscraper_dome_mat.albedo_color = night_sky.lerp(day_sky, dd)
+	world_environment.background_color = night_sky.lerp(day_sky, dd)
+	world_environment.ambient_light_energy = lerp(0.12, 0.7, dd)
+	world_environment.ambient_light_color = Color(0.07, 0.08, 0.13).lerp(Color(0.58, 0.64, 0.72), dd)
+	world_environment.fog_density = 0.0
+	sun_light.light_energy = lerp(0.05, 2.0, dd)
+	sun_light.light_color = Color(1.0, 0.96, 0.88)
+	sun_light.rotation_degrees = Vector3(-78.0, -28.0, 0.0)   # globe high overhead
 
 
 func _set_skyscraper_glass_opaque(opaque: bool) -> void:
@@ -3575,6 +3611,9 @@ func _update_day_night_cycle() -> void:
 	if sun_light == null or world_environment == null:
 		return
 	if _is_current_map_moon() or _is_current_map_water() or _is_current_map_cave():
+		return
+	if _is_current_map_skyscraper():
+		_update_skyscraper_daynight()
 		return
 
 	var t: float = _cycle_time / CYCLE_LENGTH
@@ -5138,6 +5177,10 @@ var _skyscraper_visible_floor: int = -999
 # material we retint.
 var _skyscraper_glass_mat: StandardMaterial3D = null
 var _skyscraper_outside: bool = false
+# Day/night: the roof globe-sun and the sky dome brighten through the morning and dim toward
+# evening, driven by the shared _cycle_time.
+var _skyscraper_globe_mat: StandardMaterial3D = null
+var _skyscraper_dome_mat: StandardMaterial3D = null
 # Elevator: the car stands at (0,-9) on every storey; pressing E inside rides to the next stop
 # (lobby, gate storeys, top), so the upper gates don't mean a 50-floor stair climb.
 var _skyscraper_elevator_dests: Array = []
