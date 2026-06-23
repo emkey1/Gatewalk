@@ -3171,6 +3171,11 @@ func _cache_skyscraper_floors() -> void:
 	if globe is MeshInstance3D:
 		_skyscraper_globe_mat = (globe as MeshInstance3D).material_override as StandardMaterial3D
 	_skyscraper_sun_omni = sky.get_node_or_null("Outside/GlobeLight") as OmniLight3D
+	_skyscraper_beacons = sky.get_node_or_null("Envelope/Crown/Beacons") as Node3D
+	_skyscraper_window_mat = null
+	var night_win: Node = sky.get_node_or_null("Envelope/NightWindows")
+	if night_win is MeshInstance3D:
+		_skyscraper_window_mat = (night_win as MeshInstance3D).material_override as StandardMaterial3D
 	var dome: Node = sky.get_node_or_null("Outside/SkyDome")
 	if dome is MeshInstance3D:
 		_skyscraper_dome_mat = (dome as MeshInstance3D).material_override as StandardMaterial3D
@@ -3268,6 +3273,11 @@ func _update_skyscraper_daynight() -> void:
 		_skyscraper_sun_omni.light_color = Color(1.0, 0.95, 0.85)
 	if sun_light != null:
 		sun_light.visible = false
+	# Windows glow as it gets dark (off at midday, full at night), and the aviation beacons blink.
+	if _skyscraper_window_mat != null:
+		_skyscraper_window_mat.emission_energy_multiplier = lerp(3.2, 0.0, dd)
+	if is_instance_valid(_skyscraper_beacons):
+		_skyscraper_beacons.visible = (Time.get_ticks_msec() % 1300) < 450
 
 
 func _set_skyscraper_glass_opaque(opaque: bool) -> void:
@@ -5250,6 +5260,9 @@ var _skyscraper_outside: bool = false
 var _skyscraper_globe_mat: StandardMaterial3D = null
 var _skyscraper_dome_mat: StandardMaterial3D = null
 var _skyscraper_sun_omni: OmniLight3D = null
+# Crown aviation beacons (Main blinks them) and the lit-window material (Main glows it at night).
+var _skyscraper_beacons: Node3D = null
+var _skyscraper_window_mat: StandardMaterial3D = null
 # Grassland re-entry portals: step into one to warp back into the tower on a random storey.
 var _skyscraper_return_gates: Array = []
 var _skyscraper_return_cooldown_msec: int = 0

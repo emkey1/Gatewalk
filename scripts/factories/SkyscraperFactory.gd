@@ -68,6 +68,10 @@ static func build(parent: Node3D, world_seed: int) -> Array:
 	# Grand base: a wider stone podium, an entrance canopy, and a forecourt (fountain, flagpoles,
 	# lamps, planters) seated on the bowl ground around the entrance.
 	_grand_base(env, half)
+	# Stepped crown + antenna spire with blinking aviation beacons (the top setback tier), and
+	# scattered windows that light up at night. Main animates the beacons + window glow.
+	_build_crown(env, top_y)
+	_night_windows(env, half, top_y, world_seed)
 
 	# --- Per-storey groups (Floor_<n>) so Main can hide every storey except the player's: with
 	# opaque windows you can never see another floor, so only one needs to draw. Floor_n carries
@@ -636,6 +640,88 @@ static func _planter(parent: Node3D, cy: float, x: float, z: float) -> void:
 	var gy: float = _ground_y(cy, x, z)
 	_box(parent, Vector3(x, gy + 0.6, z), Vector3(5.0, 1.2, 3.0), _mat(Color(0.70, 0.66, 0.58), 0.9, 0.0), true)
 	_box(parent, Vector3(x, gy + 1.6, z), Vector3(4.4, 1.0, 2.4), _mat(Color(0.20, 0.40, 0.18), 0.9, 0.0), false)
+
+
+# --- Stepped Art-Deco crown + spire (the top setback tier), rising from the bulkhead at the deck
+# centre — narrow enough to clear the rooftop courts. Tops out in an antenna mast with red aviation
+# beacons that Main blinks. -----------------------------------------------------------------------
+static func _build_crown(env: Node3D, top_y: float) -> void:
+	var stone := _mat(Color(0.78, 0.74, 0.66), 0.85, 0.0)
+	var metal := _mat(Color(0.55, 0.57, 0.62), 0.4, 0.6)
+	var crown := Node3D.new()
+	crown.name = "Crown"
+	env.add_child(crown)
+	var y0: float = top_y + 3.0   # sit on the bulkhead cap
+	var y: float = y0
+	for tier in [[9.0, 6.0], [6.5, 5.0], [4.6, 4.0], [3.0, 3.5]]:
+		var r: float = float(tier[0])
+		var h: float = float(tier[1])
+		_box(crown, Vector3(0.0, y + h * 0.5, 0.0), Vector3(r * 2.0, h, r * 2.0), stone, false)
+		for sx in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				_box(crown, Vector3(sx * (r - 0.3), y + h * 0.5, sz * (r - 0.3)), Vector3(0.6, h + 0.7, 0.6), stone, false)
+		y += h
+	_box(crown, Vector3(0.0, y + 2.0, 0.0), Vector3(2.4, 4.0, 2.4), stone, false)
+	y += 4.0
+	_cyl(crown, Vector3(0.0, y + 6.0, 0.0), 0.5, 12.0, metal, false)    # antenna mast
+	_cyl(crown, Vector3(0.0, y + 12.5, 0.0), 0.15, 1.5, metal, false)   # mast tip
+	var mast_top: float = y + 13.2
+	var beacons := Node3D.new()
+	beacons.name = "Beacons"
+	crown.add_child(beacons)
+	_beacon(beacons, Vector3(0.0, mast_top, 0.0))
+	for sx2 in [-1.0, 1.0]:
+		for sz2 in [-1.0, 1.0]:
+			_beacon(beacons, Vector3(sx2 * 8.6, y0 + 6.2, sz2 * 8.6))
+
+
+static func _beacon(parent: Node3D, pos: Vector3) -> void:
+	var b := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.5
+	sm.height = 1.0
+	sm.radial_segments = 8
+	sm.rings = 4
+	b.mesh = sm
+	b.position = pos
+	b.material_override = _emissive_mat(Color(1.0, 0.12, 0.12))
+	parent.add_child(b)
+	var light := OmniLight3D.new()
+	light.position = pos
+	light.light_color = Color(1.0, 0.2, 0.2)
+	light.light_energy = 3.0
+	light.omni_range = 16.0
+	light.shadow_enabled = false
+	parent.add_child(light)
+
+
+# --- Lit windows: a MultiMesh of small panes scattered over the facade bays that glow at night
+# (Main animates the shared material's emission with the day/night cycle). One draw call. ---------
+static func _night_windows(env: Node3D, half: float, top_y: float, world_seed: int) -> void:
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "skywindows", 1))
+	var pane := BoxMesh.new()
+	pane.size = Vector3(2.4, 2.6, 0.1)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.10, 0.10, 0.12)   # blends with the dark glass by day
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.85, 0.55)
+	mat.emission_energy_multiplier = 0.0          # Main turns this up at night
+	var across := Basis().rotated(Vector3.UP, PI * 0.5)
+	var p: float = half + 0.22
+	var tf: Array = []
+	var floors: int = int(top_y / STORY_H)
+	for f in range(1, floors):
+		var wy: float = float(f) * STORY_H + STORY_H * 0.5
+		for b in [-52.0, -39.0, -26.0, -13.0, 0.0, 13.0, 26.0, 39.0, 52.0]:
+			if rng.randf() < 0.32:
+				tf.append(Transform3D(Basis(), Vector3(b, wy, p)))
+			if rng.randf() < 0.32:
+				tf.append(Transform3D(Basis(), Vector3(b, wy, -p)))
+			if rng.randf() < 0.32:
+				tf.append(Transform3D(across, Vector3(p, wy, b)))
+			if rng.randf() < 0.32:
+				tf.append(Transform3D(across, Vector3(-p, wy, b)))
+	MultiMeshScatter.build(env, "NightWindows", pane, mat, tf)
 
 
 # --- Compact switchback for one storey in the central stairwell (real-proportioned solid
