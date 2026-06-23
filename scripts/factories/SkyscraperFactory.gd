@@ -508,10 +508,10 @@ static func _glass_mat() -> StandardMaterial3D:
 	# flips this same shared material to opaque mirror glass whenever you step outside, so the
 	# whole interior can stop rendering (see Main._update_skyscraper_inside_outside).
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.58, 0.72, 0.82, 0.16)
+	m.albedo_color = Color(0.58, 0.72, 0.82, 0.13)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.roughness = 0.08
-	m.metallic = 0.25
+	m.roughness = 0.1
+	m.metallic = 0.05   # low reflectivity so the globe doesn't ghost in the panes
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
@@ -561,7 +561,7 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 	dome.mesh = sphere
 	dome.position = Vector3(0.0, SPHERE_CY, 0.0)
 	var sky := StandardMaterial3D.new()
-	sky.albedo_color = Color(0.50, 0.68, 0.92)
+	sky.albedo_color = Color(0.46, 0.56, 0.48)   # hazy distant grass, not blue sky
 	sky.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	sky.cull_mode = BaseMaterial3D.CULL_FRONT
 	dome.material_override = sky

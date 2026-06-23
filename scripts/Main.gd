@@ -3238,9 +3238,9 @@ func _update_skyscraper_daynight() -> void:
 	var dd: float = d * d * (3.0 - 2.0 * d)   # smoothstep
 	if _skyscraper_globe_mat != null:
 		_skyscraper_globe_mat.emission = Color(1.0, 0.93, 0.66) * lerp(0.3, 1.0, dd)
-		_skyscraper_globe_mat.emission_energy_multiplier = lerp(0.5, 6.0, dd)
-	var night_sky: Color = Color(0.02, 0.03, 0.08)
-	var day_sky: Color = Color(0.50, 0.68, 0.92)
+		_skyscraper_globe_mat.emission_energy_multiplier = lerp(0.4, 3.2, dd)
+	var night_sky: Color = Color(0.03, 0.05, 0.06)
+	var day_sky: Color = Color(0.46, 0.56, 0.48)   # hazy distant grass, not blue sky
 	if _skyscraper_dome_mat != null:
 		_skyscraper_dome_mat.albedo_color = night_sky.lerp(day_sky, dd)
 	world_environment.background_color = night_sky.lerp(day_sky, dd)
@@ -3263,9 +3263,9 @@ func _set_skyscraper_glass_opaque(opaque: bool) -> void:
 		m.roughness = 0.12
 	else:
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		m.albedo_color = Color(0.58, 0.72, 0.82, 0.16)
-		m.metallic = 0.25
-		m.roughness = 0.08
+		m.albedo_color = Color(0.58, 0.72, 0.82, 0.13)
+		m.metallic = 0.05
+		m.roughness = 0.1
 
 
 # Ride the central elevator: stand in the car (around (0,-9)) and press E to jump to the next
