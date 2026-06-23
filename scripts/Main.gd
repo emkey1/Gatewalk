@@ -3158,6 +3158,7 @@ func _cache_skyscraper_floors() -> void:
 	# Grab the shared curtain-wall material (so we can flip the whole envelope clear<->opaque).
 	_skyscraper_glass_mat = null
 	_skyscraper_outside = false
+	_skyscraper_glass_opaque = false
 	var glass_group: Node = sky.get_node_or_null("Envelope/Glass")
 	if glass_group != null:
 		for body in glass_group.get_children():
@@ -3214,12 +3215,26 @@ func _update_skyscraper_floor_culling() -> void:
 	elif not _skyscraper_outside and clearly_out:
 		_set_skyscraper_world_mode(player, true)
 
+	# Glass opacity is decoupled from the gravity mode and flips right at the glass line (~60), with
+	# hysteresis: step out through the door and the curtain wall goes opaque (so the empty culled
+	# floors stay hidden and the tower reads solid), while the open doorway still shows the lobby.
+	if not _skyscraper_glass_opaque and reach > 61.0:
+		_skyscraper_glass_opaque = true
+		_set_skyscraper_glass_opaque(true)
+	elif _skyscraper_glass_opaque and reach < 59.0:
+		_skyscraper_glass_opaque = false
+		_set_skyscraper_glass_opaque(false)
+
 	if _skyscraper_outside:
-		if _skyscraper_visible_floor != -1:
-			_skyscraper_visible_floor = -1
-			for node in _skyscraper_floor_nodes:
-				if is_instance_valid(node):
-					(node as Node3D).visible = false
+		# Out on the grass: hide the upper floors, but keep the lobby (0-2) drawn so the open front
+		# doors show a populated interior from any distance — and only through the door (the rest of
+		# the curtain wall is opaque).
+		if _skyscraper_visible_floor != -2:
+			_skyscraper_visible_floor = -2
+			for n in range(_skyscraper_floor_nodes.size()):
+				var lob: Node3D = _skyscraper_floor_nodes[n] as Node3D
+				if is_instance_valid(lob):
+					lob.visible = (n <= 2)
 		return
 
 	var pf: int = clampi(int(floor(p.y / SkyscraperFactory.STORY_H)), 0, _skyscraper_floor_nodes.size() - 1)
@@ -3232,11 +3247,11 @@ func _update_skyscraper_floor_culling() -> void:
 			node2.visible = (n >= pf - 1 and n <= pf + 2)
 
 
-# Switch the skyscraper interior/exterior state: glass clarity, floor culling, and the player's
-# gravity mode (spherical hollow-planet outside; normal down-gravity inside the tower).
+# Switch the skyscraper interior/exterior state: floor culling and the player's gravity mode
+# (spherical hollow-planet outside; normal down-gravity inside the tower). Glass opacity is handled
+# separately (it flips at the glass line, not this wider gravity boundary).
 func _set_skyscraper_world_mode(player: CharacterBody3D, outside: bool) -> void:
 	_skyscraper_outside = outside
-	_set_skyscraper_glass_opaque(outside)
 	_skyscraper_visible_floor = -999
 	if player.has_method("set_spherical_mode"):
 		player.call("set_spherical_mode", outside, SkyscraperFactory._world_center())
@@ -5256,6 +5271,9 @@ var _skyscraper_visible_floor: int = -999
 # material we retint.
 var _skyscraper_glass_mat: StandardMaterial3D = null
 var _skyscraper_outside: bool = false
+# Glass opacity is tracked separately from the gravity mode: it flips right at the glass line so the
+# tower looks solid from the forecourt/grass, while the always-drawn lobby still shows through the door.
+var _skyscraper_glass_opaque: bool = false
 # Day/night: the roof globe-sun and the sky dome brighten through the morning and dim toward
 # evening, driven by the shared _cycle_time.
 var _skyscraper_globe_mat: StandardMaterial3D = null
