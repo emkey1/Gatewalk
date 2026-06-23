@@ -3352,7 +3352,9 @@ func _keep_player_inside_skyscraper() -> void:
 		# On the grass sphere: if a clip pushes the player through the shell, pull them back onto it.
 		var center: Vector3 = SkyscraperFactory._world_center()
 		if (p - center).length() > SkyscraperFactory.WORLD_R + 4.0:
-			player.global_position = center + (p - center).normalized() * (SkyscraperFactory.WORLD_R - 1.5)
+			# Re-seat well inside the hill peaks (which push up to ~12 m inward); outward gravity then
+			# settles the player back onto the surface instead of burying them in a hill.
+			player.global_position = center + (p - center).normalized() * (SkyscraperFactory.WORLD_R - 16.0)
 			player.velocity = Vector3.ZERO
 	else:
 		# Inside the tower (normal gravity): catch falls through the floor.

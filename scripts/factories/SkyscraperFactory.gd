@@ -898,7 +898,13 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 	out.name = "Outside"
 	root.add_child(out)
 
-	var grass := _mat(Color(0.28, 0.48, 0.24), 0.95, 0.0)
+	# One noise field drives both the rolling hills and the biome colours (seeded for determinism).
+	var terrain := FastNoiseLite.new()
+	terrain.seed = world_seed
+	terrain.frequency = 0.006
+	terrain.fractal_octaves = 3
+	var grass := _mat(Color.WHITE, 0.95, 0.0)   # white base; biome vertex colours supply the hue
+	grass.vertex_color_use_as_albedo = true
 	grass.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var bark := _mat(Color(0.34, 0.24, 0.16), 0.9, 0.0)
 	var leaf := _mat(Color(0.19, 0.42, 0.18), 0.85, 0.0)
@@ -907,7 +913,7 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 	# (r~62): under the tower it's below the base slab (hidden); outside it rises away smoothly.
 	var center := _world_center()
 
-	_build_world_sphere(out, grass, center, WORLD_R)
+	_build_world_sphere(out, grass, center, WORLD_R, terrain)
 
 	# Globe-sun floating at the sphere's centre. A single point source there lights every wall
 	# evenly — all walls are equidistant from the centre — instead of a distant directional sun that
@@ -931,13 +937,15 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 	sun.shadow_enabled = false
 	out.add_child(sun)
 
-	# Trees all over the inner surface, pointing inward (toward the centre = local "up"). Skip the
-	# very bottom where the tower is.
-	for i in range(90):
+	# Trees all over the inner surface, pointing inward (toward the centre = local "up"), sitting on
+	# the displaced hill surface. Three leaf tints for variety. Skip the very bottom (the tower).
+	var leaves: Array = [leaf, _mat(Color(0.26, 0.50, 0.22), 0.85, 0.0), _mat(Color(0.42, 0.50, 0.20), 0.85, 0.0)]
+	for i in range(120):
 		var dir := _rand_sphere_dir(rng)
-		if dir.y < -0.86:
+		if dir.y < -0.84:
 			continue
-		_place_tree(out, center + dir * (WORLD_R - 1.0), -dir, rng.randf_range(3.5, 6.5), rng.randf_range(2.2, 3.8), bark, leaf, true)
+		var tpos: Vector3 = center + dir * (WORLD_R - _terrain_height(terrain, dir) - 0.3)
+		_place_tree(out, tpos, -dir, rng.randf_range(3.5, 6.5), rng.randf_range(2.2, 3.8), bark, leaves[rng.randi_range(0, 2)], true)
 
 	# Ponds on the lower surface (flush with the curve).
 	for i in range(8):
@@ -953,7 +961,7 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 		cm.bottom_radius = rad
 		cm.height = 0.3
 		pond.mesh = cm
-		pond.transform = Transform3D(_basis_from_up(-pdir), center + pdir * (WORLD_R - 0.1))
+		pond.transform = Transform3D(_basis_from_up(-pdir), center + pdir * (WORLD_R - _terrain_height(terrain, pdir) - 0.1))
 		pond.material_override = water
 		out.add_child(pond)
 
@@ -966,7 +974,7 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 		gdir = gdir.normalized()
 		var g := Node3D.new()
 		g.name = "ReturnGate_" + str(i)
-		g.transform = Transform3D(_basis_from_up(-gdir), center + gdir * (WORLD_R - 0.1))
+		g.transform = Transform3D(_basis_from_up(-gdir), center + gdir * (WORLD_R - _terrain_height(terrain, gdir) - 0.1))
 		out.add_child(g)
 		_box(g, Vector3(-1.7, 2.1, 0.0), Vector3(0.4, 4.2, 0.4), post_mat, true)
 		_box(g, Vector3(1.7, 2.1, 0.0), Vector3(0.4, 4.2, 0.4), post_mat, true)
@@ -986,9 +994,91 @@ static func _build_outside(root: Node3D, world_seed: int, half: float, top_y: fl
 		lamp.shadow_enabled = false
 		g.add_child(lamp)
 
+	# Low-poly density (rocks + bushes) and a couple of landmarks for interest and orientation.
+	_scatter_props(out, rng, center, terrain)
+	var lc := _rand_sphere_dir(rng)
+	lc.y = -0.2
+	lc = lc.normalized()
+	_stone_circle(out, center + lc * (WORLD_R - _terrain_height(terrain, lc)), -lc)
+	var lo := _rand_sphere_dir(rng)
+	lo.y = 0.18
+	lo = lo.normalized()
+	_obelisk(out, center + lo * (WORLD_R - _terrain_height(terrain, lo)), -lo)
 
-# A UV sphere with inward-facing normals (so the inside is lit) + trimesh collision.
-static func _build_world_sphere(parent: Node3D, grass_mat: Material, center: Vector3, radius: float) -> void:
+
+# Low-poly scatter (half-buried rocks, then bushes) across the inner surface as two MultiMeshes —
+# one draw call each — for density without a polygon blow-up.
+static func _scatter_props(out: Node3D, rng: StableRng, center: Vector3, noise: FastNoiseLite) -> void:
+	var rock_mesh := SphereMesh.new()
+	rock_mesh.radius = 1.0
+	rock_mesh.height = 1.6
+	rock_mesh.radial_segments = 8
+	rock_mesh.rings = 4
+	var rock_tf: Array = []
+	var rock_col: Array = []
+	for i in range(150):
+		var dir := _rand_sphere_dir(rng)
+		if dir.y < -0.82:
+			continue
+		var up := -dir
+		var pos := center + dir * (WORLD_R - _terrain_height(noise, dir))
+		var s := rng.randf_range(0.6, 1.9)
+		var b := _basis_from_up(up).rotated(up, rng.randf_range(0.0, TAU)).scaled(Vector3(s * rng.randf_range(0.8, 1.3), s * rng.randf_range(0.5, 0.8), s * rng.randf_range(0.8, 1.3)))
+		rock_tf.append(Transform3D(b, pos))
+		rock_col.append(Color(0.50, 0.50, 0.52).lerp(Color(0.38, 0.40, 0.40), rng.randf()))
+	MultiMeshScatter.build(out, "Rocks", rock_mesh, MultiMeshScatter.instance_color_material(0.95), rock_tf, rock_col)
+
+	var bush_mesh := SphereMesh.new()
+	bush_mesh.radius = 1.0
+	bush_mesh.height = 1.8
+	bush_mesh.radial_segments = 10
+	bush_mesh.rings = 5
+	var bush_tf: Array = []
+	var bush_col: Array = []
+	for i in range(130):
+		var dir2 := _rand_sphere_dir(rng)
+		if dir2.y < -0.8:
+			continue
+		var up2 := -dir2
+		var s2 := rng.randf_range(0.7, 1.5)
+		var pos2 := center + dir2 * (WORLD_R - _terrain_height(noise, dir2) - s2 * 0.5)
+		var b2 := _basis_from_up(up2).rotated(up2, rng.randf_range(0.0, TAU)).scaled(Vector3(s2 * rng.randf_range(0.9, 1.3), s2, s2 * rng.randf_range(0.9, 1.3)))
+		bush_tf.append(Transform3D(b2, pos2))
+		bush_col.append(Color(0.20, 0.42, 0.18).lerp(Color(0.34, 0.50, 0.22), rng.randf()))
+	MultiMeshScatter.build(out, "Bushes", bush_mesh, MultiMeshScatter.instance_color_material(0.9), bush_tf, bush_col)
+
+
+# A ring of standing stones with a central altar, oriented so local +Y = up (inward toward centre).
+static func _stone_circle(parent: Node3D, pos: Vector3, up: Vector3) -> void:
+	var stone := _mat(Color(0.52, 0.52, 0.54), 0.95, 0.0)
+	var node := Node3D.new()
+	node.transform = Transform3D(_basis_from_up(up), pos)
+	parent.add_child(node)
+	for i in range(9):
+		var a: float = TAU * float(i) / 9.0
+		_box(node, Vector3(cos(a) * 7.0, 2.4, sin(a) * 7.0), Vector3(1.4, 4.8, 1.0), stone, true)
+	_box(node, Vector3(0.0, 0.4, 0.0), Vector3(3.0, 0.8, 2.0), stone, true)
+
+
+# A tall stepped/tapered obelisk on a plinth — a far-visible landmark. Local +Y = up (inward).
+static func _obelisk(parent: Node3D, pos: Vector3, up: Vector3) -> void:
+	var stone := _mat(Color(0.58, 0.53, 0.44), 0.85, 0.1)
+	var node := Node3D.new()
+	node.transform = Transform3D(_basis_from_up(up), pos)
+	parent.add_child(node)
+	_box(node, Vector3(0.0, 0.7, 0.0), Vector3(4.5, 1.4, 4.5), stone, true)
+	_box(node, Vector3(0.0, 1.7, 0.0), Vector3(3.0, 0.6, 3.0), stone, true)
+	for i in range(6):
+		var w: float = lerpf(2.4, 0.7, float(i) / 6.0)
+		_box(node, Vector3(0.0, 2.6 + float(i) * 2.0, 0.0), Vector3(w, 2.0, w), stone, true)
+	_box(node, Vector3(0.0, 15.0, 0.0), Vector3(0.7, 1.0, 0.7), stone, true)
+
+
+# A UV sphere displaced into gentle rolling hills (inward, flattened near the tower) with biome
+# vertex colours and finite-difference inward normals (so hills self-shade under the central sun),
+# plus trimesh collision matching the displaced surface. Hills only push inward (toward centre), so
+# the player never gets farther from centre than the base radius and containment stays simple.
+static func _build_world_sphere(parent: Node3D, grass_mat: Material, center: Vector3, radius: float, noise: FastNoiseLite) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var lat_n: int = 40
@@ -999,16 +1089,12 @@ static func _build_world_sphere(parent: Node3D, grass_mat: Material, center: Vec
 		for j in range(lon_n):
 			var p0: float = TAU * float(j) / float(lon_n)
 			var p1: float = TAU * float(j + 1) / float(lon_n)
-			var d00 := _sph_dir(t0, p0)
-			var d01 := _sph_dir(t0, p1)
-			var d10 := _sph_dir(t1, p0)
-			var d11 := _sph_dir(t1, p1)
-			_sphere_vert(st, center, radius, d00)
-			_sphere_vert(st, center, radius, d11)
-			_sphere_vert(st, center, radius, d10)
-			_sphere_vert(st, center, radius, d00)
-			_sphere_vert(st, center, radius, d01)
-			_sphere_vert(st, center, radius, d11)
+			_emit_sphere_vert(st, center, radius, noise, t0, p0)
+			_emit_sphere_vert(st, center, radius, noise, t1, p1)
+			_emit_sphere_vert(st, center, radius, noise, t1, p0)
+			_emit_sphere_vert(st, center, radius, noise, t0, p0)
+			_emit_sphere_vert(st, center, radius, noise, t0, p1)
+			_emit_sphere_vert(st, center, radius, noise, t1, p1)
 	var mesh := st.commit()
 	var mi := MeshInstance3D.new()
 	mi.name = "WorldSphere"
@@ -1020,6 +1106,45 @@ static func _build_world_sphere(parent: Node3D, grass_mat: Material, center: Vec
 	cs.shape = mesh.create_trimesh_shape()
 	body.add_child(cs)
 	parent.add_child(body)
+
+
+# Inward hill height at a surface direction: 0..12 m toward the centre, faded to 0 near the bottom
+# so the tower's ground seam stays flat.
+static func _terrain_height(noise: FastNoiseLite, dir: Vector3) -> float:
+	var atten: float = smoothstep(-0.85, -0.5, dir.y)
+	var p: Vector3 = dir * WORLD_R
+	return (noise.get_noise_3d(p.x, p.y, p.z) * 0.5 + 0.5) * 12.0 * atten
+
+
+# Grass tint with sandy clearings from an independent noise channel (read as per-vertex albedo).
+static func _biome_color(noise: FastNoiseLite, dir: Vector3) -> Color:
+	var p: Vector3 = dir * WORLD_R
+	var t: float = noise.get_noise_3d(p.x + 1500.0, p.y - 800.0, p.z + 1500.0)
+	var col: Color = Color(0.23, 0.43, 0.19).lerp(Color(0.43, 0.57, 0.28), clampf(t * 0.6 + 0.5, 0.0, 1.0))
+	if t > 0.5:
+		col = col.lerp(Color(0.70, 0.63, 0.43), clampf((t - 0.5) / 0.5, 0.0, 0.7))
+	return col
+
+
+# One displaced sphere vertex with its biome colour and a finite-difference inward normal.
+static func _emit_sphere_vert(st: SurfaceTool, center: Vector3, radius: float, noise: FastNoiseLite, theta: float, phi: float) -> void:
+	var dir: Vector3 = _sph_dir(theta, phi)
+	var pos: Vector3 = center + dir * (radius - _terrain_height(noise, dir))
+	var eps: float = 0.012
+	var da: Vector3 = _sph_dir(theta + eps, phi)
+	var db: Vector3 = _sph_dir(theta, phi + eps)
+	var pa: Vector3 = center + da * (radius - _terrain_height(noise, da))
+	var pb: Vector3 = center + db * (radius - _terrain_height(noise, db))
+	var n: Vector3 = (pa - pos).cross(pb - pos)
+	if n.length() < 0.0001:
+		n = -dir
+	else:
+		n = n.normalized()
+		if n.dot(center - pos) < 0.0:
+			n = -n
+	st.set_color(_biome_color(noise, dir))
+	st.set_normal(n)
+	st.add_vertex(pos)
 
 
 # Sphere centre: its lower surface passes through ground level (y=0) at r~62 (just outside the
@@ -1054,6 +1179,8 @@ static func _place_tree(parent: Node3D, pos: Vector3, up_dir: Vector3, th: float
 	var fm := SphereMesh.new()
 	fm.radius = fr
 	fm.height = fr * 2.0
+	fm.radial_segments = 10   # low-poly canopy: ~120 tris, not the 4k default
+	fm.rings = 5
 	foliage.mesh = fm
 	foliage.position = Vector3(0.0, th + fr * 0.4, 0.0)
 	foliage.material_override = leaf
