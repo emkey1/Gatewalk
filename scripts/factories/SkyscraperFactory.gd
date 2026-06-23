@@ -172,8 +172,25 @@ static func _build_rooftop_courts(parent: Node3D, top_y: float) -> void:
 	_racquet_court(parent, top_y, 24.0, -15.0, 23.8, 11.0, 1.07, tennis, line, net_mat, post_mat)
 	_racquet_court(parent, top_y, -22.0, 13.0, 13.4, 6.1, 0.86, pickle, line, net_mat, post_mat)
 	_racquet_court(parent, top_y, -22.0, -13.0, 13.4, 6.1, 0.86, pickle, line, net_mat, post_mat)
-	_shuffleboard_court(parent, top_y, -46.0, 14.0, 2.5, 14.0, shuffle, line)
-	_shuffleboard_court(parent, top_y, -46.0, -14.0, 2.5, 14.0, shuffle, line)
+	# Regulation scale: tennis 23.77x10.97, pickleball 13.41x6.10, shuffleboard 12.2x1.83.
+	_shuffleboard_court(parent, top_y, -46.0, 14.0, 1.9, 12.2, shuffle, line)
+	_shuffleboard_court(parent, top_y, -46.0, -14.0, 1.9, 12.2, shuffle, line)
+	# Courtside furniture: umpire chairs by the tennis nets, benches in the gaps.
+	_umpire_chair(parent, top_y, 24.0, 21.8)
+	_umpire_chair(parent, top_y, 24.0, -21.8)
+	_court_bench(parent, top_y, 9.0, 15.0, false)
+	_court_bench(parent, top_y, 9.0, -15.0, false)
+	_court_bench(parent, top_y, -13.0, 13.0, false)
+	_court_bench(parent, top_y, -13.0, -13.0, false)
+	# Pool & sauna lounge on the open far -z deck (pool basin sits entirely above the roof).
+	_pool(parent, top_y, -4.0, -38.0, 18.0, 14.0)
+	_sauna(parent, top_y, 16.0, -38.0)
+	_lounger(parent, top_y, -12.0, -28.0)
+	_lounger(parent, top_y, -6.0, -28.0)
+	_lounger(parent, top_y, 0.0, -28.0)
+	_lounger(parent, top_y, 6.0, -28.0)
+	_umbrella(parent, top_y, -9.0, -28.0)
+	_umbrella(parent, top_y, 3.0, -28.0)
 
 
 # A flat colour court surface, lifted just above the deck slab to avoid z-fighting.
@@ -228,6 +245,114 @@ static func _shuffleboard_court(parent: Node3D, top_y: float, cx: float, cz: flo
 		_court_line(parent, cx, zz, w, top_y, true, line)
 
 
+# A simple park bench (seat + backrest + end legs). along_x: bench runs along x; else along z.
+static func _court_bench(parent: Node3D, top_y: float, cx: float, cz: float, along_x: bool) -> void:
+	var wood := _mat(Color(0.46, 0.34, 0.22), 0.9, 0.0)
+	var sl: float = 1.8
+	var sx: float = sl if along_x else 0.5
+	var sz: float = 0.5 if along_x else sl
+	_box(parent, Vector3(cx, top_y + 0.45, cz), Vector3(sx, 0.1, sz), wood, true)
+	var back: Vector3 = Vector3(sl, 0.5, 0.1) if along_x else Vector3(0.1, 0.5, sl)
+	var bdx: float = 0.0 if along_x else -0.2
+	var bdz: float = -0.2 if along_x else 0.0
+	_box(parent, Vector3(cx + bdx, top_y + 0.75, cz + bdz), back, wood, true)
+	for s in [-1.0, 1.0]:
+		var lx: float = cx + (s * sl * 0.4 if along_x else 0.0)
+		var lz: float = cz + (0.0 if along_x else s * sl * 0.4)
+		_box(parent, Vector3(lx, top_y + 0.225, lz), Vector3(0.1, 0.45, 0.1), wood, true)
+
+
+# Tall tennis umpire chair: four legs up to a seat ~1.8 m, a seat, a backrest, and front rungs.
+static func _umpire_chair(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
+	var metal := _mat(Color(0.55, 0.56, 0.60), 0.5, 0.5)
+	var seat := _mat(Color(0.20, 0.30, 0.55), 0.8, 0.0)
+	for sx in [-0.5, 0.5]:
+		for sz in [-0.5, 0.5]:
+			_box(parent, Vector3(cx + sx, top_y + 0.9, cz + sz), Vector3(0.1, 1.8, 0.1), metal, true)
+	_box(parent, Vector3(cx, top_y + 1.8, cz), Vector3(1.3, 0.12, 1.0), seat, true)
+	_box(parent, Vector3(cx, top_y + 2.2, cz - 0.45), Vector3(1.3, 0.8, 0.12), seat, true)
+	for i in range(3):
+		_box(parent, Vector3(cx, top_y + 0.5 + 0.4 * float(i), cz + 0.5), Vector3(1.0, 0.06, 0.06), metal, true)
+
+
+# Poolside sun lounger: a padded deck on short legs with a raised head section.
+static func _lounger(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
+	var frame := _mat(Color(0.85, 0.86, 0.88), 0.6, 0.2)
+	var pad := _mat(Color(0.90, 0.55, 0.30), 0.9, 0.0)
+	_box(parent, Vector3(cx, top_y + 0.3, cz), Vector3(0.7, 0.08, 1.9), pad, true)
+	_box(parent, Vector3(cx, top_y + 0.55, cz - 0.75), Vector3(0.7, 0.08, 0.5), pad, true)
+	for s in [-1.0, 1.0]:
+		_box(parent, Vector3(cx + s * 0.3, top_y + 0.13, cz), Vector3(0.06, 0.26, 1.7), frame, true)
+
+
+# Patio umbrella: a centre pole with a two-tier canopy for shade.
+static func _umbrella(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
+	var pole := _mat(Color(0.5, 0.5, 0.52), 0.5, 0.4)
+	var canopy := _mat(Color(0.90, 0.40, 0.30), 0.9, 0.0)
+	_box(parent, Vector3(cx, top_y + 1.2, cz), Vector3(0.12, 2.4, 0.12), pole, true)
+	_box(parent, Vector3(cx, top_y + 2.45, cz), Vector3(3.2, 0.1, 3.2), canopy, false)
+	_box(parent, Vector3(cx, top_y + 2.55, cz), Vector3(1.8, 0.1, 1.8), canopy, false)
+
+
+# Above-ground swimming pool: a walled basin standing ON the roof — every part sits at or above
+# top_y, so nothing dips into the storey below. Walls + tiled floor + contained water + coping rim
+# + entry steps.
+static func _pool(parent: Node3D, top_y: float, cx: float, cz: float, w: float, d: float) -> void:
+	var wall := _mat(Color(0.86, 0.88, 0.90), 0.6, 0.05)
+	var tile := _mat(Color(0.34, 0.66, 0.80), 0.4, 0.1)
+	var coping := _mat(Color(0.80, 0.81, 0.84), 0.6, 0.0)
+	var water := _mat(Color(0.27, 0.62, 0.80), 0.05, 0.25)
+	water.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	water.albedo_color = Color(0.27, 0.62, 0.80, 0.6)
+	var wh: float = 0.95
+	var t: float = 0.25
+	var hw: float = w * 0.5
+	var hd: float = d * 0.5
+	_box(parent, Vector3(cx, top_y + wh * 0.5, cz + hd), Vector3(w + t * 2.0, wh, t), wall, true)
+	_box(parent, Vector3(cx, top_y + wh * 0.5, cz - hd), Vector3(w + t * 2.0, wh, t), wall, true)
+	_box(parent, Vector3(cx + hw, top_y + wh * 0.5, cz), Vector3(t, wh, d), wall, true)
+	_box(parent, Vector3(cx - hw, top_y + wh * 0.5, cz), Vector3(t, wh, d), wall, true)
+	# Tiled floor + contained water, both above the roof (water bottom at top_y+0.1).
+	_box(parent, Vector3(cx, top_y + 0.06, cz), Vector3(w, 0.08, d), tile, false)
+	var wm := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(w - 0.06, wh - 0.25, d - 0.06)
+	wm.mesh = bm
+	wm.position = Vector3(cx, top_y + 0.1 + (wh - 0.25) * 0.5, cz)
+	wm.material_override = water
+	parent.add_child(wm)
+	# Coping rim around the top of the walls.
+	_box(parent, Vector3(cx, top_y + wh + 0.04, cz + hd), Vector3(w + t * 2.4, 0.08, t * 1.8), coping, false)
+	_box(parent, Vector3(cx, top_y + wh + 0.04, cz - hd), Vector3(w + t * 2.4, 0.08, t * 1.8), coping, false)
+	_box(parent, Vector3(cx + hw, top_y + wh + 0.04, cz), Vector3(t * 1.8, 0.08, d + t * 2.4), coping, false)
+	_box(parent, Vector3(cx - hw, top_y + wh + 0.04, cz), Vector3(t * 1.8, 0.08, d + t * 2.4), coping, false)
+	# Entry steps up the outside of the +z wall.
+	for i in range(3):
+		_box(parent, Vector3(cx, top_y + 0.18 + 0.18 * float(i), cz + hd + 0.6 - 0.35 * float(i)), Vector3(1.6, 0.18, 0.45), coping, true)
+
+
+# Rooftop sauna cabin: a small wood hut with a door facing the pool deck, a roof, an interior bench,
+# a glowing window and a stovepipe.
+static func _sauna(parent: Node3D, top_y: float, cx: float, cz: float) -> void:
+	var wood := _mat(Color(0.44, 0.31, 0.20), 0.9, 0.0)
+	var roof_mat := _mat(Color(0.33, 0.23, 0.15), 0.9, 0.0)
+	var w: float = 5.5
+	var d: float = 5.0
+	var h: float = 2.4
+	_room(parent, cx, cz, w, d, top_y, h, 0, wood, 1.3)
+	_box(parent, Vector3(cx, top_y + h + 0.12, cz), Vector3(w + 0.5, 0.24, d + 0.5), roof_mat, true)
+	_box(parent, Vector3(cx, top_y + 0.45, cz - d * 0.5 + 0.6), Vector3(w - 1.2, 0.12, 0.9), wood, true)
+	_box(parent, Vector3(cx + w * 0.5 - 0.7, top_y + h + 0.8, cz - 1.0), Vector3(0.3, 1.4, 0.3), _mat(Color(0.22, 0.22, 0.24), 0.5, 0.5), true)
+	var glow := _emissive_mat(Color(1.0, 0.62, 0.28))
+	var win := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.9, 0.9, 0.06)
+	win.mesh = bm
+	win.position = Vector3(cx + 1.5, top_y + 1.3, cz + d * 0.5)
+	win.material_override = glow
+	parent.add_child(win)
+
+
 # --- Stairwell shaft walls: back (-z) and the two sides (+-x), full height. Front (+z) is the
 # open entry; you approach the stair from the office floor on that side. ------------------
 static func _stair_walls(parent: Node3D, top_y: float, mat: Material) -> void:
@@ -241,11 +366,14 @@ static func _stair_walls(parent: Node3D, top_y: float, mat: Material) -> void:
 static func _columns(parent: Node3D, half: float, top_y: float, mat: Material) -> void:
 	var reach: float = floorf((half - COL_GRID) / COL_GRID) * COL_GRID
 	var c: float = -reach
+	# Stop the columns just shy of the roof: a full-height column's top face sat exactly on the
+	# walkable deck surface (top_y) and z-fought it. col_h buries the top inside the roof slab.
+	var col_h: float = top_y - 0.2
 	while c <= reach + 0.01:
 		var d: float = -reach
 		while d <= reach + 0.01:
 			if absf(c) > STAIR_HALF + 1.0 or absf(d) > STAIR_HALF + 1.0:
-				_box(parent, Vector3(c, top_y * 0.5, d), Vector3(COL_SIZE, top_y, COL_SIZE), mat, true)
+				_box(parent, Vector3(c, col_h * 0.5, d), Vector3(COL_SIZE, col_h, COL_SIZE), mat, true)
 			d += COL_GRID
 		c += COL_GRID
 
@@ -517,9 +645,10 @@ static func _ceiling_lights(group: Node3D, half: float, fy: float, xf: Array, cf
 static func _floor_sign(group: Node3D, fy: float, number: int) -> void:
 	var txt: String = str(number)
 	# [x, y_offset, z, yaw]: back wall outward face on the solid -z wall (faces the elevator), and
-	# the front. The front sits in the open doorway, so raise it and shift it off-centre toward the
-	# +x jamb so the whole number reads on the wall instead of floating over the stair below.
-	for spec in [[0.0, 2.3, -2.7, PI], [1.3, 3.2, 2.6, 0.0]]:
+	# the front. The front sits in the open doorway, shifted toward the +x jamb (off the open stair)
+	# and at mid-doorway height so the whole number reads on the wall rather than riding up near the
+	# stairwell-wall top.
+	for spec in [[0.0, 2.3, -2.7, PI], [1.3, 2.4, 2.6, 0.0]]:
 		var lbl := Label3D.new()
 		lbl.text = txt
 		lbl.font_size = 200
