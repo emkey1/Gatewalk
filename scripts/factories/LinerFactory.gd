@@ -113,8 +113,8 @@ static func _keel_y(z: float, wl: float) -> float:
 	var deep: float = wl - DRAUGHT
 	if t > 0.55:
 		return lerpf(deep, wl - 1.5, smoothstep(0.0, 1.0, (t - 0.55) / 0.45))
-	if t < -0.60:
-		return lerpf(deep, wl - 3.0, smoothstep(0.0, 1.0, (-t - 0.60) / 0.40))
+	if t < -0.50:
+		return lerpf(deep, wl - 0.8, smoothstep(0.0, 1.0, (-t - 0.50) / 0.50))   # cruiser stern: run sweeps up to the counter
 	return deep
 
 
