@@ -81,19 +81,19 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_anchors(root, wl)
 	_build_interior(root, wl)
 
-	# --- Four exit gates on the open weather decks, clear of deck gear: three on the ~34 m
-	# forecastle (gate 0 by the arrival) and one on the after deck. A small per-seed jitter
-	# keeps them within the clear zones. ---
+	# --- Four exit gates on the open weather decks, within the deck width and clear of deck gear:
+	# one by the arrival on the narrow forecastle, three on the wider after deck (starboard, clear
+	# of the port companionway + mooring). A small per-seed jitter keeps them in the clear zones. ---
 	var gates: Array = []
 	var gate_specs: Array = [
-		[-5.0, SS_FWD * HULL_HALF_LEN + 8.0],
-		[5.0, SS_FWD * HULL_HALF_LEN + 18.0],
-		[-5.0, SS_FWD * HULL_HALF_LEN + 27.0],
-		[5.0, SS_AFT * HULL_HALF_LEN - 4.0],
+		[-4.5, SS_FWD * HULL_HALF_LEN + 6.0],
+		[4.0, SS_AFT * HULL_HALF_LEN - 3.0],
+		[5.0, SS_AFT * HULL_HALF_LEN - 8.0],
+		[4.5, SS_AFT * HULL_HALF_LEN - 13.0],
 	]
 	for spec in gate_specs:
-		var gz: float = float(spec[1]) + rng.randf_range(-1.5, 1.5)
-		var gx: float = float(spec[0]) + rng.randf_range(-1.0, 1.0)
+		var gz: float = float(spec[1]) + rng.randf_range(-1.0, 1.0)
+		var gx: float = float(spec[0]) + rng.randf_range(-0.8, 0.8)
 		gates.append(Vector3(gx, _sheer_y(gz, wl) + 0.05, gz))
 	return gates
 
@@ -349,11 +349,12 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	_build_bridge(root, wl, white, glass, deck)
 
 	# Companionways linking the open decks: up the aft well deck to the Boat deck, on up to
-	# the Sports deck, and a forward flight down to the forecastle. Solid steps the capsule
-	# rounds into a ramp (same approach as the tower/city stairs).
-	_stair_run(root, -6.0, SS_AFT * L - 13.0, SS_AFT * L - 1.5, y_main, y_sun, 4.0, deck)
+	# the Sports deck, and a forward flight to the forecastle. The fore/aft weather decks rise
+	# toward the ends (sheer), so each base sits at the local sheer, not the flat mid-ship deck,
+	# or the stair hangs below the deck it lands on. Solid steps the capsule rounds into a ramp.
+	_stair_run(root, -6.0, SS_AFT * L - 13.0, SS_AFT * L - 1.5, _sheer_y(SS_AFT * L - 13.0, wl), y_sun, 4.0, deck)
 	_stair_run(root, 0.0, BH_AFT * L - 9.0, BH_AFT * L - 1.5, y_sun, y_sports, 3.6, deck)
-	_stair_run(root, 6.0, SS_FWD * L + 13.0, SS_FWD * L + 1.5, y_main, y_sun, 4.0, deck)
+	_stair_run(root, 6.0, SS_FWD * L + 13.0, SS_FWD * L + 1.5, _sheer_y(SS_FWD * L + 13.0, wl), y_sun, 4.0, deck)
 
 
 # Three rows of windows down each long side of the base block: continuous dark glazing
@@ -637,8 +638,10 @@ static func _build_forecastle(parent: Node3D, wl: float) -> void:
 	var buff := _mat(Color(0.80, 0.68, 0.45), 0.5, 0.2)
 	var fc: float = SS_FWD * HULL_HALF_LEN   # forecastle runs from here forward to the stem
 
-	# Cowl ventilators flanking the deck, set well outboard of the starboard companionway.
-	for sx2 in [-10.5, 10.5]:
+	# The bow deck narrows fast toward the stem (half-beam ~7 m at the break to ~1 m near the
+	# stem), so everything sits well inboard and clear of the starboard companionway (x 4..8).
+	# Cowl ventilators.
+	for sx2 in [-3.5, 3.5]:
 		var vz: float = fc + 4.0
 		var vd: float = _sheer_y(vz, wl)
 		_ellipse_cyl(root, Vector3(float(sx2), vd + 1.1, vz), 0.5, 2.2, 1.0, 1.0, white)
@@ -648,26 +651,26 @@ static func _build_forecastle(parent: Node3D, wl: float) -> void:
 	var kz: float = fc + 9.0
 	_mast(root, Vector3(0.0, _sheer_y(kz, wl), kz), 17.0, buff)
 
-	# Breakwater: a low chevron wall pointing forward, throwing spray off the foredeck.
-	var brz: float = fc + 15.0
+	# Breakwater: a low chevron wall pointing forward, forward of the companionway.
+	var brz: float = fc + 16.0
 	var bd: float = _sheer_y(brz, wl)
-	_oriented_box(root, Vector3(-4.5, bd + 0.75, brz), Vector3(0.3, 1.5, 9.0), 0.42, white, true)
-	_oriented_box(root, Vector3(4.5, bd + 0.75, brz), Vector3(0.3, 1.5, 9.0), -0.42, white, true)
+	_oriented_box(root, Vector3(-2.8, bd + 0.75, brz), Vector3(0.3, 1.5, 4.5), 0.42, white, true)
+	_oriented_box(root, Vector3(2.8, bd + 0.75, brz), Vector3(0.3, 1.5, 4.5), -0.42, white, true)
 
 	# Anchor windlass house + two warping drums.
-	var wz: float = fc + 20.0
+	var wz: float = fc + 19.0
 	var wd: float = _sheer_y(wz, wl)
-	_box(root, Vector3(0.0, wd + 0.9, wz), Vector3(6.0, 1.8, 3.5), dark, true)
-	for sx in [-1.7, 1.7]:
+	_box(root, Vector3(0.0, wd + 0.9, wz), Vector3(4.5, 1.8, 3.0), dark, true)
+	for sx in [-1.5, 1.5]:
 		_ellipse_cyl(root, Vector3(float(sx), wd + 2.15, wz), 0.7, 0.7, 1.0, 1.0, grey)
 
 	# Mooring bollards toward the bow.
-	for spec in [[-3.5, fc + 25.0], [3.5, fc + 25.0], [-2.6, fc + 28.0], [2.6, fc + 28.0]]:
+	for spec in [[-2.3, fc + 22.0], [2.3, fc + 22.0], [-1.8, fc + 24.0], [1.8, fc + 24.0]]:
 		var bz: float = float(spec[1])
 		_ellipse_cyl(root, Vector3(float(spec[0]), _sheer_y(bz, wl) + 0.45, bz), 0.32, 0.9, 1.0, 1.0, dark)
 
 	# Jackstaff at the stem.
-	var jz: float = fc + 31.0
+	var jz: float = fc + 30.0
 	_box(root, Vector3(0.0, _sheer_y(jz, wl) + 3.0, jz), Vector3(0.16, 6.0, 0.16), buff, false)
 
 
