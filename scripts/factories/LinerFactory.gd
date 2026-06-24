@@ -348,7 +348,10 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	_deckhouse_tapered(root, SS_AFT * L, SS_FWD * L, y_main, y_sun, white, deck, seaglass, -4.0, wl + 17.4, wl + 18.8)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
 	# so the boat-deck walkways (for the lifeboats) stay open along each side.
-	_deckhouse(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, y_sun, y_sports, white, glass, deck, false)
+	# Sun/boat-deck house above the Promenade: a wide tapered deckhouse with a cabin-window band —
+	# the wedding-cake second tier the funnels rise from — set inboard so the lifeboat walkways stay
+	# open outboard. (Was a narrow ±8 funnel casing, which read as a thin slab.)
+	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.0, wl + 21.1)
 	# Navigating bridge across the forward end of the boat deck, with wing platforms.
 	_build_bridge(root, wl, white, glass, deck)
 
@@ -431,8 +434,8 @@ static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float
 # Deckhouse half-width at z: the amidships cap (SS_HALF_W) but never wider than the hull at
 # that station less a side-deck margin, so the white block follows the fining hull toward the
 # ends instead of overhanging it (which had the superstructure jutting over the water).
-static func _house_half_w(z: float) -> float:
-	return minf(SS_HALF_W, _half_beam(z) - SS_SIDE_DECK)
+static func _house_half_w(z: float, cap: float = SS_HALF_W, side: float = SS_SIDE_DECK) -> float:
+	return minf(cap, _half_beam(z) - side)
 
 
 # One wall strip: an oriented box between two deck-plan points (xa,za)->(xb,zb), spanning
@@ -447,7 +450,7 @@ static func _wall_strip(parent: Node3D, xa: float, za: float, xb: float, zb: flo
 # A flat walkable slab at constant y_top, lofted to follow the deckhouse taper out to
 # half-width+overhang at each station (top + underside + edge skirts), with a trimesh collider —
 # the boat/sun deck slab on the tapered base block.
-static func _tapered_slab(parent: Node3D, z_aft: float, z_fwd: float, y_top: float, thick: float, overhang: float, mat: Material) -> void:
+static func _tapered_slab(parent: Node3D, z_aft: float, z_fwd: float, y_top: float, thick: float, overhang: float, mat: Material, cap: float = SS_HALF_W, side: float = SS_SIDE_DECK) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_color(Color(0.34, 0.25, 0.15))
@@ -456,8 +459,8 @@ static func _tapered_slab(parent: Node3D, z_aft: float, z_fwd: float, y_top: flo
 	for i in range(n):
 		var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
 		var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
-		var w0: float = _house_half_w(z0) + overhang
-		var w1: float = _house_half_w(z1) + overhang
+		var w0: float = _house_half_w(z0, cap, side) + overhang
+		var w1: float = _house_half_w(z1, cap, side) + overhang
 		_quad_flat(st, Vector3(-w0, y_top, z0), Vector3(w0, y_top, z0), Vector3(w1, y_top, z1), Vector3(-w1, y_top, z1))
 		_quad_flat(st, Vector3(-w0, yb, z0), Vector3(-w1, yb, z1), Vector3(w1, yb, z1), Vector3(w0, yb, z0))
 		_quad_flat(st, Vector3(w0, y_top, z0), Vector3(w0, yb, z0), Vector3(w1, yb, z1), Vector3(w1, y_top, z1))
@@ -505,6 +508,32 @@ static func _deckhouse_tapered(parent: Node3D, z_aft: float, z_fwd: float, y_bas
 	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_aft), Vector3(hwa * 2.0, wall_top - y_base, t), wall, true)
 	_transverse_door_wall(parent, z_fwd, _house_half_w(z_fwd), y_base, wall_top, t, fwd_door_x, 3.2, 2.4, wall)
 	_tapered_slab(parent, z_aft - 1.5, z_fwd + 1.5, y_top, 0.35, 0.5, deck)
+
+
+# A tapered upper-works deckhouse (the sun-deck house the funnels rise from, or a sports-deck
+# penthouse): walls following min(cap, half_beam - side) with a cabin-window band, solid end caps
+# and a walkable tapered roof slab. No entry door / sea glazing — this is the wedding-cake bulk
+# above the Promenade, set well inboard so the boat-deck walkway (lifeboats) stays open outboard.
+static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float, side: float, y_base: float, y_top: float, wall: Material, glaze_mat: Material, deck: Material, win_y0: float, win_y1: float) -> void:
+	var wall_top: float = y_top - 0.25
+	var t: float = 0.4
+	var n: int = 18
+	for s in [-1.0, 1.0]:
+		for i in range(n):
+			var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
+			var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
+			var x0: float = s * _house_half_w(z0, cap, side)
+			var x1: float = s * _house_half_w(z1, cap, side)
+			_wall_strip(parent, x0, z0, x1, z1, y_base, win_y0, t, wall, true)            # below the windows
+			_wall_strip(parent, x0, z0, x1, z1, win_y1, wall_top, t, wall, true)          # above the windows
+			_wall_strip(parent, x0, z0, x1, z1, win_y0, win_y1, t * 0.6, glaze_mat, true) # cabin-window band
+			_wall_strip(parent, x0, z0, x1, z1, win_y1 - 0.06, win_y1 + 0.06, t + 0.1, wall, false) # head rail
+		for i in range(n + 1):
+			var mz: float = lerpf(z_aft, z_fwd, float(i) / float(n))
+			_box(parent, Vector3(s * _house_half_w(mz, cap, side), (win_y0 + win_y1) * 0.5, mz), Vector3(t + 0.08, win_y1 - win_y0, 0.22), wall, false)
+	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_aft), Vector3(_house_half_w(z_aft, cap, side) * 2.0, wall_top - y_base, t), wall, true)
+	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_fwd), Vector3(_house_half_w(z_fwd, cap, side) * 2.0, wall_top - y_base, t), wall, true)
+	_tapered_slab(parent, z_aft - 1.0, z_fwd + 1.0, y_top, 0.3, 0.4, deck, cap, side)
 
 
 # Navigating bridge: a wheelhouse box at the forward end of the boat deck with a forward
@@ -693,7 +722,7 @@ static func _build_railings(parent: Node3D, wl: float) -> void:
 		var ew: float = _half_beam(end_z) * 0.96
 		_box(root, Vector3(0.0, _sheer_y(end_z, wl) + h * 0.5, end_z), Vector3(ew * 2.0 + 0.3, h, 0.12), rail, true)
 	_tapered_side_rails(root, SS_AFT * L, SS_FWD * L, wl + DECK_SUN, h, rail)
-	_deck_side_rails(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, wl + DECK_SPORTS, h, rail)
+	_tapered_side_rails(root, -78.0, 78.0, wl + DECK_SPORTS, h, rail, 13.0, 3.0)
 
 
 # A railing run between two deck-edge points, standing `h` above the deck.
@@ -716,13 +745,13 @@ static func _deck_side_rails(parent: Node3D, z_aft: float, z_fwd: float, half_w:
 
 # Port + starboard rails following the tapered boat-deck edge (just outboard of _house_half_w),
 # lofted as short segments so they curve inboard toward the ends with the deck.
-static func _tapered_side_rails(parent: Node3D, z_aft: float, z_fwd: float, y_deck: float, h: float, mat: Material) -> void:
+static func _tapered_side_rails(parent: Node3D, z_aft: float, z_fwd: float, y_deck: float, h: float, mat: Material, cap: float = SS_HALF_W, side: float = SS_SIDE_DECK) -> void:
 	var n: int = 22
 	for i in range(n):
 		var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
 		var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
-		var w0: float = _house_half_w(z0) + 0.35
-		var w1: float = _house_half_w(z1) + 0.35
+		var w0: float = _house_half_w(z0, cap, side) + 0.35
+		var w1: float = _house_half_w(z1, cap, side) + 0.35
 		_rail_segment(parent, -w0, y_deck, z0, -w1, y_deck, z1, h, mat)
 		_rail_segment(parent, w0, y_deck, z0, w1, y_deck, z1, h, mat)
 
@@ -820,7 +849,7 @@ static func _build_deck_structures(parent: Node3D, wl: float) -> void:
 		# Window face kept below the roofline so its top edge isn't coplanar with the roof.
 		_box(root, Vector3(0.0, sports_y + 1.35, float(dz) + 2.56), Vector3(5.0, 0.8, 0.14), glaze, false)
 	var boat_y: float = wl + DECK_SUN
-	for sz in [-80.0, 68.0]:
+	for sz in [-90.0, 86.0]:
 		# Coaming seated on the deck (bottom at boat_y), with the glazing penetrating its top.
 		_box(root, Vector3(0.0, boat_y + 0.25, float(sz)), Vector3(6.0, 0.5, 4.0), white, true)
 		_box(root, Vector3(0.0, boat_y + 0.62, float(sz)), Vector3(5.2, 0.25, 3.2), glaze, false)
