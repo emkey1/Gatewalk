@@ -69,11 +69,11 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_railings(root, wl)
 	_build_forecastle(root, wl)
 
-	# --- Four exit gates on the open Main deck (clear of the superstructure): two on the
-	# aft well deck by the arrival, two up on the forecastle. All reachable on the flat
-	# via the open side decks. (A later pass scatters some onto the upper decks.) ---
+	# --- Four exit gates on the open Main deck (clear of the superstructure): gate 0 on the
+	# forecastle by the arrival, then one further forward and two on the aft well deck. All
+	# reachable on the flat via the open side decks. ---
 	var gates: Array = []
-	var gate_zs: Array = [SS_AFT * HULL_HALF_LEN - 22.0, SS_AFT * HULL_HALF_LEN - 44.0, SS_FWD * HULL_HALF_LEN + 14.0, SS_FWD * HULL_HALF_LEN + 34.0]
+	var gate_zs: Array = [SS_FWD * HULL_HALF_LEN + 18.0, SS_FWD * HULL_HALF_LEN + 38.0, SS_AFT * HULL_HALF_LEN - 22.0, SS_AFT * HULL_HALF_LEN - 44.0]
 	for gi in range(4):
 		var gz: float = float(gate_zs[gi])
 		var lim: float = maxf(_half_beam(gz) - 3.5, 1.0)
@@ -82,10 +82,11 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	return gates
 
 
-# Deck arrival / spawn: on the open aft well deck behind the superstructure, looking
-# toward the bow. Shared by Main's _find_spawn_position and the _scatter_liner teleport.
+# Deck arrival / spawn: on the open forecastle, looking forward at the pointed bow — so
+# the first thing you see is the bow, not the superstructure wall (the aft spawn had you
+# hunting the wrong way). Shared by Main's _find_spawn_position and the _scatter_liner teleport.
 static func spawn_position(wl: float) -> Vector3:
-	var z: float = SS_AFT * HULL_HALF_LEN - 17.0
+	var z: float = SS_FWD * HULL_HALF_LEN + 7.0
 	return Vector3(0.0, _sheer_y(z, wl) + 1.2, z)
 
 
@@ -100,7 +101,7 @@ static func _half_beam(z: float) -> float:
 		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.5)), 0.8)   # fine entry to a sharp stem
 	if t < -0.40:
 		var a: float = (-t - 0.40) / 0.60     # 0..1 over the aft run
-		return maxf(HULL_HALF_BEAM * (1.0 - 0.72 * pow(a, 1.5)), 4.5)
+		return maxf(HULL_HALF_BEAM * (1.0 - 0.82 * pow(a, 1.4)), 2.8)   # tapered cruiser stern, less boxy
 	return HULL_HALF_BEAM
 
 
