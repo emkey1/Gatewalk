@@ -889,30 +889,50 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	globemat.emission_enabled = true
 	globemat.emission = Color(1.0, 0.93, 0.76)
 	globemat.emission_energy_multiplier = 0.7
-	# Globes light the galleries fore and aft; the Main Lounge (z -18..18) gets Deco fixtures.
-	for gz in [-78.0, -54.0, -30.0, 42.0, 64.0]:
-		# Thin stem hanging the globe down off the deckhead toward head height.
-		_box(root, Vector3(0.0, y_ceil - 0.65, float(gz)), Vector3(0.06, 1.1, 0.06), cream, false)
-		var globe := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.26
-		sm.height = 0.52
-		globe.mesh = sm
-		globe.material_override = globemat
-		globe.position = Vector3(0.0, y_ceil - 1.35, float(gz))
-		root.add_child(globe)
-		var lamp := OmniLight3D.new()
-		lamp.position = Vector3(0.0, y_ceil - 1.45, float(gz))
-		lamp.light_color = Color(1.0, 0.93, 0.78)
-		lamp.light_energy = 1.6
-		lamp.omni_range = 21.0
-		lamp.shadow_enabled = false
-		root.add_child(lamp)
-	# Wood dado + handrail below the windows, down each side.
+	# Globe pendants down each sheltered-promenade gallery (between the inboard wall and windows).
 	for sgn in [-1.0, 1.0]:
-		var xw: float = sgn * (hw - 0.22)
+		var gx: float = sgn * 11.75
+		for gz in [-72.0, -48.0, -24.0, 0.0, 24.0, 48.0, 64.0]:
+			_box(root, Vector3(gx, y_ceil - 0.65, float(gz)), Vector3(0.06, 1.1, 0.06), cream, false)
+			var globe := MeshInstance3D.new()
+			var sm := SphereMesh.new()
+			sm.radius = 0.24
+			sm.height = 0.48
+			globe.mesh = sm
+			globe.material_override = globemat
+			globe.position = Vector3(gx, y_ceil - 1.3, float(gz))
+			root.add_child(globe)
+			var lamp := OmniLight3D.new()
+			lamp.position = Vector3(gx, y_ceil - 1.4, float(gz))
+			lamp.light_color = Color(1.0, 0.93, 0.78)
+			lamp.light_energy = 1.5
+			lamp.omni_range = 16.0
+			lamp.shadow_enabled = false
+			root.add_child(lamp)
+	# Wood dado + handrail below the windows, down each side.
+	for sgn2 in [-1.0, 1.0]:
+		var xw: float = sgn2 * (hw - 0.22)
 		_box(root, Vector3(xw, (y_prom + y_sill) * 0.5, zc), Vector3(0.18, y_sill - y_prom, zl), wood, false)
 		_box(root, Vector3(xw, y_sill + 0.06, zc), Vector3(0.16, 0.12, zl), wood, false)
+
+	# Sheltered-promenade gallery walls at ±10, separating the glazed galleries from the inboard
+	# public rooms, with doorways through to the rooms; benches along the windows.
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var bench := _mat(Color(0.30, 0.20, 0.13), 0.7, 0.0)
+	var door_zs: Array = [-72.0, -48.0, -24.0, -9.0, 9.0, 30.0, 48.0, 64.0]
+	for sgn3 in [-1.0, 1.0]:
+		_longitudinal_door_wall(root, sgn3 * 10.0, z0, z1, y_prom, y_ceil + 0.1, 0.3, door_zs, 3.0, 2.4, white)
+		for bz in [-60.0, -36.0, -12.0, 12.0, 36.0, 56.0]:
+			_box(root, Vector3(sgn3 * (hw - 1.1), y_prom + 0.3, float(bz)), Vector3(0.7, 0.6, 2.4), bench, true)
+	# Temporary fill for the inboard areas not yet built into rooms (fore + aft of the lounge).
+	for fz in [-66.0, -42.0, 36.0, 56.0]:
+		var fill := OmniLight3D.new()
+		fill.position = Vector3(0.0, y_prom + 2.4, float(fz))
+		fill.light_color = Color(1.0, 0.92, 0.78)
+		fill.light_energy = 2.0
+		fill.omni_range = 20.0
+		fill.shadow_enabled = false
+		root.add_child(fill)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
@@ -928,6 +948,29 @@ static func _transverse_door_wall(parent: Node3D, z: float, half_w: float, y0: f
 	_box(parent, Vector3(door_x, (ly + y1) * 0.5, z), Vector3(dw, y1 - ly, t), mat, true)
 
 
+# Longitudinal wall at x, spanning z0..z1 and y0..y1, with doorways (jambs + a lintel) at each z
+# in door_zs. Used for the sheltered-promenade gallery walls separating the galleries from the
+# inboard public rooms.
+static func _longitudinal_door_wall(parent: Node3D, x: float, z0: float, z1: float, y0: float, y1: float, t: float, door_zs: Array, dw: float, dh: float, mat: Material) -> void:
+	var h: float = y1 - y0
+	var cy: float = (y0 + y1) * 0.5
+	var edges: Array = [z0]
+	for dz in door_zs:
+		edges.append(float(dz) - dw * 0.5)
+		edges.append(float(dz) + dw * 0.5)
+	edges.append(z1)
+	var i: int = 0
+	while i + 1 < edges.size():
+		var sa: float = float(edges[i])
+		var sb: float = float(edges[i + 1])
+		if sb > sa + 0.01:
+			_box(parent, Vector3(x, cy, (sa + sb) * 0.5), Vector3(t, h, sb - sa), mat, true)
+		i += 2
+	var ly: float = y0 + dh
+	for dz in door_zs:
+		_box(parent, Vector3(x, (ly + y1) * 0.5, float(dz)), Vector3(t, y1 - ly, dw), mat, true)
+
+
 # The First Class Main Lounge: a grand room amidships on the Promenade Deck, walled off the
 # galleries fore and aft, with a parquet dance floor, an orchestra dais and back-panel, perimeter
 # banquettes, and a pendant light over the floor.
@@ -937,21 +980,23 @@ static func _build_lounge(parent: Node3D, wl: float) -> void:
 	parent.add_child(root)
 	var y_prom: float = wl + DECK_PROM
 	var y_top: float = wl + DECK_SUN - 0.35
-	var hw: float = SS_HALF_W
+	# The lounge is an inboard room: its side walls are the sheltered-promenade gallery walls at
+	# ±10 (built in _build_promenade_fit); the fore/aft partitions span that inboard width.
+	var room_hw: float = 10.0
 	var white := _mat(COL_SUPER, 0.7, 0.0)
-	# Partition walls fore (z=+18) and aft (z=-18) with central doorways to the galleries.
-	_transverse_door_wall(root, 18.0, hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
-	_transverse_door_wall(root, -18.0, hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
+	# Partition walls fore (z=+18) and aft (z=-18) with central doorways to the inboard areas.
+	_transverse_door_wall(root, 18.0, room_hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
+	_transverse_door_wall(root, -18.0, room_hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
 	# Parquet dance floor, centre.
 	_box(root, Vector3(0.0, y_prom + 0.06, 0.0), Vector3(12.0, 0.12, 16.0), _mat(Color(0.56, 0.42, 0.25), 0.45, 0.0), false)
 	# Orchestra dais at the aft end, raised, with a tall Deco back-panel on the partition.
 	_box(root, Vector3(0.0, y_prom + 0.2, -15.5), Vector3(10.0, 0.4, 4.0), _mat(Color(0.30, 0.22, 0.15), 0.6, 0.0), true)
 	_box(root, Vector3(0.0, y_prom + 2.3, -17.75), Vector3(8.0, 3.4, 0.16), _mat(Color(0.82, 0.67, 0.36), 0.4, 0.35), false)
-	# Perimeter banquettes along the port and starboard walls.
+	# Perimeter banquettes along the lounge's port and starboard walls.
 	var sofa := _mat(Color(0.46, 0.20, 0.22), 0.85, 0.0)
 	for sx in [-1.0, 1.0]:
 		for sz in [-11.0, -3.0, 5.0, 13.0]:
-			_box(root, Vector3(sx * (hw - 1.1), y_prom + 0.45, float(sz)), Vector3(1.5, 0.9, 3.2), sofa, true)
+			_box(root, Vector3(sx * (room_hw - 1.0), y_prom + 0.45, float(sz)), Vector3(1.5, 0.9, 3.2), sofa, true)
 	# Art Deco ceiling light fixtures (frosted panels in dark bronze grilles) over the lounge —
 	# a big one over the dance floor and two smaller ones forward, like the QM lounge.
 	var frosted := StandardMaterial3D.new()
