@@ -71,6 +71,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_deck_details(root, wl)
 	_build_deck_structures(root, wl)
 	_build_portholes(root, wl)
+	_build_flags(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): gate 0 on the
 	# forecastle by the arrival, then one further forward and two on the aft well deck. All
@@ -703,6 +704,28 @@ static func _build_portholes(parent: Node3D, wl: float) -> void:
 				tf.append(Transform3D(face, Vector3(side * bw, float(yy), z)))
 		z += 3.2
 	MultiMeshScatter.build(root, "PortholeRims", rim, brass, tf)
+
+
+# Flags: the red ensign on a staff at the stern, a jack on the bow jackstaff, and the
+# Cunard houseflag at the foremast head.
+static func _build_flags(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Flags"
+	parent.add_child(root)
+	var buff := _mat(Color(0.80, 0.68, 0.45), 0.5, 0.2)
+	var red := _mat(Color(0.74, 0.14, 0.12), 0.7, 0.0)
+	var blue := _mat(Color(0.12, 0.20, 0.55), 0.7, 0.0)
+	# Stern ensign: staff + red ensign with a blue union canton at the hoist.
+	var sz: float = -HULL_HALF_LEN + 3.0
+	var sy: float = _sheer_y(sz, wl)
+	_box(root, Vector3(0.0, sy + 2.1, sz), Vector3(0.14, 4.2, 0.14), buff, false)
+	_box(root, Vector3(1.7, sy + 3.5, sz), Vector3(3.0, 1.6, 0.07), red, false)
+	_box(root, Vector3(0.95, sy + 3.9, sz - 0.01), Vector3(1.3, 0.8, 0.08), blue, false)
+	# Jack on the bow jackstaff (which already stands at z~149).
+	var jy: float = _sheer_y(149.0, wl)
+	_box(root, Vector3(1.5, jy + 4.8, 149.0), Vector3(2.6, 1.4, 0.07), blue, false)
+	# Cunard houseflag at the foremast head (foremast base z=50 on the sports deck).
+	_box(root, Vector3(1.5, wl + DECK_SPORTS + 23.5, 50.0), Vector3(2.8, 1.5, 0.07), red, false)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------
