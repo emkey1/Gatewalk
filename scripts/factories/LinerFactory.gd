@@ -72,6 +72,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_deck_structures(root, wl)
 	_build_portholes(root, wl)
 	_build_flags(root, wl)
+	_build_anchors(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): gate 0 on the
 	# forecastle by the arrival, then one further forward and two on the aft well deck. All
@@ -726,6 +727,24 @@ static func _build_flags(parent: Node3D, wl: float) -> void:
 	_box(root, Vector3(1.5, jy + 4.8, 149.0), Vector3(2.6, 1.4, 0.07), blue, false)
 	# Cunard houseflag at the foremast head (foremast base z=50 on the sports deck).
 	_box(root, Vector3(1.5, wl + DECK_SPORTS + 23.5, 50.0), Vector3(2.8, 1.5, 0.07), red, false)
+
+
+# Recessed stockless bower anchors flush on each bow side (shank + flukes), the way a liner
+# carries them in the hawse.
+static func _build_anchors(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Anchors"
+	parent.add_child(root)
+	var dark := _mat(Color(0.16, 0.17, 0.20), 0.6, 0.3)
+	for side in [-1.0, 1.0]:
+		var z: float = 118.0
+		var k: float = _keel_y(z, wl)
+		var s: float = _sheer_y(z, wl)
+		var b: float = _half_beam(z)
+		var frac: float = clampf((5.5 - k) / (s - k), 0.0, 1.0)
+		var bw: float = b * (0.72 + 0.28 * frac)
+		_box(root, Vector3(side * (bw + 0.05), 5.9, z), Vector3(0.12, 2.6, 1.3), dark, false)
+		_box(root, Vector3(side * (bw + 0.08), 4.6, z), Vector3(0.16, 0.7, 2.3), dark, false)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------
