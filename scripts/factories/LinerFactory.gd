@@ -835,14 +835,14 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
 
-	# Two rows of panelled columns through both decks, capped at each deckhead.
-	var colmat := _mat(Color(0.82, 0.79, 0.72), 0.5, 0.05)
-	var cap := _mat(Color(0.70, 0.58, 0.36), 0.4, 0.1)
+	# Two rows of period columns: cream shafts with green rings near the top over burl-wood bases
+	# on each deck, like the QM lounge.
+	var col_cream := _mat(Color(0.90, 0.88, 0.83), 0.35, 0.0)
+	var col_wood := _mat(Color(0.33, 0.19, 0.10), 0.4, 0.1)
+	var col_green := _mat(Color(0.15, 0.33, 0.23), 0.5, 0.2)
 	for cz in [-66.0, -44.0, -22.0, 0.0, 22.0, 44.0, 62.0]:
 		for sx in [-6.5, 6.5]:
-			_box(root, Vector3(sx, (y_main + y_sun) * 0.5, cz), Vector3(0.7, y_sun - y_main, 0.7), colmat, true)
-			_box(root, Vector3(sx, y_prom - 0.35, cz), Vector3(1.05, 0.35, 1.05), cap, false)
-			_box(root, Vector3(sx, y_sun - 0.35, cz), Vector3(1.05, 0.35, 1.05), cap, false)
+			_deco_column(root, wl, sx, cz, col_cream, col_wood, col_green)
 
 	# A teak threshold strip just inside the forward door, so the doorway reads as an entrance.
 	_box(root, Vector3(-4.0, y_main + 0.04, SS_FWD * L - 1.2), Vector3(3.4, 0.12, 2.0), _mat(COL_TEAK, 0.7, 0.0), false)
@@ -889,7 +889,8 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	globemat.emission_enabled = true
 	globemat.emission = Color(1.0, 0.93, 0.76)
 	globemat.emission_energy_multiplier = 0.7
-	for gz in [-78.0, -54.0, -30.0, -6.0, 18.0, 42.0, 64.0]:
+	# Globes light the galleries fore and aft; the Main Lounge (z -18..18) gets Deco fixtures.
+	for gz in [-78.0, -54.0, -30.0, 42.0, 64.0]:
 		# Thin stem hanging the globe down off the deckhead toward head height.
 		_box(root, Vector3(0.0, y_ceil - 0.65, float(gz)), Vector3(0.06, 1.1, 0.06), cream, false)
 		var globe := MeshInstance3D.new()
@@ -951,15 +952,76 @@ static func _build_lounge(parent: Node3D, wl: float) -> void:
 	for sx in [-1.0, 1.0]:
 		for sz in [-11.0, -3.0, 5.0, 13.0]:
 			_box(root, Vector3(sx * (hw - 1.1), y_prom + 0.45, float(sz)), Vector3(1.5, 0.9, 3.2), sofa, true)
-	# Pendant light over the dance floor (hung well below the deckhead so it lights the floor,
-	# not the ceiling).
+	# Art Deco ceiling light fixtures (frosted panels in dark bronze grilles) over the lounge —
+	# a big one over the dance floor and two smaller ones forward, like the QM lounge.
+	var frosted := StandardMaterial3D.new()
+	frosted.albedo_color = Color(0.95, 0.90, 0.78)
+	frosted.emission_enabled = true
+	frosted.emission = Color(1.0, 0.92, 0.74)
+	frosted.emission_energy_multiplier = 1.1
+	var frame := _mat(Color(0.22, 0.17, 0.10), 0.4, 0.4)
+	var y_fix: float = wl + DECK_SUN - 0.62
+	_deco_ceiling_light(root, Vector3(0.0, y_fix, 0.0), 1.7, 0.8, frosted, frame, 2.8)
+	for fz in [-12.0, 12.0]:
+		_deco_ceiling_light(root, Vector3(0.0, y_fix, float(fz)), 1.1, 0.6, frosted, frame, 2.2)
+
+
+# A vertical cylinder (column shaft, ring, stem).
+static func _cyl(parent: Node3D, center: Vector3, radius: float, height: float, mat: Material, collide: bool) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = height
+	cm.radial_segments = 16
+	mi.mesh = cm
+	mi.material_override = mat
+	if collide:
+		var body := StaticBody3D.new()
+		body.position = center
+		body.add_child(mi)
+		var cs := CollisionShape3D.new()
+		var sh := CylinderShape3D.new()
+		sh.radius = radius
+		sh.height = height
+		cs.shape = sh
+		body.add_child(cs)
+		parent.add_child(body)
+	else:
+		mi.position = center
+		parent.add_child(mi)
+
+
+# A period lounge column: a cream cylindrical shaft through both decks, a burl-wood base on each
+# deck, and two green rings near the top of the Promenade shaft.
+static func _deco_column(parent: Node3D, wl: float, x: float, z: float, cream: Material, wood: Material, green: Material) -> void:
+	var y0: float = wl + DECK_MAIN
+	var y_mid: float = wl + DECK_PROM
+	var y1: float = wl + DECK_SUN
+	_cyl(parent, Vector3(x, (y0 + y1) * 0.5, z), 0.42, y1 - y0, cream, true)
+	_cyl(parent, Vector3(x, y0 + 0.55, z), 0.46, 1.1, wood, false)
+	_cyl(parent, Vector3(x, y_mid + 0.55, z), 0.46, 1.1, wood, false)
+	for ry in [y1 - 1.55, y1 - 1.3]:
+		_cyl(parent, Vector3(x, float(ry), z), 0.45, 0.06, green, false)
+
+
+# An Art Deco ceiling light fixture: a frosted glowing panel in a dark grille frame with a few
+# cross-bars, plus an omni light below it.
+static func _deco_ceiling_light(parent: Node3D, center: Vector3, half_w: float, half_d: float, frosted: Material, frame: Material, energy: float) -> void:
+	_box(parent, center, Vector3(half_w * 2.0, 0.1, half_d * 2.0), frosted, false)
+	_box(parent, center + Vector3(0.0, 0.03, half_d), Vector3(half_w * 2.0 + 0.2, 0.18, 0.12), frame, false)
+	_box(parent, center + Vector3(0.0, 0.03, -half_d), Vector3(half_w * 2.0 + 0.2, 0.18, 0.12), frame, false)
+	_box(parent, center + Vector3(half_w, 0.03, 0.0), Vector3(0.12, 0.18, half_d * 2.0), frame, false)
+	_box(parent, center + Vector3(-half_w, 0.03, 0.0), Vector3(0.12, 0.18, half_d * 2.0), frame, false)
+	for fx in [-half_w * 0.5, 0.0, half_w * 0.5]:
+		_box(parent, center + Vector3(float(fx), 0.02, 0.0), Vector3(0.07, 0.14, half_d * 2.0), frame, false)
 	var lamp := OmniLight3D.new()
-	lamp.position = Vector3(0.0, y_prom + 2.2, 0.0)
-	lamp.light_color = Color(1.0, 0.95, 0.82)
-	lamp.light_energy = 2.0
-	lamp.omni_range = 17.0
+	lamp.position = center + Vector3(0.0, -0.6, 0.0)
+	lamp.light_color = Color(1.0, 0.93, 0.78)
+	lamp.light_energy = energy
+	lamp.omni_range = 18.0
 	lamp.shadow_enabled = false
-	root.add_child(lamp)
+	parent.add_child(lamp)
 
 
 # A horizontal floor slab (top at `y`) spanning z0..z1 × ±x_half, with a rectangular opening
