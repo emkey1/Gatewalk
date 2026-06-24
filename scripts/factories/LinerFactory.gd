@@ -664,11 +664,13 @@ static func _build_deck_structures(parent: Node3D, wl: float) -> void:
 	var sports_y: float = wl + DECK_SPORTS
 	for dz in [52.0, 16.0, -20.0]:
 		_box(root, Vector3(0.0, sports_y + 1.0, float(dz)), Vector3(6.0, 2.0, 5.0), white, true)
-		_box(root, Vector3(0.0, sports_y + 1.6, float(dz) + 2.56), Vector3(5.0, 0.8, 0.14), glaze, false)
+		# Window face kept below the roofline so its top edge isn't coplanar with the roof.
+		_box(root, Vector3(0.0, sports_y + 1.35, float(dz) + 2.56), Vector3(5.0, 0.8, 0.14), glaze, false)
 	var boat_y: float = wl + DECK_SUN
 	for sz in [-80.0, 68.0]:
-		_box(root, Vector3(0.0, boat_y + 0.35, float(sz)), Vector3(6.0, 0.5, 4.0), white, true)
-		_box(root, Vector3(0.0, boat_y + 0.72, float(sz)), Vector3(5.2, 0.25, 3.2), glaze, false)
+		# Coaming seated on the deck (bottom at boat_y), with the glazing penetrating its top.
+		_box(root, Vector3(0.0, boat_y + 0.25, float(sz)), Vector3(6.0, 0.5, 4.0), white, true)
+		_box(root, Vector3(0.0, boat_y + 0.62, float(sz)), Vector3(5.2, 0.25, 3.2), glaze, false)
 
 
 # A cowl ventilator: a vertical trunk with a bell mouth bent to face fore or aft.
