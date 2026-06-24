@@ -39,7 +39,19 @@ func _init() -> void:
 	world.add_child(water)
 
 	var Liner := load("res://scripts/factories/LinerFactory.gd")
-	Liner.build(world, 12345, wl)
+	var gates: Array = Liner.build(world, 12345, wl)
+	# Mark the returned gate positions (the real gates are built by Main, not the factory) so the
+	# top-down shows whether they sit cleanly on the deck.
+	for g in gates:
+		var mk := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(3.0, 4.0, 1.0)
+		mk.mesh = bm
+		var mm := StandardMaterial3D.new()
+		mm.albedo_color = Color(1.0, 0.1, 0.9)
+		mk.material_override = mm
+		mk.position = g + Vector3(0.0, 2.0, 0.0)
+		world.add_child(mk)
 
 	var cam := Camera3D.new()
 	cam.fov = 50.0
@@ -48,9 +60,10 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		["t45_prom", Vector3(-13.0, 16.35, -38.0), Vector3(-13.0, 16.2, 40.0), Vector3.UP],
-		["t45_promwide", Vector3(0.0, 16.35, -34.0), Vector3(0.0, 16.1, 30.0), Vector3.UP],
-		["t45_side", Vector3(350.0, 20.0, 6.0), Vector3(0.0, 14.0, 0.0), Vector3.UP],
+		["t46_top", Vector3(0.0, 360.0, 0.0), Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0)],
+		["t46_bowq", Vector3(70.0, 30.0, 185.0), Vector3(0.0, 12.0, 110.0), Vector3.UP],
+		["t46_aftq", Vector3(70.0, 30.0, -195.0), Vector3(0.0, 12.0, -120.0), Vector3.UP],
+		["t46_funnel", Vector3(22.0, 48.0, 30.0), Vector3(0.0, 40.0, 0.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

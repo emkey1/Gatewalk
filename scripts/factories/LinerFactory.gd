@@ -94,14 +94,14 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	# of the port companionway + mooring). A small per-seed jitter keeps them in the clear zones. ---
 	var gates: Array = []
 	var gate_specs: Array = [
-		[-4.5, SS_FWD * HULL_HALF_LEN + 6.0],
-		[4.0, SS_AFT * HULL_HALF_LEN - 3.0],
-		[5.0, SS_AFT * HULL_HALF_LEN - 8.0],
-		[4.5, SS_AFT * HULL_HALF_LEN - 13.0],
+		[0.0, SS_FWD * HULL_HALF_LEN + 3.0],     # forecastle centreline, between the door and the cowl vents
+		[-3.0, SS_AFT * HULL_HALF_LEN - 4.0],    # after deck, port, clear of the capstans
+		[3.0, SS_AFT * HULL_HALF_LEN - 4.0],     # after deck, starboard
+		[0.0, SS_AFT * HULL_HALF_LEN - 9.0],     # after deck centreline, between capstans and bollards
 	]
 	for spec in gate_specs:
-		var gz: float = float(spec[1]) + rng.randf_range(-1.0, 1.0)
-		var gx: float = float(spec[0]) + rng.randf_range(-0.8, 0.8)
+		var gz: float = float(spec[1]) + rng.randf_range(-0.5, 0.5)
+		var gx: float = float(spec[0]) + rng.randf_range(-0.4, 0.4)
 		gates.append(Vector3(gx, _sheer_y(gz, wl) + 0.05, gz))
 	return gates
 
@@ -122,10 +122,12 @@ static func _half_beam(z: float) -> float:
 	var t: float = z / HULL_HALF_LEN          # -1 (stern) .. +1 (bow)
 	if t > 0.30:
 		var f: float = (t - 0.30) / 0.70      # 0..1 over the forward run
-		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.5)), 0.8)   # fine entry to a sharp stem
+		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.5)), 0.2)   # fine entry running right out to a sharp stem
 	if t < -0.40:
 		var a: float = (-t - 0.40) / 0.60     # 0..1 over the aft run
-		return maxf(HULL_HALF_BEAM * (1.0 - 0.82 * pow(a, 1.4)), 2.8)   # tapered cruiser stern, less boxy
+		# Rounded cruiser stern: carry the beam well aft, then sweep the quarters in to a small rounded
+		# counter. sqrt(1 - a^n) has a near-vertical tangent at the end — a ROUND transom, not a flat cut.
+		return maxf(HULL_HALF_BEAM * sqrt(maxf(1.0 - pow(a, 2.6), 0.0)), 0.5)
 	return HULL_HALF_BEAM
 
 
@@ -616,9 +618,14 @@ static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red
 	var cy: float = base_y + height * 0.5
 	var ax: float = 4.5    # half-width athwartships (X) — 9 m (the QM funnels were ~30 ft across)
 	var az: float = 6.4    # half-length fore-and-aft (Z) — 12.8 m, elliptical (longer than wide)
-	_ellipse_cyl(parent, Vector3(0.0, cy, cz), 1.0, height, ax, az, red, 0.92)
 	var cap: float = 2.8
-	_ellipse_cyl(parent, Vector3(0.0, top_y - cap * 0.5, cz), 0.96, cap, ax, az, black, 0.94)
+	# Red body, its top stopped half-way up inside the black cap. The body's top disc and the cap's
+	# top disc both used to sit at top_y (coplanar) and z-fought into a spinning pinwheel on the funnel
+	# tops; burying the body top inside the slightly wider cap removes the coincident face.
+	var red_h: float = height - cap * 0.5
+	_ellipse_cyl(parent, Vector3(0.0, base_y + red_h * 0.5, cz), 1.0, red_h, ax, az, red, 0.92)
+	# Black cap, a touch wider (1.04) so it cleanly swallows the red top and reads as the funnel lip.
+	_ellipse_cyl(parent, Vector3(0.0, top_y - cap * 0.5, cz), 1.04, cap, ax, az, black, 0.95)
 	for bi in range(2):
 		var by: float = top_y - cap - 0.9 - float(bi) * 1.1
 		_ellipse_cyl(parent, Vector3(0.0, by, cz), 1.0, 0.45, ax, az, black, 1.0)
