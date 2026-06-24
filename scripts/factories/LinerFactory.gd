@@ -507,11 +507,11 @@ static func _build_railings(parent: Node3D, wl: float) -> void:
 		var s1: float = _sheer_y(z1, wl)
 		_rail_segment(root, -b0, s0, z0, -b1, s1, z1, h, rail)
 		_rail_segment(root, b0, s0, z0, b1, s1, z1, h, rail)
-	# Close the bow: the converging side rails leave a narrow gap at the stem to run through,
-	# so cap it with a cross-rail spanning the forward deck.
-	var bz: float = L - 5.0
-	var bw: float = _half_beam(bz) * 0.96
-	_box(root, Vector3(0.0, _sheer_y(bz, wl) + h * 0.5, bz), Vector3(bw * 2.0 + 0.3, h, 0.12), rail, true)
+	# Close the bow AND the stern transom: the converging side rails leave a gap to run off
+	# at each end, so cap both with a cross-rail spanning the deck there.
+	for end_z in [L - 5.0, -L + 5.0]:
+		var ew: float = _half_beam(end_z) * 0.96
+		_box(root, Vector3(0.0, _sheer_y(end_z, wl) + h * 0.5, end_z), Vector3(ew * 2.0 + 0.3, h, 0.12), rail, true)
 	_deck_side_rails(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl + DECK_SUN, h, rail)
 	_deck_side_rails(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, wl + DECK_SPORTS, h, rail)
 
