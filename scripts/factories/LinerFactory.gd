@@ -21,12 +21,14 @@ const LOA: float = 310.7           # length overall
 const BEAM: float = 36.0           # max breadth
 const DRAUGHT: float = 11.8        # keel below the waterline
 
-# Open-deck heights ABOVE the waterline (world y = wl + these). The four walkable decks
-# the player roams in this build, stepping up the way the real superstructure does.
-const DECK_MAIN: float = 12.0      # main weather deck: open forecastle + aft deck
-const DECK_PROM: float = 15.5      # promenade deck (the long enclosed promenade)
-const DECK_SUN: float = 19.5       # boat / sun deck: lifeboats + funnel casings
-const DECK_SPORTS: float = 23.5    # sports deck (topmost open deck)
+# Deck heights ABOVE the waterline (world y = wl + these), to documented 1:1 figures:
+# keel->Promenade Deck = 92.5 ft (28.2 m) less the 11.8 m draught puts the Promenade at
+# 16.4 m; keel->C Deck = 55.25 ft fixes the inter-deck spacing at ~2.84 m (9.3 ft). The four
+# decks step from there.
+const DECK_MAIN: float = 13.56     # Main deck: open forecastle + aft deck, base of the deckhouse
+const DECK_PROM: float = 16.40     # Promenade deck (the long enclosed promenade)
+const DECK_SUN: float = 19.24      # boat / sun deck: lifeboats + funnel casings
+const DECK_SPORTS: float = 22.08   # sports deck (topmost open deck)
 
 const HULL_HALF_LEN: float = LOA * 0.5
 const HULL_HALF_BEAM: float = BEAM * 0.5
@@ -332,9 +334,9 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 
 	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks. A door
 	# in the forward wall lets you walk in off the forecastle; the long sides carry the big
-	# Promenade windows as a real see-through glazed band over a waist-high dado (sill 16.4 ->
-	# head 18.2), matching the real enclosed promenade.
-	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0, wl + 16.4, wl + 18.2, seaglass)
+	# Promenade windows as a real see-through glazed band over a waist-high dado (sill 17.4 ->
+	# head 18.8, i.e. 1 m of dado above the 16.4 m Promenade floor), matching the enclosed promenade.
+	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0, wl + 17.4, wl + 18.8, seaglass)
 	# Three window rows down each long side: boat-deck, the big square Promenade row, A deck.
 	_promenade_windows(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl, glass)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
@@ -474,10 +476,12 @@ static func _build_funnels(parent: Node3D, wl: float) -> void:
 	parent.add_child(root)
 	var red := _mat(Color(0.80, 0.27, 0.10), 0.55, 0.0)   # Cunard red
 	var black := _mat(Color(0.06, 0.06, 0.07), 0.6, 0.0)
+	# Heights re-anchored so the forward funnel still tops out ~43 m above the water now that the
+	# sports deck sits at 22.08 m (43.5 - 22.08 ≈ 21.4).
 	var base_y: float = wl + DECK_SPORTS
-	_funnel(root, 35.0, base_y, 20.0, red, black)
-	_funnel(root, -2.0, base_y, 19.0, red, black)
-	_funnel(root, -39.0, base_y, 18.0, red, black)
+	_funnel(root, 35.0, base_y, 21.4, red, black)
+	_funnel(root, -2.0, base_y, 20.4, red, black)
+	_funnel(root, -39.0, base_y, 19.4, red, black)
 
 
 static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red: Material, black: Material) -> void:
@@ -868,7 +872,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	var zl: float = z1 - z0
 	var hw: float = SS_HALF_W
 	var y_prom: float = wl + DECK_PROM
-	var y_sill: float = wl + 16.4
+	var y_sill: float = wl + 17.4
 	var y_ceil: float = wl + DECK_SUN - 0.45
 	var lining := _mat(Color(0.78, 0.74, 0.65), 0.9, 0.0)
 	var beam := _mat(Color(0.70, 0.65, 0.55), 0.8, 0.0)
