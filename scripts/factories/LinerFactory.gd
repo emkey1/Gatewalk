@@ -30,6 +30,13 @@ const DECK_SPORTS: float = 23.5    # sports deck (topmost open deck)
 
 const HULL_HALF_LEN: float = LOA * 0.5
 const HULL_HALF_BEAM: float = BEAM * 0.5
+const HULL_STATIONS: int = 48      # longitudinal segments the hull/deck are lofted over
+
+# Cunard livery.
+const COL_TOPSIDE := Color(0.07, 0.07, 0.08)   # black topsides
+const COL_BOOT := Color(0.62, 0.16, 0.14)      # red boot-topping at the waterline
+const COL_ANTIFOUL := Color(0.40, 0.12, 0.12)  # red anti-fouling below
+const COL_TEAK := Color(0.55, 0.42, 0.26)      # scrubbed teak weather deck
 
 
 # Build the liner into `parent`. Returns an Array of 4 gate world-positions on the
@@ -40,33 +47,186 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	parent.add_child(root)
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "liner", 1))
 
-	var hull_mat := _mat(Color(0.06, 0.06, 0.07), 0.82, 0.05)   # Cunard black topsides
-	var deck_mat := _mat(Color(0.55, 0.42, 0.26), 0.92, 0.0)    # teak weather deck
+	_build_hull(root, wl)
+	_build_main_deck(root, wl)
 
-	# --- STUB massing (increment 1): a black box hull capped by a single walkable teak
-	# deck, so the map registers and is boardable end-to-end. The faithful hull, stepped
-	# superstructure, funnels, masts and lifeboats replace this in the next increments. ---
-	var deck_y: float = wl + DECK_MAIN
-	var hull_top: float = deck_y - 0.25
-	var hull_bot: float = wl - DRAUGHT
-	_box(root, Vector3(0.0, (hull_top + hull_bot) * 0.5, 0.0),
-		Vector3(BEAM - 2.0, hull_top - hull_bot, LOA), hull_mat, true)
-	_box(root, Vector3(0.0, deck_y - 0.25, 0.0), Vector3(BEAM, 0.5, LOA), deck_mat, true)
-
-	# --- Four exit gates spread fore-and-aft along the deck centre, gate 0 aft. ---
+	# --- Four exit gates spread fore-and-aft along the deck centre, gate 0 aft. Each
+	# sits on the real deck surface (the sheer rises toward the bow). ---
 	var gates: Array = []
-	var gy: float = deck_y + 0.05
 	var gate_zs: Array = [-HULL_HALF_LEN * 0.60, HULL_HALF_LEN * 0.58, HULL_HALF_LEN * 0.12, -HULL_HALF_LEN * 0.22]
 	for gi in range(4):
-		var gx: float = rng.randf_range(-HULL_HALF_BEAM * 0.45, HULL_HALF_BEAM * 0.45)
-		gates.append(Vector3(gx, gy, float(gate_zs[gi])))
+		var gz: float = float(gate_zs[gi])
+		var gx: float = rng.randf_range(-HULL_HALF_BEAM * 0.42, HULL_HALF_BEAM * 0.42)
+		gates.append(Vector3(gx, _sheer_y(gz, wl) + 0.05, gz))
 	return gates
 
 
 # Deck arrival / spawn: aft on the main deck, a few metres ahead of gate 0, looking
 # toward the bow. Shared by Main's _find_spawn_position and the _scatter_liner teleport.
 static func spawn_position(wl: float) -> Vector3:
-	return Vector3(0.0, wl + DECK_MAIN + 1.2, -HULL_HALF_LEN * 0.60 + 14.0)
+	var z: float = -HULL_HALF_LEN * 0.60 + 14.0
+	return Vector3(0.0, _sheer_y(z, wl) + 1.2, z)
+
+
+# --- Hull form (longitudinal profiles, all in world space) --------------------------
+
+# Half-beam at longitudinal position z: full amidships, a fine entry forward to a near
+# point at the stem, and a rounded cruiser stern aft.
+static func _half_beam(z: float) -> float:
+	var t: float = z / HULL_HALF_LEN          # -1 (stern) .. +1 (bow)
+	if t > 0.30:
+		var f: float = (t - 0.30) / 0.70      # 0..1 over the forward run
+		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.7)), 0.35)
+	if t < -0.40:
+		var a: float = (-t - 0.40) / 0.60     # 0..1 over the aft run
+		return maxf(HULL_HALF_BEAM * (1.0 - 0.72 * pow(a, 1.5)), 4.5)
+	return HULL_HALF_BEAM
+
+
+# World y of the hull bottom (keel) at z: flat amidships at full draught, the forefoot
+# rising toward the raked stem and the run rising toward the cruiser stern.
+static func _keel_y(z: float, wl: float) -> float:
+	var t: float = z / HULL_HALF_LEN
+	var deep: float = wl - DRAUGHT
+	if t > 0.55:
+		return lerpf(deep, wl - 1.5, smoothstep(0.0, 1.0, (t - 0.55) / 0.45))
+	if t < -0.60:
+		return lerpf(deep, wl - 3.0, smoothstep(0.0, 1.0, (-t - 0.60) / 0.40))
+	return deep
+
+
+# World y of the hull top edge (the sheer / main-deck line) at z: near-flat amidships
+# with a rise toward the bow (forecastle) and a slight lift aft.
+static func _sheer_y(z: float, wl: float) -> float:
+	var deck: float = wl + DECK_MAIN
+	var t: float = z / HULL_HALF_LEN
+	if t > 0.5:
+		return deck + smoothstep(0.0, 1.0, (t - 0.5) / 0.5) * 2.2
+	if t < -0.7:
+		return deck + smoothstep(0.0, 1.0, (-t - 0.7) / 0.3) * 1.0
+	return deck
+
+
+static func _hull_color(y: float, wl: float) -> Color:
+	if y >= wl + 0.7:
+		return COL_TOPSIDE
+	if y >= wl - 0.5:
+		return COL_BOOT
+	return COL_ANTIFOUL
+
+
+# Loft the hull as a single vertex-coloured mesh: a slightly tumblehome side (deck edge
+# out over a narrower keel) plus a flat bottom, swept over the station profiles, with
+# end caps fanned at bow and stern.
+static func _build_hull(parent: Node3D, wl: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n: int = HULL_STATIONS
+	for i in range(n):
+		var z0: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i) / float(n))
+		var z1: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i + 1) / float(n))
+		var b0: float = _half_beam(z0)
+		var b1: float = _half_beam(z1)
+		var k0: float = _keel_y(z0, wl)
+		var k1: float = _keel_y(z1, wl)
+		var s0: float = _sheer_y(z0, wl)
+		var s1: float = _sheer_y(z1, wl)
+		var dL0 := Vector3(-b0, s0, z0)
+		var dL1 := Vector3(-b1, s1, z1)
+		var bL0 := Vector3(-b0 * 0.72, k0, z0)
+		var bL1 := Vector3(-b1 * 0.72, k1, z1)
+		var dR0 := Vector3(b0, s0, z0)
+		var dR1 := Vector3(b1, s1, z1)
+		var bR0 := Vector3(b0 * 0.72, k0, z0)
+		var bR1 := Vector3(b1 * 0.72, k1, z1)
+		_quad(st, dL0, bL0, bL1, dL1, wl)   # port side
+		_quad(st, dR0, dR1, bR1, bR0, wl)   # starboard side
+		_quad(st, bL0, bL1, bR1, bR0, wl)   # flat bottom
+	_cap(st, HULL_HALF_LEN, wl)             # bow
+	_cap(st, -HULL_HALF_LEN, wl)            # stern
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.name = "Hull"
+	mi.mesh = st.commit()
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.55
+	mat.metallic = 0.05
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED   # closed hull; dodge any inverted winding
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
+# The walkable teak weather deck: a flat surface across the beam at the sheer line,
+# inset just inside the hull edge so a thin black covering board shows. Lofted as one
+# mesh with a trimesh collider so the player stands exactly on it.
+static func _build_main_deck(parent: Node3D, wl: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_color(COL_TEAK)
+	var n: int = HULL_STATIONS
+	for i in range(n):
+		var z0: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i) / float(n))
+		var z1: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i + 1) / float(n))
+		var b0: float = _half_beam(z0) * 0.96
+		var b1: float = _half_beam(z1) * 0.96
+		var s0: float = _sheer_y(z0, wl)
+		var s1: float = _sheer_y(z1, wl)
+		var l0 := Vector3(-b0, s0, z0)
+		var r0 := Vector3(b0, s0, z0)
+		var l1 := Vector3(-b1, s1, z1)
+		var r1 := Vector3(b1, s1, z1)
+		_quad_flat(st, l0, r0, r1, l1)
+	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var body := StaticBody3D.new()
+	body.name = "MainDeck"
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.9
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = mat
+	body.add_child(mi)
+	var col := CollisionShape3D.new()
+	col.shape = mesh.create_trimesh_shape()
+	body.add_child(col)
+	parent.add_child(body)
+
+
+# Two triangles with per-vertex hull colours (a,b,c,d wound as a quad).
+static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, wl: float) -> void:
+	_tri(st, a, b, c, wl)
+	_tri(st, a, c, d, wl)
+
+
+static func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, wl: float) -> void:
+	st.set_color(_hull_color(a.y, wl)); st.add_vertex(a)
+	st.set_color(_hull_color(b.y, wl)); st.add_vertex(b)
+	st.set_color(_hull_color(c.y, wl)); st.add_vertex(c)
+
+
+# Quad with the colour already set on the SurfaceTool (flat-coloured surfaces like the deck).
+static func _quad_flat(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+	st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
+	st.add_vertex(a); st.add_vertex(c); st.add_vertex(d)
+
+
+# Close a hull end (bow/stern) with a fan from the cross-section centre.
+static func _cap(st: SurfaceTool, z: float, wl: float) -> void:
+	var b: float = _half_beam(z)
+	var k: float = _keel_y(z, wl)
+	var s: float = _sheer_y(z, wl)
+	var dL := Vector3(-b, s, z)
+	var dR := Vector3(b, s, z)
+	var bL := Vector3(-b * 0.72, k, z)
+	var bR := Vector3(b * 0.72, k, z)
+	var c := Vector3(0.0, (s + k) * 0.5, z)
+	_tri(st, dL, dR, c, wl)
+	_tri(st, dR, bR, c, wl)
+	_tri(st, bR, bL, c, wl)
+	_tri(st, bL, dL, c, wl)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------

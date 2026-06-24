@@ -1,5 +1,7 @@
 extends SceneTree
 
+const WorldGraph = preload("res://scripts/core/WorldGraph.gd")
+
 # Scene-driven integration checks: boots the real main.tscn and drives it over frames
 # to exercise gameplay end-to-end (map load + gate transitions), which the static
 # run_checks.gd can't. This is the safety net for refactoring the gate-detection
@@ -13,6 +15,7 @@ extends SceneTree
 func _init() -> void:
 	var failures: Array[String] = []
 	await _run_checks(failures)
+	await _run_liner_scene_checks(failures)
 	if failures.is_empty():
 		print("INTEGRATION OK: scene load and gate transition checks passed")
 		quit(0)
@@ -70,6 +73,63 @@ func _run_checks(failures: Array[String]) -> void:
 	await _await_frames(2)
 	if main.find_child("WorldMenuLayer", true, false) != null:
 		failures.append("world menu did not close")
+
+	main.free()
+
+
+# Load an Ocean Liner map in the live scene and confirm the ship, its gates, the
+# walkable deck collision, and the deck spawn all come up — the _scatter_liner path that
+# the default checks above (which run on the normal starting map) don't exercise. Then
+# let physics settle and confirm the player rests on the deck instead of dropping into
+# the sea, which proves the lofted-deck trimesh collider holds.
+func _run_liner_scene_checks(failures: Array[String]) -> void:
+	var main: Node = load("res://scenes/main.tscn").instantiate()
+	get_root().add_child(main)
+	if not await _await_loaded(main):
+		failures.append("liner: initial map did not load")
+		main.free()
+		return
+
+	var world_id := str(main.get("current_world_id"))
+	var world: Dictionary = main.call("_get_world", world_id)
+	var maps: Dictionary = world.get("maps", {})
+	var rec = WorldGraph.create_map_record(424242, WorldGraph.MAP_LINER)
+	maps["liner_test"] = rec.to_dict()
+	world["maps"] = maps
+	main.call("_set_world", world_id, world)
+	main.call("_load_map", world_id, "liner_test")
+	if not await _await_loaded(main):
+		failures.append("liner: map did not finish loading")
+		main.free()
+		return
+
+	if str(main.get("current_map_id")) != "liner_test":
+		failures.append("liner: current map is not the liner (%s)" % str(main.get("current_map_id")))
+	var gr: Node = main.get("generated_root")
+	var ship: Node = gr.get_node_or_null("QueenMary") if gr != null else null
+	if ship == null:
+		failures.append("liner: QueenMary ship node missing")
+	else:
+		var deck: Node = ship.get_node_or_null("MainDeck")
+		if deck == null or _count_class(deck, "CollisionShape3D") < 1:
+			failures.append("liner: walkable deck has no collision shape")
+	var gates: Node = gr.get_node_or_null("Gates") if gr != null else null
+	var gate_n: int = 0
+	if gates != null:
+		for c in gates.get_children():
+			if str(c.name).begins_with("Gate_"):
+				gate_n += 1
+	if gate_n != 4:
+		failures.append("liner: expected 4 gates, found %d" % gate_n)
+
+	# Let physics run; the player (spawned ~1.2 m above the deck) should land on it and
+	# stay well above the waterline (-1.7), not fall through into the sea.
+	await _await_frames(40)
+	var player: Node3D = main.call("_get_player") as Node3D
+	if player == null:
+		failures.append("liner: no player after load")
+	elif player.global_position.y < 6.0:
+		failures.append("liner: player fell off the deck (y=%.2f after settling)" % player.global_position.y)
 
 	main.free()
 
