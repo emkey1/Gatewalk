@@ -831,6 +831,56 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# A teak threshold strip just inside the forward door, so the doorway reads as an entrance.
 	_box(root, Vector3(-4.0, y_main + 0.04, SS_FWD * L - 1.2), Vector3(3.4, 0.12, 2.0), _mat(COL_TEAK, 0.7, 0.0), false)
 
+	# First public room off the Promenade: the First Class Main Lounge, amidships.
+	_build_lounge(root, wl)
+
+
+# Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
+# doorway (two jambs + a lintel) at door_x.
+static func _transverse_door_wall(parent: Node3D, z: float, half_w: float, y0: float, y1: float, t: float, door_x: float, dw: float, dh: float, mat: Material) -> void:
+	var h: float = y1 - y0
+	var cy: float = (y0 + y1) * 0.5
+	var da: float = door_x - dw * 0.5
+	var db: float = door_x + dw * 0.5
+	_box(parent, Vector3((-half_w + da) * 0.5, cy, z), Vector3(da + half_w, h, t), mat, true)
+	_box(parent, Vector3((db + half_w) * 0.5, cy, z), Vector3(half_w - db, h, t), mat, true)
+	var ly: float = y0 + dh
+	_box(parent, Vector3(door_x, (ly + y1) * 0.5, z), Vector3(dw, y1 - ly, t), mat, true)
+
+
+# The First Class Main Lounge: a grand room amidships on the Promenade Deck, walled off the
+# galleries fore and aft, with a parquet dance floor, an orchestra dais and back-panel, perimeter
+# banquettes, and a pendant light over the floor.
+static func _build_lounge(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "MainLounge"
+	parent.add_child(root)
+	var y_prom: float = wl + DECK_PROM
+	var y_top: float = wl + DECK_SUN - 0.35
+	var hw: float = SS_HALF_W
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	# Partition walls fore (z=+18) and aft (z=-18) with central doorways to the galleries.
+	_transverse_door_wall(root, 18.0, hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
+	_transverse_door_wall(root, -18.0, hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
+	# Parquet dance floor, centre.
+	_box(root, Vector3(0.0, y_prom + 0.06, 0.0), Vector3(12.0, 0.12, 16.0), _mat(Color(0.56, 0.42, 0.25), 0.45, 0.0), false)
+	# Orchestra dais at the aft end, raised, with a tall Deco back-panel on the partition.
+	_box(root, Vector3(0.0, y_prom + 0.2, -15.5), Vector3(10.0, 0.4, 4.0), _mat(Color(0.30, 0.22, 0.15), 0.6, 0.0), true)
+	_box(root, Vector3(0.0, y_prom + 2.3, -17.75), Vector3(8.0, 3.4, 0.16), _mat(Color(0.82, 0.67, 0.36), 0.4, 0.35), false)
+	# Perimeter banquettes along the port and starboard walls.
+	var sofa := _mat(Color(0.46, 0.20, 0.22), 0.85, 0.0)
+	for sx in [-1.0, 1.0]:
+		for sz in [-11.0, -3.0, 5.0, 13.0]:
+			_box(root, Vector3(sx * (hw - 1.1), y_prom + 0.45, float(sz)), Vector3(1.5, 0.9, 3.2), sofa, true)
+	# Pendant light over the dance floor.
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(0.0, y_prom + 3.1, 0.0)
+	lamp.light_color = Color(1.0, 0.95, 0.82)
+	lamp.light_energy = 6.0
+	lamp.omni_range = 24.0
+	lamp.shadow_enabled = false
+	root.add_child(lamp)
+
 
 # A horizontal floor slab (top at `y`) spanning z0..z1 × ±x_half, with a rectangular opening
 # hz0..hz1 × ±hx — built as up to four boxes around the hole (for stairwells/light wells).
