@@ -599,16 +599,16 @@ static func _build_funnels(parent: Node3D, wl: float) -> void:
 	# Heights re-anchored so the forward funnel still tops out ~43 m above the water now that the
 	# sports deck sits at 22.08 m (43.5 - 22.08 ≈ 21.4).
 	var base_y: float = wl + DECK_SPORTS
-	_funnel(root, 35.0, base_y, 21.4, red, black)
-	_funnel(root, -2.0, base_y, 20.4, red, black)
-	_funnel(root, -39.0, base_y, 19.4, red, black)
+	_funnel(root, 40.0, base_y, 22.0, red, black)
+	_funnel(root, 0.0, base_y, 21.0, red, black)
+	_funnel(root, -40.0, base_y, 20.0, red, black)
 
 
 static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red: Material, black: Material) -> void:
 	var top_y: float = base_y + height
 	var cy: float = base_y + height * 0.5
-	var ax: float = 3.5    # half-width athwartships (X) — 7 m
-	var az: float = 5.5    # half-length fore-and-aft (Z) — 11 m
+	var ax: float = 4.5    # half-width athwartships (X) — 9 m (the QM funnels were ~30 ft across)
+	var az: float = 6.4    # half-length fore-and-aft (Z) — 12.8 m, elliptical (longer than wide)
 	_ellipse_cyl(parent, Vector3(0.0, cy, cz), 1.0, height, ax, az, red, 0.92)
 	var cap: float = 2.8
 	_ellipse_cyl(parent, Vector3(0.0, top_y - cap * 0.5, cz), 0.96, cap, ax, az, black, 0.94)
@@ -626,15 +626,15 @@ static func _build_masts(parent: Node3D, wl: float) -> void:
 	root.name = "Masts"
 	parent.add_child(root)
 	var buff := _mat(Color(0.80, 0.68, 0.45), 0.5, 0.2)
-	_mast(root, Vector3(0.0, wl + DECK_SPORTS, 50.0), 27.0, buff)
-	_mast(root, Vector3(0.0, wl + DECK_SPORTS, -55.0), 23.0, buff)
+	_mast(root, Vector3(0.0, wl + DECK_SPORTS, 50.0), 30.0, buff)
+	_mast(root, Vector3(0.0, wl + DECK_SPORTS, -55.0), 26.0, buff)
 
 
 static func _mast(parent: Node3D, base: Vector3, height: float, mat: Material) -> void:
 	var mi := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
-	cm.bottom_radius = 0.55
-	cm.top_radius = 0.18
+	cm.bottom_radius = 0.7
+	cm.top_radius = 0.22
 	cm.height = height
 	cm.radial_segments = 10
 	mi.mesh = cm
@@ -678,10 +678,10 @@ static func _build_lifeboats(parent: Node3D, wl: float) -> void:
 	var L: float = HULL_HALF_LEN
 	var deck_y: float = wl + DECK_SUN
 	var boat_mesh := BoxMesh.new()
-	boat_mesh.size = Vector3(2.8, 1.8, 9.0)
+	boat_mesh.size = Vector3(3.2, 2.0, 10.0)
 	var boat_mat := _mat(Color(0.90, 0.88, 0.80), 0.7, 0.0)
 	var davit_mesh := BoxMesh.new()
-	davit_mesh.size = Vector3(0.18, 2.4, 0.18)
+	davit_mesh.size = Vector3(0.22, 2.6, 0.22)
 	var davit_mat := _mat(Color(0.20, 0.21, 0.23), 0.6, 0.4)
 	var boats: Array = []
 	var davits: Array = []
