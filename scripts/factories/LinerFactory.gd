@@ -790,26 +790,58 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	parent.add_child(root)
 	var L: float = HULL_HALF_LEN
 	var y_main: float = wl + DECK_MAIN
+	var y_prom: float = wl + DECK_PROM
 	var y_sun: float = wl + DECK_SUN
-	# Warm deckhead lamps down the length of the enclosed volume (no shadows — cheap fill).
-	for lz in [-78.0, -54.0, -30.0, -6.0, 18.0, 42.0, 64.0]:
-		var lamp := OmniLight3D.new()
-		lamp.position = Vector3(0.0, y_sun - 1.4, lz)
-		lamp.light_color = Color(1.0, 0.92, 0.76)
-		lamp.light_energy = 5.5
-		lamp.omni_range = 36.0
-		lamp.shadow_enabled = false
-		root.add_child(lamp)
-	# Two rows of panelled support columns from the deck up to the deckhead, with simple capitals.
+
+	# Promenade Deck floor at 15.5 over the entrance/A-deck level, with a stairwell opening just
+	# aft of the door for the grand staircase. The A-deck floor is the main-deck mesh below it.
+	var hz0: float = 50.0
+	var hz1: float = 59.0
+	var hx: float = 4.0
+	_floor_with_hole(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_prom, hz0, hz1, hx, 0.3, _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0))
+
+	# Grand staircase up from the entrance (A deck, 12) to the Promenade (15.5), rising aft.
+	_stair_run(root, 0.0, 58.0, 50.0, y_main, y_prom, 6.0, _mat(COL_TEAK, 0.7, 0.0))
+	# Balustrade around the three closed sides of the stairwell so you don't step into it.
+	var railmat := _mat(Color(0.72, 0.60, 0.38), 0.4, 0.1)
+	_box(root, Vector3(-hx, y_prom + 0.5, (hz0 + hz1) * 0.5), Vector3(0.12, 1.0, hz1 - hz0), railmat, true)
+	_box(root, Vector3(hx, y_prom + 0.5, (hz0 + hz1) * 0.5), Vector3(0.12, 1.0, hz1 - hz0), railmat, true)
+	_box(root, Vector3(0.0, y_prom + 0.5, hz1), Vector3(hx * 2.0, 1.0, 0.12), railmat, true)
+
+	# Warm deckhead lamps on BOTH levels now (Promenade + A deck), no shadows — cheap fill.
+	for ly in [y_prom + 2.6, y_main + 2.0]:
+		for lz in [-78.0, -54.0, -30.0, -6.0, 18.0, 42.0, 64.0]:
+			var lamp := OmniLight3D.new()
+			lamp.position = Vector3(0.0, float(ly), float(lz))
+			lamp.light_color = Color(1.0, 0.92, 0.76)
+			lamp.light_energy = 4.5
+			lamp.omni_range = 30.0
+			lamp.shadow_enabled = false
+			root.add_child(lamp)
+
+	# Two rows of panelled columns through both decks, capped at each deckhead.
 	var colmat := _mat(Color(0.82, 0.79, 0.72), 0.5, 0.05)
 	var cap := _mat(Color(0.70, 0.58, 0.36), 0.4, 0.1)
-	var col_h: float = y_sun - y_main
 	for cz in [-66.0, -44.0, -22.0, 0.0, 22.0, 44.0, 62.0]:
 		for sx in [-6.5, 6.5]:
-			_box(root, Vector3(sx, (y_main + y_sun) * 0.5, cz), Vector3(0.7, col_h, 0.7), colmat, true)
-			_box(root, Vector3(sx, y_sun - 0.35, cz), Vector3(1.1, 0.4, 1.1), cap, false)
+			_box(root, Vector3(sx, (y_main + y_sun) * 0.5, cz), Vector3(0.7, y_sun - y_main, 0.7), colmat, true)
+			_box(root, Vector3(sx, y_prom - 0.35, cz), Vector3(1.05, 0.35, 1.05), cap, false)
+			_box(root, Vector3(sx, y_sun - 0.35, cz), Vector3(1.05, 0.35, 1.05), cap, false)
+
 	# A teak threshold strip just inside the forward door, so the doorway reads as an entrance.
 	_box(root, Vector3(-4.0, y_main + 0.04, SS_FWD * L - 1.2), Vector3(3.4, 0.12, 2.0), _mat(COL_TEAK, 0.7, 0.0), false)
+
+
+# A horizontal floor slab (top at `y`) spanning z0..z1 × ±x_half, with a rectangular opening
+# hz0..hz1 × ±hx — built as up to four boxes around the hole (for stairwells/light wells).
+static func _floor_with_hole(parent: Node3D, z0: float, z1: float, x_half: float, y: float, hz0: float, hz1: float, hx: float, thick: float, mat: Material) -> void:
+	var cy: float = y - thick * 0.5
+	if hz0 > z0:
+		_box(parent, Vector3(0.0, cy, (z0 + hz0) * 0.5), Vector3(x_half * 2.0, thick, hz0 - z0), mat, true)
+	if z1 > hz1:
+		_box(parent, Vector3(0.0, cy, (hz1 + z1) * 0.5), Vector3(x_half * 2.0, thick, z1 - hz1), mat, true)
+	_box(parent, Vector3(-(x_half + hx) * 0.5, cy, (hz0 + hz1) * 0.5), Vector3(x_half - hx, thick, hz1 - hz0), mat, true)
+	_box(parent, Vector3((x_half + hx) * 0.5, cy, (hz0 + hz1) * 0.5), Vector3(x_half - hx, thick, hz1 - hz0), mat, true)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------
