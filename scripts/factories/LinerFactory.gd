@@ -67,6 +67,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_masts(root, wl)
 	_build_lifeboats(root, wl)
 	_build_railings(root, wl)
+	_build_forecastle(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): two on the
 	# aft well deck by the arrival, two up on the forecastle. All reachable on the flat
@@ -477,6 +478,46 @@ static func _deck_side_rails(parent: Node3D, z_aft: float, z_fwd: float, half_w:
 	var cy: float = y_deck + h * 0.5
 	_box(parent, Vector3(-half_w, cy, cz), Vector3(0.12, h, length), mat, true)
 	_box(parent, Vector3(half_w, cy, cz), Vector3(0.12, h, length), mat, true)
+
+
+# --- Forecastle: foredeck fittings so the bow reads as a real ship, not a bare deck ---
+
+static func _build_forecastle(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Forecastle"
+	parent.add_child(root)
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var grey := _mat(Color(0.55, 0.56, 0.58), 0.7, 0.2)
+	var dark := _mat(Color(0.30, 0.31, 0.34), 0.6, 0.3)
+	var buff := _mat(Color(0.80, 0.68, 0.45), 0.5, 0.2)
+
+	# Breakwater: a low chevron wall pointing forward, throwing spray off the foredeck.
+	var bd: float = _sheer_y(92.0, wl)
+	_oriented_box(root, Vector3(-4.5, bd + 0.75, 92.0), Vector3(0.3, 1.5, 11.0), 0.42, white, true)
+	_oriented_box(root, Vector3(4.5, bd + 0.75, 92.0), Vector3(0.3, 1.5, 11.0), -0.42, white, true)
+
+	# Forward kingpost (cargo mast) with a derrick yard — vertical presence at the bow.
+	_mast(root, Vector3(0.0, _sheer_y(96.0, wl), 96.0), 17.0, buff)
+
+	# Anchor windlass house + two warping drums.
+	var wd: float = _sheer_y(112.0, wl)
+	_box(root, Vector3(0.0, wd + 0.9, 112.0), Vector3(7.0, 1.8, 4.0), dark, true)
+	for sx in [-1.9, 1.9]:
+		_ellipse_cyl(root, Vector3(float(sx), wd + 2.15, 112.0), 0.7, 0.7, 1.0, 1.0, grey)
+
+	# Mooring bollards toward the bow.
+	for spec in [[-4.0, 122.0], [4.0, 122.0], [-2.8, 133.0], [2.8, 133.0]]:
+		var bz: float = float(spec[1])
+		_ellipse_cyl(root, Vector3(float(spec[0]), _sheer_y(bz, wl) + 0.45, bz), 0.32, 0.9, 1.0, 1.0, dark)
+
+	# Cowl ventilators flanking the forward deck.
+	for sx2 in [-7.0, 7.0]:
+		var vd: float = _sheer_y(85.0, wl)
+		_ellipse_cyl(root, Vector3(float(sx2), vd + 1.1, 85.0), 0.5, 2.2, 1.0, 1.0, white)
+		_box(root, Vector3(float(sx2), vd + 2.3, 85.4), Vector3(1.0, 0.9, 0.9), white, false)
+
+	# Jackstaff at the stem.
+	_box(root, Vector3(0.0, _sheer_y(149.0, wl) + 3.0, 149.0), Vector3(0.16, 6.0, 0.16), buff, false)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------

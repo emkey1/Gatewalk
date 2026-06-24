@@ -116,7 +116,7 @@ func _run_liner_checks(failures: Array[String]) -> void:
 	if ship == null or ship.name != "QueenMary":
 		failures.append("Liner root has no QueenMary ship node.")
 	else:
-		for sub in ["Hull", "MainDeck", "Superstructure", "Funnels", "Masts", "Lifeboats", "Railings"]:
+		for sub in ["Hull", "MainDeck", "Superstructure", "Funnels", "Masts", "Lifeboats", "Railings", "Forecastle"]:
 			if ship.get_node_or_null(sub) == null:
 				failures.append("Liner is missing its %s subsystem." % sub)
 	var bodies: int = _count_class(root_a, "StaticBody3D")
