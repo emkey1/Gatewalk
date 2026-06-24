@@ -70,6 +70,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_forecastle(root, wl)
 	_build_deck_details(root, wl)
 	_build_deck_structures(root, wl)
+	_build_portholes(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): gate 0 on the
 	# forecastle by the arrival, then one further forward and two on the aft well deck. All
@@ -674,6 +675,34 @@ static func _cowl_vent(parent: Node3D, base: Vector3, face: float, body: Materia
 	head.position = base + Vector3(0.0, 2.45, 0.3 * face)
 	head.rotation = Vector3(deg_to_rad(58.0 * face), 0.0, 0.0)
 	parent.add_child(head)
+
+
+# Two rows of portholes down the black hull sides (A and B deck), as one MultiMesh of
+# brass-rimmed discs sitting on the actual hull surface at each height.
+static func _build_portholes(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Portholes"
+	parent.add_child(root)
+	var brass := _mat(Color(0.52, 0.46, 0.30), 0.4, 0.5)
+	var rim := CylinderMesh.new()
+	rim.top_radius = 0.32
+	rim.bottom_radius = 0.32
+	rim.height = 0.14
+	rim.radial_segments = 10
+	var face := Basis(Vector3(0.0, 0.0, 1.0), deg_to_rad(90.0))   # disc axis -> X (faces outboard)
+	var tf: Array = []
+	var z: float = -HULL_HALF_LEN + 22.0
+	while z < HULL_HALF_LEN - 22.0:
+		var k: float = _keel_y(z, wl)
+		var s: float = _sheer_y(z, wl)
+		var b: float = _half_beam(z)
+		for yy in [4.5, 7.4]:
+			var frac: float = clampf((float(yy) - k) / (s - k), 0.0, 1.0)
+			var bw: float = b * (0.72 + 0.28 * frac) + 0.06
+			for side in [-1.0, 1.0]:
+				tf.append(Transform3D(face, Vector3(side * bw, float(yy), z)))
+		z += 3.2
+	MultiMeshScatter.build(root, "PortholeRims", rim, brass, tf)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------
