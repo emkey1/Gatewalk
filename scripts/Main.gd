@@ -5115,6 +5115,30 @@ func _scatter_liner() -> void:
 		_player_ref.global_position = arrival
 		_player_ref.velocity = Vector3.ZERO
 		_player_ref.rotation.y = PI   # face +Z (toward the bow)
+	_scatter_liner_gulls()
+
+
+# A few gull flocks wheeling over the ship. The standard bird scatter keys off terrain
+# height (the deep seabed here, so it would place none), so spawn these relative to the
+# waterline; the bioscan auto-catalogs them, giving the liner a handful of survey finds.
+func _scatter_liner_gulls() -> void:
+	if generated_root == null:
+		return
+	_begin_generation_channel("birds")
+	var rng := StableRng.new(StableRng.mix_string(world_seed, "liner_gulls"))
+	var bird_flock := preload("res://scripts/BirdFlock.gd")
+	for gi in range(4):
+		var flock = bird_flock.new()
+		flock.name = "GullFlock_" + str(gi)
+		var gx: float = rng.randf_range(-110.0, 110.0)
+		var gz: float = rng.randf_range(-150.0, 150.0)
+		flock.position = Vector3(gx, WATER_LEVEL + rng.randf_range(26.0, 46.0), gz)
+		var bseed: int = rng.next_u32()
+		flock.set("rng_seed", bseed)
+		flock.set("bird_count", rng.randi_range(8, 14))
+		flock.set("species_name", CreatureFactory.creature_species_name(bseed, true))
+		flock.set("catalog_id", "bio_gull_" + str(gi))
+		generated_root.add_child(flock)
 
 
 func _scatter_skyscraper() -> void:
