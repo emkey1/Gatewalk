@@ -205,9 +205,11 @@ static func _quad_out(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Ve
 
 
 static func _tri_out(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, wl: float) -> void:
+	# Godot's generate_normals() treats the opposite winding as front-facing, so emit the
+	# order that makes the *engine's* normal point outward (away from the hull axis).
 	var centroid: Vector3 = (a + b + c) / 3.0
 	var axis := Vector3(0.0, _hull_mid_y(centroid.z, wl), centroid.z)
-	if (b - a).cross(c - a).dot(centroid - axis) < 0.0:
+	if (b - a).cross(c - a).dot(centroid - axis) > 0.0:
 		_tri(st, a, c, b, wl)
 	else:
 		_tri(st, a, b, c, wl)
