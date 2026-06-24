@@ -42,11 +42,12 @@ const COL_WINDOW := Color(0.10, 0.13, 0.17)    # dark glazing
 
 # Superstructure massing (fractions of HULL_HALF_LEN). The base white block encloses the
 # Main, A and Promenade decks and rises to the open Boat/Sun deck; a centreline boat-deck
-# house then carries the funnels up to the Sports deck. Leaving SS_HALF_W < the hull beam
-# keeps a walkable side deck along the Main deck, so fore and aft connect on the flat.
+# house then carries the funnels up to the Sports deck. SS_HALF_W runs the deckhouse out
+# close to the shell (~92% of the 18 m half-beam) the way the real enclosed Promenade Deck
+# does — only a ~1.5 m open side deck remains along the Main deck for the fore-aft walk.
 const SS_AFT: float = -0.56
 const SS_FWD: float = 0.46
-const SS_HALF_W: float = 13.5
+const SS_HALF_W: float = 16.5
 const BH_AFT: float = -0.40
 const BH_FWD: float = 0.40
 const BH_HALF_W: float = 8.0
@@ -563,9 +564,9 @@ static func _build_lifeboats(parent: Node3D, wl: float) -> void:
 	for side in [-1.0, 1.0]:
 		for k in range(12):
 			var z: float = lerpf(BH_AFT * L + 6.0, BH_FWD * L - 6.0, float(k) / 11.0)
-			boats.append(Transform3D(Basis(), Vector3(side * 12.0, deck_y + 1.2, z)))
+			boats.append(Transform3D(Basis(), Vector3(side * 15.0, deck_y + 1.2, z)))
 			for dz in [-3.8, 3.8]:
-				davits.append(Transform3D(Basis(), Vector3(side * 10.8, deck_y + 1.2, z + float(dz))))
+				davits.append(Transform3D(Basis(), Vector3(side * 13.8, deck_y + 1.2, z + float(dz))))
 	MultiMeshScatter.build(root, "LifeboatHulls", boat_mesh, boat_mat, boats)
 	MultiMeshScatter.build(root, "DavitPosts", davit_mesh, davit_mat, davits)
 
@@ -671,10 +672,10 @@ static func _build_deck_details(parent: Node3D, wl: float) -> void:
 
 	# Cowl ventilators in the open boat-deck spaces fore and aft of the funnel casing.
 	var vents: Array = [
-		[Vector3(-9.5, boat_y, -82.0), 1.0], [Vector3(9.5, boat_y, -82.0), 1.0],
+		[Vector3(-12.0, boat_y, -82.0), 1.0], [Vector3(12.0, boat_y, -82.0), 1.0],
 		[Vector3(-5.5, boat_y, -75.0), -1.0], [Vector3(5.5, boat_y, -75.0), -1.0],
-		[Vector3(-10.0, boat_y, -67.0), 1.0], [Vector3(10.0, boat_y, -67.0), 1.0],
-		[Vector3(-9.5, boat_y, 65.0), -1.0], [Vector3(9.5, boat_y, 65.0), -1.0],
+		[Vector3(-12.0, boat_y, -67.0), 1.0], [Vector3(12.0, boat_y, -67.0), 1.0],
+		[Vector3(-12.0, boat_y, 65.0), -1.0], [Vector3(12.0, boat_y, 65.0), -1.0],
 	]
 	for v in vents:
 		_cowl_vent(root, v[0], float(v[1]), white, ventred)
@@ -891,7 +892,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	globemat.emission_energy_multiplier = 0.7
 	# Globe pendants down each sheltered-promenade gallery (between the inboard wall and windows).
 	for sgn in [-1.0, 1.0]:
-		var gx: float = sgn * 11.75
+		var gx: float = sgn * 13.75
 		for gz in [-72.0, -48.0, -24.0, 0.0, 24.0, 48.0, 64.0]:
 			_box(root, Vector3(gx, y_ceil - 0.65, float(gz)), Vector3(0.06, 1.1, 0.06), cream, false)
 			var globe := MeshInstance3D.new()
@@ -921,7 +922,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	var bench := _mat(Color(0.30, 0.20, 0.13), 0.7, 0.0)
 	var door_zs: Array = [-72.0, -48.0, -24.0, -9.0, 9.0, 30.0, 48.0, 64.0]
 	for sgn3 in [-1.0, 1.0]:
-		_longitudinal_door_wall(root, sgn3 * 10.0, z0, z1, y_prom, y_ceil + 0.1, 0.3, door_zs, 3.0, 2.4, white)
+		_longitudinal_door_wall(root, sgn3 * 11.0, z0, z1, y_prom, y_ceil + 0.1, 0.3, door_zs, 3.0, 2.4, white)
 		for bz in [-60.0, -36.0, -12.0, 12.0, 36.0, 56.0]:
 			_box(root, Vector3(sgn3 * (hw - 1.1), y_prom + 0.3, float(bz)), Vector3(0.7, 0.6, 2.4), bench, true)
 	# Temporary fill for the inboard areas not yet built into rooms (fore + aft of the lounge).
@@ -981,8 +982,8 @@ static func _build_lounge(parent: Node3D, wl: float) -> void:
 	var y_prom: float = wl + DECK_PROM
 	var y_top: float = wl + DECK_SUN - 0.35
 	# The lounge is an inboard room: its side walls are the sheltered-promenade gallery walls at
-	# ±10 (built in _build_promenade_fit); the fore/aft partitions span that inboard width.
-	var room_hw: float = 10.0
+	# ±11 (built in _build_promenade_fit); the fore/aft partitions span that inboard width.
+	var room_hw: float = 11.0
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	# Partition walls fore (z=+18) and aft (z=-18) with central doorways to the inboard areas.
 	_transverse_door_wall(root, 18.0, room_hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
