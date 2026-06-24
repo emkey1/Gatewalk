@@ -1012,6 +1012,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# and the first public room off it: the First Class Main Lounge, amidships.
 	_build_promenade_fit(root, wl)
 	_build_lounge(root, wl)
+	_build_promenade_rooms(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
@@ -1082,20 +1083,64 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	# public rooms, with doorways through to the rooms; benches along the windows.
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var bench := _mat(Color(0.30, 0.20, 0.13), 0.7, 0.0)
-	var door_zs: Array = [-64.0, -48.0, -24.0, -9.0, 9.0, 30.0, 48.0, 58.0]
+	var door_zs: Array = [55.0, 43.0, 33.0, 23.0, 9.0, -9.0, -29.0, -47.0, -61.0]   # one gallery door per public room
 	for sgn3 in [-1.0, 1.0]:
 		_longitudinal_door_wall(root, sgn3 * 11.0, z0, z1, y_prom, y_ceil + 0.1, 0.3, door_zs, 3.0, 2.4, white)
 		for bz in [-60.0, -36.0, -12.0, 12.0, 36.0, 56.0]:
 			_box(root, Vector3(sgn3 * (hw - 1.1), y_prom + 0.3, float(bz)), Vector3(0.7, 0.6, 2.4), bench, true)
-	# Temporary fill for the inboard areas not yet built into rooms (fore + aft of the lounge).
-	for fz in [-66.0, -42.0, 36.0, 56.0]:
-		var fill := OmniLight3D.new()
-		fill.position = Vector3(0.0, y_prom + 2.4, float(fz))
-		fill.light_color = Color(1.0, 0.92, 0.78)
-		fill.light_energy = 2.0
-		fill.omni_range = 20.0
-		fill.shadow_enabled = false
-		root.add_child(fill)
+	# (The inboard public rooms fore + aft of the lounge are built + lit by _build_promenade_rooms.)
+
+
+# The First Class Promenade Deck public rooms, inboard of the sheltered-promenade galleries, per
+# the 1936 deck plan (forward -> aft): Forward Hall (the grand-staircase landing), Library, Drawing
+# Room, Shopping arcade, [Main Lounge], Ballroom, Long Gallery, Smoking Room. Transverse partitions
+# with central doorways give a fore-aft enfilade down the centreline (the side galleries also run
+# through); end bulkheads close the sequence at the core-floor edges so you can't walk off into the
+# unfurnished tapered ends. This builds the shells + lighting; furnishings are added separately.
+static func _build_promenade_rooms(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "PromenadeRooms"
+	parent.add_child(root)
+	var y_prom: float = wl + DECK_PROM
+	var y_ceil: float = wl + DECK_SUN - 0.45
+	var rhw: float = 11.0      # inboard room half-width (the galleries lie outboard of this)
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	# End bulkheads fore (z=62) + aft (z=-68), across the full promenade width.
+	for ez in [62.0, -68.0]:
+		_box(root, Vector3(0.0, (y_prom + y_ceil) * 0.5, float(ez)), Vector3(31.0, y_ceil - y_prom, 0.4), white, true)
+	# Internal partitions, each with a central 3 m doorway (the Lounge's own ±18 partitions are
+	# built by _build_lounge; the Forward Hall is 48..62, around the grand staircase).
+	for pz in [48.0, 38.0, 28.0, -40.0, -54.0]:
+		_transverse_door_wall(root, float(pz), rhw, y_prom, y_ceil, 0.4, 0.0, 3.0, 2.3, white)
+	# A distinct floor rug + a warm ceiling light per room: [z0, z1, rug colour, light energy].
+	var rooms: Array = [
+		[38.0, 48.0, Color(0.42, 0.31, 0.22), 2.4],    # Library
+		[28.0, 38.0, Color(0.40, 0.26, 0.29), 2.3],    # Drawing Room
+		[18.0, 28.0, Color(0.58, 0.55, 0.50), 2.9],    # Shopping arcade (brighter)
+		[-40.0, -18.0, Color(0.47, 0.34, 0.20), 2.7],  # Ballroom
+		[-54.0, -40.0, Color(0.30, 0.27, 0.34), 2.2],  # Long Gallery
+		[-68.0, -54.0, Color(0.27, 0.16, 0.13), 1.9],  # Smoking Room (dark, warm, dim)
+	]
+	for r in rooms:
+		var z0: float = float(r[0])
+		var z1: float = float(r[1])
+		var zc: float = (z0 + z1) * 0.5
+		_box(root, Vector3(0.0, y_prom + 0.04, zc), Vector3(rhw * 2.0 - 2.0, 0.08, z1 - z0 - 2.0), _mat(r[2], 0.7, 0.0), false)
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, y_ceil - 0.5, zc)
+		lamp.light_color = Color(1.0, 0.92, 0.78)
+		lamp.light_energy = float(r[3])
+		lamp.omni_range = 17.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
+	# Forward Hall (48..62): the grand staircase rises into it, so it just gets a light.
+	var hall := OmniLight3D.new()
+	hall.position = Vector3(0.0, y_ceil - 0.5, 55.0)
+	hall.light_color = Color(1.0, 0.93, 0.80)
+	hall.light_energy = 2.5
+	hall.omni_range = 16.0
+	hall.shadow_enabled = false
+	root.add_child(hall)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
