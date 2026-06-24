@@ -22,13 +22,15 @@ const BEAM: float = 36.0           # max breadth
 const DRAUGHT: float = 11.8        # keel below the waterline
 
 # Deck heights ABOVE the waterline (world y = wl + these), to documented 1:1 figures:
-# keel->Promenade Deck = 92.5 ft (28.2 m) less the 11.8 m draught puts the Promenade at
-# 16.4 m; keel->C Deck = 55.25 ft fixes the inter-deck spacing at ~2.84 m (9.3 ft). The four
-# decks step from there.
+# keel->Promenade Deck = 92.5 ft (28.2 m) less the 11.8 m draught puts the Promenade at 16.4 m;
+# keel->C Deck = 55.25 ft fixes the lower-deck spacing at ~2.84 m (9.3 ft). The public-room decks
+# (Promenade and up) stand taller than the cabin decks the way the real ship's did — the Promenade
+# gets a ~3.3 m deckhead so a 1.8 m player isn't brushing the deck beams (the Sun/Sports decks ride
+# up with it; the lower Main/A decks keep the 2.84 m cabin spacing).
 const DECK_MAIN: float = 13.56     # Main deck: open forecastle + aft deck, base of the deckhouse
 const DECK_PROM: float = 16.40     # Promenade deck (the long enclosed promenade)
-const DECK_SUN: float = 19.24      # boat / sun deck: lifeboats + funnel casings
-const DECK_SPORTS: float = 22.08   # sports deck (topmost open deck)
+const DECK_SUN: float = 19.74      # boat / sun deck: lifeboats + funnel casings (lifted for a taller Promenade below)
+const DECK_SPORTS: float = 22.58   # sports deck (topmost open deck)
 
 const HULL_HALF_LEN: float = LOA * 0.5
 const HULL_HALF_BEAM: float = BEAM * 0.5
@@ -351,7 +353,7 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	# Sun/boat-deck house above the Promenade: a wide tapered deckhouse with a cabin-window band —
 	# the wedding-cake second tier the funnels rise from — set inboard so the lifeboat walkways stay
 	# open outboard. (Was a narrow ±8 funnel casing, which read as a thin slab.)
-	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.0, wl + 21.1)
+	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.5, wl + 21.6)
 	# Navigating bridge across the forward end of the boat deck, with wing platforms.
 	_build_bridge(root, wl, white, glass, deck)
 
@@ -604,9 +606,9 @@ static func _build_funnels(parent: Node3D, wl: float) -> void:
 	# Heights re-anchored so the forward funnel still tops out ~43 m above the water now that the
 	# sports deck sits at 22.08 m (43.5 - 22.08 ≈ 21.4).
 	var base_y: float = wl + DECK_SPORTS
-	_funnel(root, 40.0, base_y, 22.0, red, black)
-	_funnel(root, 0.0, base_y, 21.0, red, black)
-	_funnel(root, -40.0, base_y, 20.0, red, black)
+	_funnel(root, 40.0, base_y, 21.0, red, black)
+	_funnel(root, 0.0, base_y, 20.0, red, black)
+	_funnel(root, -40.0, base_y, 19.0, red, black)
 
 
 static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red: Material, black: Material) -> void:
