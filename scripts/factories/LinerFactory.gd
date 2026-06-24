@@ -318,15 +318,21 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var glass := _mat(COL_WINDOW, 0.25, 0.3)
 	var deck := _mat(COL_TEAK, 0.9, 0.0)
+	# Tinted, see-through glazing for the enclosed Promenade windows (look out at the sea).
+	var seaglass := StandardMaterial3D.new()
+	seaglass.albedo_color = Color(0.18, 0.28, 0.36, 0.42)
+	seaglass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	seaglass.roughness = 0.08
+	seaglass.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var L: float = HULL_HALF_LEN
 	var y_main: float = wl + DECK_MAIN
 	var y_sun: float = wl + DECK_SUN
 	var y_sports: float = wl + DECK_SPORTS
 
 	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks. A door
-	# in the forward wall (slightly to port, clear of the starboard companionway) lets you walk
-	# in off the forecastle.
-	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0)
+	# in the forward wall lets you walk in off the forecastle; the long sides carry the big
+	# Promenade windows as a real see-through glazed band (sill 15.7 -> head 18.2).
+	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0, wl + 15.7, wl + 18.2, seaglass)
 	# Three window rows down each long side: boat-deck, the big square Promenade row, A deck.
 	_promenade_windows(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl, glass)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
@@ -350,24 +356,16 @@ static func _promenade_windows(parent: Node3D, z_aft: float, z_fwd: float, half_
 	var cz: float = (z_aft + z_fwd) * 0.5
 	var length: float = z_fwd - z_aft
 	var glaze := _mat(Color(0.07, 0.09, 0.13), 0.7, 0.0)
-	var white := _mat(COL_SUPER, 0.7, 0.0)
-	# each row: [world-y above wl, strip height]
-	for spec in [[16.2, 1.9], [18.2, 0.9], [13.7, 1.0]]:
-		var y: float = wl + float(spec[0])
-		var hh: float = float(spec[1])
-		for sx in [-1.0, 1.0]:
-			_box(parent, Vector3(sx * (half_w + 0.26), y, cz), Vector3(0.14, hh, length * 0.97), glaze, false)
-	# Mullions on the Promenade strip: thin white verticals every ~3.2 m -> square windows.
-	var nm: int = maxi(int(length / 3.2), 1)
-	for i in range(nm + 1):
-		var z: float = z_aft + float(i) * (length / float(nm))
-		for sx2 in [-1.0, 1.0]:
-			_box(parent, Vector3(sx2 * (half_w + 0.30), wl + 16.2, z), Vector3(0.2, 2.1, 0.2), white, false)
+	# A-deck window strip below the Promenade glazing (exterior decoration on the solid sill
+	# course). The big Promenade row and the row above it are now the real see-through glazed
+	# band built into the side walls by _deckhouse, so they're no longer drawn here.
+	for sx in [-1.0, 1.0]:
+		_box(parent, Vector3(sx * (half_w + 0.26), wl + 13.7, cz), Vector3(0.14, 1.0, length * 0.97), glaze, false)
 
 
 # A white deckhouse box: four walls + a walkable top-deck slab (overhanging slightly to
 # meet stairs and deck edges), with dark window bands on the long sides.
-static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, y_base: float, y_top: float, wall: Material, glass: Material, deck: Material, prom_windows: bool, fwd_door_x: float = NAN) -> void:
+static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, y_base: float, y_top: float, wall: Material, glass: Material, deck: Material, prom_windows: bool, fwd_door_x: float = NAN, glaze_y0: float = NAN, glaze_y1: float = NAN, glaze_mat: Material = null) -> void:
 	var cz: float = (z_aft + z_fwd) * 0.5
 	var length: float = z_fwd - z_aft
 	# Walls stop 0.3 m below the deck and the teak slab oversails them (its underside buried in
@@ -377,8 +375,24 @@ static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float
 	var h: float = wall_top - y_base
 	var cy: float = (y_base + wall_top) * 0.5
 	var t: float = 0.4
-	_box(parent, Vector3(-half_w, cy, cz), Vector3(t, h, length), wall, true)
-	_box(parent, Vector3(half_w, cy, cz), Vector3(t, h, length), wall, true)
+	for sgn in [-1.0, 1.0]:
+		var xw: float = sgn * half_w
+		if is_nan(glaze_y0):
+			_box(parent, Vector3(xw, cy, cz), Vector3(t, h, length), wall, true)
+		else:
+			# Solid sill course below + a solid spandrel above, with a see-through glazed band
+			# between — the enclosed Promenade as a wall of sea-view glass.
+			_box(parent, Vector3(xw, (y_base + glaze_y0) * 0.5, cz), Vector3(t, glaze_y0 - y_base, length), wall, true)
+			_box(parent, Vector3(xw, (glaze_y1 + wall_top) * 0.5, cz), Vector3(t, wall_top - glaze_y1, length), wall, true)
+			# Tinted glazing filling the band, collidable so you can look out but not fall out.
+			_box(parent, Vector3(xw, (glaze_y0 + glaze_y1) * 0.5, cz), Vector3(t * 0.5, glaze_y1 - glaze_y0, length * 0.99), glaze_mat, true)
+			# Sill + head rails and vertical mullions framing the glass.
+			_box(parent, Vector3(xw, glaze_y0, cz), Vector3(t + 0.12, 0.14, length), wall, false)
+			_box(parent, Vector3(xw, glaze_y1, cz), Vector3(t + 0.12, 0.14, length), wall, false)
+			var nmul: int = maxi(int(length / 3.4), 1)
+			for i in range(nmul + 1):
+				var mz: float = z_aft + length * float(i) / float(nmul)
+				_box(parent, Vector3(xw, (glaze_y0 + glaze_y1) * 0.5, mz), Vector3(t + 0.1, glaze_y1 - glaze_y0, 0.24), wall, false)
 	_box(parent, Vector3(0.0, cy, z_aft), Vector3(half_w * 2.0, h, t), wall, true)
 	if is_nan(fwd_door_x):
 		_box(parent, Vector3(0.0, cy, z_fwd), Vector3(half_w * 2.0, h, t), wall, true)
