@@ -61,6 +61,10 @@ var spherical_gravity: bool = false
 var sphere_center: Vector3 = Vector3.ZERO
 var _look_fwd: Vector3 = Vector3(0.0, 0.0, -1.0)   # heading, kept in the local tangent plane
 
+# Free-fly inspection mode (dev): no gravity or collision, move in the look direction. Toggle
+# with V or from the Shift+S menu. Lets you fly off the ship and view it from any angle.
+var fly_mode: bool = false
+
 
 # Switch hollow-planet gravity on/off, smoothing the orientation handoff both ways.
 func set_spherical_mode(on: bool, center: Vector3) -> void:
@@ -86,6 +90,30 @@ func set_spherical_mode(on: bool, center: Vector3) -> void:
 		up_direction = Vector3.UP
 		global_transform.basis = Basis()
 		rotation.y = atan2(-f2.x, -f2.z)
+
+
+# Toggle free-fly inspection mode on/off (zeroes momentum so you don't drop on exit).
+func toggle_fly() -> void:
+	fly_mode = not fly_mode
+	velocity = Vector3.ZERO
+
+
+func _physics_fly(delta: float) -> void:
+	var input_dir := Vector2(Input.get_vector("move_left", "move_right", "move_forward", "move_back"))
+	var fly_speed: float = 35.0
+	if Input.is_action_pressed("sprint"):
+		fly_speed = 120.0
+	var dir := Vector3.ZERO
+	if input_dir.length() > 0.0:
+		var cam_fwd: Vector3 = -camera.global_transform.basis.z
+		var cam_right: Vector3 = camera.global_transform.basis.x
+		dir = cam_right * input_dir.x + cam_fwd * -input_dir.y
+	if Input.is_action_pressed("jump"):
+		dir.y += 1.0
+	if dir.length() > 0.0:
+		dir = dir.normalized()
+	velocity = dir * fly_speed
+	global_position += velocity * delta
 
 
 func _ready() -> void:
@@ -141,6 +169,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_V:
+		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			toggle_fly()
+
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			return
@@ -154,6 +186,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if fly_mode:
+		_physics_fly(delta)
+		return
 	if spherical_gravity:
 		_physics_spherical(delta)
 		return

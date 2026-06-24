@@ -228,6 +228,7 @@ func _ready() -> void:
 	dev_menu.get_gate_debug_hud_enabled_fn = _get_gate_debug_hud_enabled
 	dev_menu.set_gate_debug_hud_enabled_fn = _set_gate_debug_hud_enabled
 	dev_menu.toggle_day_night_fn = _toggle_day_night
+	dev_menu.toggle_fly_fn = _toggle_player_fly
 	add_child(dev_menu)
 
 	_load_slot_index()
@@ -3713,6 +3714,12 @@ func _toggle_day_night() -> void:
 	var is_day: bool = hour >= 7.0 and hour < 17.5
 	_cycle_time = CYCLE_LENGTH * (0.0 if is_day else 0.5)   # -> midnight or noon
 	_update_day_night_cycle()
+
+
+func _toggle_player_fly() -> void:
+	var player: CharacterBody3D = _get_player()
+	if player != null and player.has_method("toggle_fly"):
+		player.toggle_fly()
 
 
 func _update_day_night_cycle() -> void:

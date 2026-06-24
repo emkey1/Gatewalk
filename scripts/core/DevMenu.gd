@@ -26,6 +26,7 @@ var set_e_key_gate_enabled_fn: Callable
 var get_gate_debug_hud_enabled_fn: Callable
 var set_gate_debug_hud_enabled_fn: Callable
 var toggle_day_night_fn: Callable
+var toggle_fly_fn: Callable
 
 var current_world_id: String = ""
 var current_map_id: String = ""
@@ -277,6 +278,11 @@ func _show_menu() -> void:
 		dn_btn.text = "Toggle Day/Night"
 		dn_btn.pressed.connect(_on_toggle_day_night)
 		close_row.add_child(dn_btn)
+	if toggle_fly_fn.is_valid():
+		var fly_btn := Button.new()
+		fly_btn.text = "Toggle Fly (V)"
+		fly_btn.pressed.connect(_on_toggle_fly)
+		close_row.add_child(fly_btn)
 
 	var close_btn := Button.new()
 	close_btn.text = "Close"
@@ -451,6 +457,12 @@ func _toggle_gate_hud_debug() -> void:
 func _on_toggle_day_night() -> void:
 	if toggle_day_night_fn.is_valid():
 		toggle_day_night_fn.call()
+
+
+func _on_toggle_fly() -> void:
+	if toggle_fly_fn.is_valid():
+		toggle_fly_fn.call()
+	close()
 
 
 func _create_moon_map_record(seed_value: int) -> MapRecord:
