@@ -4568,7 +4568,7 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_save_world_data()
 
 	var map_type: String = WorldGraph.map_type_from_dict(map_record)
-	_moon_grid_scale = 2 if map_type == WorldGraph.MAP_MOON else 1
+	_moon_grid_scale = 2 if (map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_LINER) else 1
 	world_seed = int(map_record.get("seed", 12345))
 	_setup_noise(map_type)
 	_begin_generation_channel("map")

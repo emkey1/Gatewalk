@@ -24,7 +24,8 @@ func _init(config: Dictionary = {}) -> void:
 	moon_grid_scale = int(config.get("moon_grid_scale", moon_grid_scale))
 	if moon_grid_scale <= 0:
 		moon_grid_scale = 1
-	if map_type == WorldGraph.MAP_MOON and moon_grid_scale == 1:
+	# The moon and the open-ocean liner both double the world grid for a roomier map.
+	if (map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_LINER) and moon_grid_scale == 1:
 		moon_grid_scale = 2
 	_setup_noise()
 	_setup_lakes()
@@ -122,7 +123,7 @@ func water_level_at(wx: float, wz: float) -> float:
 
 
 func effective_grid_size() -> int:
-	if map_type == WorldGraph.MAP_MOON:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_LINER:
 		return grid_size * moon_grid_scale
 	return grid_size
 

@@ -48,7 +48,7 @@ func generate(root: Node3D) -> void:
 		})
 	noise = map_context.noise
 
-	if map_type == WorldGraph.MAP_MOON:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_LINER:
 		moon_grid_scale = 2
 
 	if map_type == WorldGraph.MAP_GATE_ROOM:
@@ -92,7 +92,7 @@ func _world_half_size() -> float:
 
 func _height_index(x: int, z: int) -> int:
 	var g: int = GRID_SIZE + 1
-	if map_type == WorldGraph.MAP_MOON:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_LINER:
 		g = (GRID_SIZE * moon_grid_scale) + 1
 	return z * g + x
 
