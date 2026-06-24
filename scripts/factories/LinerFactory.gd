@@ -53,9 +53,15 @@ const COL_WINDOW := Color(0.10, 0.13, 0.17)    # dark glazing
 const SS_AFT: float = -0.85
 const SS_FWD: float = 0.78
 const SS_HALF_W: float = 16.5
+const SS_SIDE_DECK: float = 1.2    # open side-deck margin kept between the deckhouse wall and the hull edge
 const BH_AFT: float = -0.40
 const BH_FWD: float = 0.40
 const BH_HALF_W: float = 8.0
+# Amidships full-width core of the Promenade interior (fit-out + floor) — the band where the
+# tapering deckhouse is still near full beam, so the furniture/floor never poke through the walls.
+const PROM_AFT: float = -68.0
+const PROM_FWD: float = 62.0
+const PROM_HALF_W: float = 15.5
 
 
 # Build the liner into `parent`. Returns an Array of 4 gate world-positions on the
@@ -339,9 +345,7 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	# in the forward wall lets you walk in off the forecastle; the long sides carry the big
 	# Promenade windows as a real see-through glazed band over a waist-high dado (sill 17.4 ->
 	# head 18.8, i.e. 1 m of dado above the 16.4 m Promenade floor), matching the enclosed promenade.
-	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0, wl + 17.4, wl + 18.8, seaglass)
-	# Three window rows down each long side: boat-deck, the big square Promenade row, A deck.
-	_promenade_windows(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl, glass)
+	_deckhouse_tapered(root, SS_AFT * L, SS_FWD * L, y_main, y_sun, white, deck, seaglass, -4.0, wl + 17.4, wl + 18.8)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
 	# so the boat-deck walkways (for the lifeboats) stay open along each side.
 	_deckhouse(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, y_sun, y_sports, white, glass, deck, false)
@@ -352,9 +356,10 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	# the Sports deck, and a forward flight to the forecastle. The fore/aft weather decks rise
 	# toward the ends (sheer), so each base sits at the local sheer, not the flat mid-ship deck,
 	# or the stair hangs below the deck it lands on. Solid steps the capsule rounds into a ramp.
-	_stair_run(root, -6.0, SS_AFT * L - 13.0, SS_AFT * L - 1.5, _sheer_y(SS_AFT * L - 13.0, wl), y_sun, 4.0, deck)
+	# Kept well inboard so they land on the now-tapered (narrower) boat-deck ends, not off the edge.
+	_stair_run(root, -3.0, SS_AFT * L - 13.0, SS_AFT * L - 1.5, _sheer_y(SS_AFT * L - 13.0, wl), y_sun, 4.0, deck)
 	_stair_run(root, 0.0, BH_AFT * L - 9.0, BH_AFT * L - 1.5, y_sun, y_sports, 3.6, deck)
-	_stair_run(root, 6.0, SS_FWD * L + 13.0, SS_FWD * L + 1.5, _sheer_y(SS_FWD * L + 13.0, wl), y_sun, 4.0, deck)
+	_stair_run(root, 3.0, SS_FWD * L + 13.0, SS_FWD * L + 1.5, _sheer_y(SS_FWD * L + 13.0, wl), y_sun, 4.0, deck)
 
 
 # Three rows of windows down each long side of the base block: continuous dark glazing
@@ -423,6 +428,85 @@ static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float
 		_box(parent, Vector3(half_w + 0.06, float(by), cz), Vector3(0.18, 1.3, length * 0.95), glass, false)
 
 
+# Deckhouse half-width at z: the amidships cap (SS_HALF_W) but never wider than the hull at
+# that station less a side-deck margin, so the white block follows the fining hull toward the
+# ends instead of overhanging it (which had the superstructure jutting over the water).
+static func _house_half_w(z: float) -> float:
+	return minf(SS_HALF_W, _half_beam(z) - SS_SIDE_DECK)
+
+
+# One wall strip: an oriented box between two deck-plan points (xa,za)->(xb,zb), spanning
+# y_lo..y_hi, yawed to follow the taper. Reused for the sill course, glazed band and spandrel.
+static func _wall_strip(parent: Node3D, xa: float, za: float, xb: float, zb: float, y_lo: float, y_hi: float, t: float, mat: Material, collide: bool) -> void:
+	var dx: float = xb - xa
+	var dz: float = zb - za
+	var length: float = sqrt(dx * dx + dz * dz) + 0.02
+	_oriented_box(parent, Vector3((xa + xb) * 0.5, (y_lo + y_hi) * 0.5, (za + zb) * 0.5), Vector3(t, y_hi - y_lo, length), atan2(dx, dz), mat, collide)
+
+
+# A flat walkable slab at constant y_top, lofted to follow the deckhouse taper out to
+# half-width+overhang at each station (top + underside + edge skirts), with a trimesh collider —
+# the boat/sun deck slab on the tapered base block.
+static func _tapered_slab(parent: Node3D, z_aft: float, z_fwd: float, y_top: float, thick: float, overhang: float, mat: Material) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_color(Color(0.34, 0.25, 0.15))
+	var yb: float = y_top - thick
+	var n: int = 24
+	for i in range(n):
+		var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
+		var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
+		var w0: float = _house_half_w(z0) + overhang
+		var w1: float = _house_half_w(z1) + overhang
+		_quad_flat(st, Vector3(-w0, y_top, z0), Vector3(w0, y_top, z0), Vector3(w1, y_top, z1), Vector3(-w1, y_top, z1))
+		_quad_flat(st, Vector3(-w0, yb, z0), Vector3(-w1, yb, z1), Vector3(w1, yb, z1), Vector3(w0, yb, z0))
+		_quad_flat(st, Vector3(w0, y_top, z0), Vector3(w0, yb, z0), Vector3(w1, yb, z1), Vector3(w1, y_top, z1))
+		_quad_flat(st, Vector3(-w0, y_top, z0), Vector3(-w1, y_top, z1), Vector3(-w1, yb, z1), Vector3(-w0, yb, z0))
+	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var body := StaticBody3D.new()
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	var dm := StandardMaterial3D.new()
+	dm.albedo_color = COL_TEAK
+	dm.roughness = 0.9
+	dm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = dm
+	body.add_child(mi)
+	var col := CollisionShape3D.new()
+	col.shape = mesh.create_trimesh_shape()
+	body.add_child(col)
+	parent.add_child(body)
+
+
+# The long base-block deckhouse, tapered to follow the hull: port + starboard walls lofted as
+# yawed strips (solid sill course, a see-through glazed Promenade band, solid spandrel) over N
+# stations, vertical mullions at each station, solid aft cap, a forward cap with the entry door,
+# and a tapered oversailing boat-deck slab.
+static func _deckhouse_tapered(parent: Node3D, z_aft: float, z_fwd: float, y_base: float, y_top: float, wall: Material, deck: Material, glaze_mat: Material, fwd_door_x: float, glaze_y0: float, glaze_y1: float) -> void:
+	var wall_top: float = y_top - 0.3
+	var t: float = 0.4
+	var n: int = 22
+	for s in [-1.0, 1.0]:
+		for i in range(n):
+			var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
+			var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
+			var x0: float = s * _house_half_w(z0)
+			var x1: float = s * _house_half_w(z1)
+			_wall_strip(parent, x0, z0, x1, z1, y_base, glaze_y0, t, wall, true)            # sill course
+			_wall_strip(parent, x0, z0, x1, z1, glaze_y1, wall_top, t, wall, true)          # spandrel
+			_wall_strip(parent, x0, z0, x1, z1, glaze_y0, glaze_y1, t * 0.5, glaze_mat, true) # glazed band (collidable)
+			_wall_strip(parent, x0, z0, x1, z1, glaze_y0 - 0.07, glaze_y0 + 0.07, t + 0.12, wall, false) # sill rail
+			_wall_strip(parent, x0, z0, x1, z1, glaze_y1 - 0.07, glaze_y1 + 0.07, t + 0.12, wall, false) # head rail
+		for i in range(n + 1):
+			var mz: float = lerpf(z_aft, z_fwd, float(i) / float(n))
+			_box(parent, Vector3(s * _house_half_w(mz), (glaze_y0 + glaze_y1) * 0.5, mz), Vector3(t + 0.1, glaze_y1 - glaze_y0, 0.24), wall, false)
+	var hwa: float = _house_half_w(z_aft)
+	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_aft), Vector3(hwa * 2.0, wall_top - y_base, t), wall, true)
+	_transverse_door_wall(parent, z_fwd, _house_half_w(z_fwd), y_base, wall_top, t, fwd_door_x, 3.2, 2.4, wall)
+	_tapered_slab(parent, z_aft - 1.5, z_fwd + 1.5, y_top, 0.35, 0.5, deck)
+
+
 # Navigating bridge: a wheelhouse box at the forward end of the boat deck with a forward
 # window row, flanked by two cantilevered wing platforms reaching out to the ship's sides.
 static func _build_bridge(parent: Node3D, wl: float, wall: Material, glass: Material, deck: Material) -> void:
@@ -430,7 +514,8 @@ static func _build_bridge(parent: Node3D, wl: float, wall: Material, glass: Mate
 	var y_sun: float = wl + DECK_SUN
 	var y_top: float = wl + DECK_SPORTS + 1.2
 	var bz: float = SS_FWD * L - 7.0
-	var hw: float = 12.0
+	var hw: float = _house_half_w(bz) - 0.3   # follow the narrowed forward hull instead of overhanging it
+	var edge: float = _half_beam(bz)          # the hull side at the bridge — the wings reach out to here
 	var glaze := _mat(Color(0.07, 0.09, 0.13), 0.7, 0.0)
 	_deckhouse(parent, bz - 5.0, bz + 5.0, hw, y_sun, y_top, wall, glass, deck, false)
 	# Wheelhouse windows: a continuous dark strip across the front and down each side. Held
@@ -447,10 +532,12 @@ static func _build_bridge(parent: Node3D, wl: float, wall: Material, glass: Mate
 	# Bridge wings: walkable platforms cantilevered to the ship's sides, each with a wing cab
 	# (the open-bridge control position), a cab window, and a forward dodger screen.
 	for sx2 in [-1.0, 1.0]:
-		_box(parent, Vector3(sx2 * 15.0, y_sun, bz), Vector3(7.0, 0.3, 5.0), deck, true)
-		_box(parent, Vector3(sx2 * 17.4, y_sun + 1.3, bz), Vector3(2.0, 2.5, 2.6), wall, true)
-		_box(parent, Vector3(sx2 * 17.4, y_sun + 1.9, bz + 1.36), Vector3(2.0, 1.0, 0.14), glaze, false)
-		_box(parent, Vector3(sx2 * 15.0, y_sun + 0.55, bz - 2.45), Vector3(7.0, 0.9, 0.1), wall, true)
+		var wctr: float = sx2 * (hw + edge) * 0.5    # platform from the wheelhouse side out to the hull edge
+		var ww: float = edge - hw + 1.0
+		_box(parent, Vector3(wctr, y_sun, bz), Vector3(ww, 0.3, 5.0), deck, true)
+		_box(parent, Vector3(sx2 * (edge - 1.0), y_sun + 1.3, bz), Vector3(2.0, 2.5, 2.6), wall, true)
+		_box(parent, Vector3(sx2 * (edge - 1.0), y_sun + 1.9, bz + 1.36), Vector3(2.0, 1.0, 0.14), glaze, false)
+		_box(parent, Vector3(wctr, y_sun + 0.55, bz - 2.45), Vector3(ww, 0.9, 0.1), wall, true)
 
 
 # A straight stair run of solid steps climbing from (z_base, y_base) to (z_top, y_top);
@@ -572,9 +659,10 @@ static func _build_lifeboats(parent: Node3D, wl: float) -> void:
 	for side in [-1.0, 1.0]:
 		for k in range(14):
 			var z: float = lerpf(SS_AFT * L + 28.0, SS_FWD * L - 28.0, float(k) / 13.0)
-			boats.append(Transform3D(Basis(), Vector3(side * 15.0, deck_y + 1.2, z)))
+			var edge: float = _house_half_w(z)   # ride the tapered boat-deck edge, not a fixed ±15
+			boats.append(Transform3D(Basis(), Vector3(side * (edge - 0.4), deck_y + 1.2, z)))
 			for dz in [-3.8, 3.8]:
-				davits.append(Transform3D(Basis(), Vector3(side * 13.8, deck_y + 1.2, z + float(dz))))
+				davits.append(Transform3D(Basis(), Vector3(side * (edge - 1.6), deck_y + 1.2, z + float(dz))))
 	MultiMeshScatter.build(root, "LifeboatHulls", boat_mesh, boat_mat, boats)
 	MultiMeshScatter.build(root, "DavitPosts", davit_mesh, davit_mat, davits)
 
@@ -604,7 +692,7 @@ static func _build_railings(parent: Node3D, wl: float) -> void:
 	for end_z in [L - 5.0, -L + 5.0]:
 		var ew: float = _half_beam(end_z) * 0.96
 		_box(root, Vector3(0.0, _sheer_y(end_z, wl) + h * 0.5, end_z), Vector3(ew * 2.0 + 0.3, h, 0.12), rail, true)
-	_deck_side_rails(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl + DECK_SUN, h, rail)
+	_tapered_side_rails(root, SS_AFT * L, SS_FWD * L, wl + DECK_SUN, h, rail)
 	_deck_side_rails(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, wl + DECK_SPORTS, h, rail)
 
 
@@ -624,6 +712,19 @@ static func _deck_side_rails(parent: Node3D, z_aft: float, z_fwd: float, half_w:
 	var cy: float = y_deck + h * 0.5
 	_box(parent, Vector3(-half_w, cy, cz), Vector3(0.12, h, length), mat, true)
 	_box(parent, Vector3(half_w, cy, cz), Vector3(0.12, h, length), mat, true)
+
+
+# Port + starboard rails following the tapered boat-deck edge (just outboard of _house_half_w),
+# lofted as short segments so they curve inboard toward the ends with the deck.
+static func _tapered_side_rails(parent: Node3D, z_aft: float, z_fwd: float, y_deck: float, h: float, mat: Material) -> void:
+	var n: int = 22
+	for i in range(n):
+		var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
+		var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
+		var w0: float = _house_half_w(z0) + 0.35
+		var w1: float = _house_half_w(z1) + 0.35
+		_rail_segment(parent, -w0, y_deck, z0, -w1, y_deck, z1, h, mat)
+		_rail_segment(parent, w0, y_deck, z0, w1, y_deck, z1, h, mat)
 
 
 # --- Forecastle: foredeck fittings so the bow reads as a real ship, not a bare deck ---
@@ -830,7 +931,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	var hz0: float = 50.0
 	var hz1: float = 59.0
 	var hx: float = 4.0
-	_floor_with_hole(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_prom, hz0, hz1, hx, 0.3, _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0))
+	_floor_with_hole(root, PROM_AFT, PROM_FWD, PROM_HALF_W, y_prom, hz0, hz1, hx, 0.3, _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0))
 
 	# Grand staircase up from the entrance (A deck, 12) to the Promenade (15.5), rising aft.
 	_stair_run(root, 0.0, 58.0, 50.0, y_main, y_prom, 6.0, _mat(COL_TEAK, 0.7, 0.0))
@@ -877,12 +978,13 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	var root := Node3D.new()
 	root.name = "PromenadeFit"
 	parent.add_child(root)
-	var L: float = HULL_HALF_LEN
-	var z0: float = SS_AFT * L
-	var z1: float = SS_FWD * L
+	# Clamped to the amidships full-width core so the deckhead/dado/galleries never poke through
+	# the tapered side walls toward the ends.
+	var z0: float = PROM_AFT
+	var z1: float = PROM_FWD
 	var zc: float = (z0 + z1) * 0.5
 	var zl: float = z1 - z0
-	var hw: float = SS_HALF_W
+	var hw: float = PROM_HALF_W
 	var y_prom: float = wl + DECK_PROM
 	var y_sill: float = wl + 17.4
 	var y_ceil: float = wl + DECK_SUN - 0.45
@@ -911,7 +1013,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	# height, too low to hang globes on stems, so they sit tight up under the deckhead.
 	for sgn in [-1.0, 1.0]:
 		var gx: float = sgn * 13.75
-		for gz in [-72.0, -48.0, -24.0, 0.0, 24.0, 48.0, 64.0]:
+		for gz in [-64.0, -48.0, -24.0, 0.0, 24.0, 48.0, 58.0]:
 			var globe := MeshInstance3D.new()
 			var sm := SphereMesh.new()
 			sm.radius = 0.18
@@ -937,7 +1039,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	# public rooms, with doorways through to the rooms; benches along the windows.
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var bench := _mat(Color(0.30, 0.20, 0.13), 0.7, 0.0)
-	var door_zs: Array = [-72.0, -48.0, -24.0, -9.0, 9.0, 30.0, 48.0, 64.0]
+	var door_zs: Array = [-64.0, -48.0, -24.0, -9.0, 9.0, 30.0, 48.0, 58.0]
 	for sgn3 in [-1.0, 1.0]:
 		_longitudinal_door_wall(root, sgn3 * 11.0, z0, z1, y_prom, y_ceil + 0.1, 0.3, door_zs, 3.0, 2.4, white)
 		for bz in [-60.0, -36.0, -12.0, 12.0, 36.0, 56.0]:
