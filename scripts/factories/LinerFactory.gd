@@ -880,38 +880,39 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	var wood := _mat(COL_TEAK, 0.7, 0.0)
 	# Warm cream deckhead lining over the Promenade.
 	_box(root, Vector3(0.0, y_ceil + 0.08, zc), Vector3(hw * 2.0 - 0.4, 0.12, zl), lining, false)
-	# Transverse deck beams every ~4 m, a shade darker than the lining so they read.
+	# Transverse deck beams every ~4 m, a shade darker than the lining so they read; kept shallow
+	# so they don't eat headroom on the real ~2.84 m deck.
 	var nb: int = int(zl / 4.0)
 	for i in range(nb + 1):
 		var bz: float = z0 + zl * float(i) / float(nb)
-		_box(root, Vector3(0.0, y_ceil - 0.22, bz), Vector3(hw * 2.0 - 0.4, 0.34, 0.28), beam, false)
-	# Longitudinal pipe/conduit runs (near each window line + two inboard).
+		_box(root, Vector3(0.0, y_ceil - 0.12, bz), Vector3(hw * 2.0 - 0.4, 0.22, 0.28), beam, false)
+	# Longitudinal pipe/conduit runs (near each window line + two inboard), tucked up to the deckhead.
 	for px in [-hw + 1.6, -2.2, 2.2, hw - 1.6]:
-		_box(root, Vector3(px, y_ceil - 0.4, zc), Vector3(0.14, 0.14, zl), cream, false)
+		_box(root, Vector3(px, y_ceil - 0.28, zc), Vector3(0.14, 0.14, zl), cream, false)
 	# Globe pendant lights down the centreline.
 	var globemat := StandardMaterial3D.new()
 	globemat.albedo_color = Color(1.0, 0.96, 0.84)
 	globemat.emission_enabled = true
 	globemat.emission = Color(1.0, 0.93, 0.76)
 	globemat.emission_energy_multiplier = 0.7
-	# Globe pendants down each sheltered-promenade gallery (between the inboard wall and windows).
+	# Flush deckhead dome lights down each sheltered-promenade gallery. The deck is a real ~2.84 m
+	# height, too low to hang globes on stems, so they sit tight up under the deckhead.
 	for sgn in [-1.0, 1.0]:
 		var gx: float = sgn * 13.75
 		for gz in [-72.0, -48.0, -24.0, 0.0, 24.0, 48.0, 64.0]:
-			_box(root, Vector3(gx, y_ceil - 0.65, float(gz)), Vector3(0.06, 1.1, 0.06), cream, false)
 			var globe := MeshInstance3D.new()
 			var sm := SphereMesh.new()
-			sm.radius = 0.24
-			sm.height = 0.48
+			sm.radius = 0.18
+			sm.height = 0.26
 			globe.mesh = sm
 			globe.material_override = globemat
-			globe.position = Vector3(gx, y_ceil - 1.3, float(gz))
+			globe.position = Vector3(gx, y_ceil - 0.06, float(gz))
 			root.add_child(globe)
 			var lamp := OmniLight3D.new()
-			lamp.position = Vector3(gx, y_ceil - 1.4, float(gz))
+			lamp.position = Vector3(gx, y_ceil - 0.4, float(gz))
 			lamp.light_color = Color(1.0, 0.93, 0.78)
-			lamp.light_energy = 1.5
-			lamp.omni_range = 16.0
+			lamp.light_energy = 1.6
+			lamp.omni_range = 15.0
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
 	# Wood dado + handrail below the windows, down each side.
