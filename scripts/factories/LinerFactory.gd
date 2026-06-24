@@ -382,12 +382,25 @@ static func _build_bridge(parent: Node3D, wl: float, wall: Material, glass: Mate
 	var y_sun: float = wl + DECK_SUN
 	var y_top: float = wl + DECK_SPORTS + 1.2
 	var bz: float = SS_FWD * L - 7.0
-	_deckhouse(parent, bz - 5.0, bz + 5.0, 12.0, y_sun, y_top, wall, glass, deck, false)
-	# Forward-facing wheelhouse windows.
-	_box(parent, Vector3(0.0, y_top - 1.3, bz + 5.06), Vector3(22.0, 1.4, 0.18), glass, false)
-	# Bridge wings: thin walkable platforms cantilevered to port and starboard.
+	var hw: float = 12.0
+	var glaze := _mat(Color(0.07, 0.09, 0.13), 0.7, 0.0)
+	_deckhouse(parent, bz - 5.0, bz + 5.0, hw, y_sun, y_top, wall, glass, deck, false)
+	# Wheelhouse windows: a continuous dark strip across the front and down each side.
+	var wy: float = y_top - 1.3
+	_box(parent, Vector3(0.0, wy, bz + 5.12), Vector3(hw * 2.0 - 1.0, 1.5, 0.16), glaze, false)
 	for sx in [-1.0, 1.0]:
-		_box(parent, Vector3(sx * 15.0, y_sun + 0.0, bz), Vector3(7.0, 0.3, 5.0), deck, true)
+		_box(parent, Vector3(sx * (hw + 0.08), wy, bz), Vector3(0.16, 1.5, 9.0), glaze, false)
+	# Monkey island / compass platform on the wheelhouse roof, with side rails.
+	_box(parent, Vector3(0.0, y_top + 0.55, bz), Vector3(8.0, 0.25, 6.0), deck, true)
+	for sx in [-1.0, 1.0]:
+		_box(parent, Vector3(sx * 4.0, y_top + 1.05, bz), Vector3(0.1, 0.9, 6.0), wall, true)
+	# Bridge wings: walkable platforms cantilevered to the ship's sides, each with a wing cab
+	# (the open-bridge control position), a cab window, and a forward dodger screen.
+	for sx2 in [-1.0, 1.0]:
+		_box(parent, Vector3(sx2 * 15.0, y_sun, bz), Vector3(7.0, 0.3, 5.0), deck, true)
+		_box(parent, Vector3(sx2 * 17.4, y_sun + 1.3, bz), Vector3(2.0, 2.5, 2.6), wall, true)
+		_box(parent, Vector3(sx2 * 17.4, y_sun + 1.9, bz + 1.36), Vector3(2.0, 1.0, 0.14), glaze, false)
+		_box(parent, Vector3(sx2 * 15.0, y_sun + 0.55, bz - 2.45), Vector3(7.0, 0.9, 0.1), wall, true)
 
 
 # A straight stair run of solid steps climbing from (z_base, y_base) to (z_top, y_top);
