@@ -37,6 +37,19 @@ const COL_TOPSIDE := Color(0.07, 0.07, 0.08)   # black topsides
 const COL_BOOT := Color(0.62, 0.16, 0.14)      # red boot-topping at the waterline
 const COL_ANTIFOUL := Color(0.40, 0.12, 0.12)  # red anti-fouling below
 const COL_TEAK := Color(0.55, 0.42, 0.26)      # scrubbed teak weather deck
+const COL_SUPER := Color(0.88, 0.88, 0.85)     # white superstructure
+const COL_WINDOW := Color(0.10, 0.13, 0.17)    # dark glazing
+
+# Superstructure massing (fractions of HULL_HALF_LEN). The base white block encloses the
+# Main, A and Promenade decks and rises to the open Boat/Sun deck; a centreline boat-deck
+# house then carries the funnels up to the Sports deck. Leaving SS_HALF_W < the hull beam
+# keeps a walkable side deck along the Main deck, so fore and aft connect on the flat.
+const SS_AFT: float = -0.56
+const SS_FWD: float = 0.46
+const SS_HALF_W: float = 13.5
+const BH_AFT: float = -0.40
+const BH_FWD: float = 0.40
+const BH_HALF_W: float = 8.0
 
 
 # Build the liner into `parent`. Returns an Array of 4 gate world-positions on the
@@ -49,22 +62,25 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 
 	_build_hull(root, wl)
 	_build_main_deck(root, wl)
+	_build_superstructure(root, wl)
 
-	# --- Four exit gates spread fore-and-aft along the deck centre, gate 0 aft. Each
-	# sits on the real deck surface (the sheer rises toward the bow). ---
+	# --- Four exit gates on the open Main deck (clear of the superstructure): two on the
+	# aft well deck by the arrival, two up on the forecastle. All reachable on the flat
+	# via the open side decks. (A later pass scatters some onto the upper decks.) ---
 	var gates: Array = []
-	var gate_zs: Array = [-HULL_HALF_LEN * 0.60, HULL_HALF_LEN * 0.58, HULL_HALF_LEN * 0.12, -HULL_HALF_LEN * 0.22]
+	var gate_zs: Array = [SS_AFT * HULL_HALF_LEN - 22.0, SS_AFT * HULL_HALF_LEN - 44.0, SS_FWD * HULL_HALF_LEN + 14.0, SS_FWD * HULL_HALF_LEN + 34.0]
 	for gi in range(4):
 		var gz: float = float(gate_zs[gi])
-		var gx: float = rng.randf_range(-HULL_HALF_BEAM * 0.42, HULL_HALF_BEAM * 0.42)
+		var lim: float = maxf(_half_beam(gz) - 3.5, 1.0)
+		var gx: float = clampf(rng.randf_range(-lim, lim), -lim, lim)
 		gates.append(Vector3(gx, _sheer_y(gz, wl) + 0.05, gz))
 	return gates
 
 
-# Deck arrival / spawn: aft on the main deck, a few metres ahead of gate 0, looking
+# Deck arrival / spawn: on the open aft well deck behind the superstructure, looking
 # toward the bow. Shared by Main's _find_spawn_position and the _scatter_liner teleport.
 static func spawn_position(wl: float) -> Vector3:
-	var z: float = -HULL_HALF_LEN * 0.60 + 14.0
+	var z: float = SS_AFT * HULL_HALF_LEN - 17.0
 	return Vector3(0.0, _sheer_y(z, wl) + 1.2, z)
 
 
@@ -227,6 +243,85 @@ static func _cap(st: SurfaceTool, z: float, wl: float) -> void:
 	_tri(st, dR, bR, c, wl)
 	_tri(st, bR, bL, c, wl)
 	_tri(st, bL, dL, c, wl)
+
+
+# --- Superstructure: the stepped white decks + companionway stairs ------------------
+
+static func _build_superstructure(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Superstructure"
+	parent.add_child(root)
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var glass := _mat(COL_WINDOW, 0.25, 0.3)
+	var deck := _mat(COL_TEAK, 0.9, 0.0)
+	var L: float = HULL_HALF_LEN
+	var y_main: float = wl + DECK_MAIN
+	var y_sun: float = wl + DECK_SUN
+	var y_sports: float = wl + DECK_SPORTS
+
+	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks. The
+	# long sides carry the Promenade window row plus a lower deck-window band.
+	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, true)
+	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
+	# so the boat-deck walkways (for the lifeboats) stay open along each side.
+	_deckhouse(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, y_sun, y_sports, white, glass, deck, false)
+	# Navigating bridge across the forward end of the boat deck, with wing platforms.
+	_build_bridge(root, wl, white, glass, deck)
+
+	# Companionways linking the open decks: up the aft well deck to the Boat deck, on up to
+	# the Sports deck, and a forward flight down to the forecastle. Solid steps the capsule
+	# rounds into a ramp (same approach as the tower/city stairs).
+	_stair_run(root, -6.0, SS_AFT * L - 13.0, SS_AFT * L - 1.5, y_main, y_sun, 4.0, deck)
+	_stair_run(root, 0.0, BH_AFT * L - 9.0, BH_AFT * L - 1.5, y_sun, y_sports, 3.6, deck)
+	_stair_run(root, 6.0, SS_FWD * L + 13.0, SS_FWD * L + 1.5, y_main, y_sun, 4.0, deck)
+
+
+# A white deckhouse box: four walls + a walkable top-deck slab (overhanging slightly to
+# meet stairs and deck edges), with dark window bands on the long sides.
+static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, y_base: float, y_top: float, wall: Material, glass: Material, deck: Material, prom_windows: bool) -> void:
+	var cz: float = (z_aft + z_fwd) * 0.5
+	var length: float = z_fwd - z_aft
+	var h: float = y_top - y_base
+	var cy: float = (y_base + y_top) * 0.5
+	var t: float = 0.4
+	_box(parent, Vector3(-half_w, cy, cz), Vector3(t, h, length), wall, true)
+	_box(parent, Vector3(half_w, cy, cz), Vector3(t, h, length), wall, true)
+	_box(parent, Vector3(0.0, cy, z_aft), Vector3(half_w * 2.0, h, t), wall, true)
+	_box(parent, Vector3(0.0, cy, z_fwd), Vector3(half_w * 2.0, h, t), wall, true)
+	_box(parent, Vector3(0.0, y_top - 0.15, cz), Vector3(half_w * 2.0 + 0.6, 0.3, length + 3.0), deck, true)
+	var bands: Array = [y_top - 1.4]
+	if prom_windows:
+		bands = [y_top - 1.4, y_base + 1.7]
+	for by in bands:
+		_box(parent, Vector3(-half_w - 0.06, float(by), cz), Vector3(0.18, 1.3, length * 0.95), glass, false)
+		_box(parent, Vector3(half_w + 0.06, float(by), cz), Vector3(0.18, 1.3, length * 0.95), glass, false)
+
+
+# Navigating bridge: a wheelhouse box at the forward end of the boat deck with a forward
+# window row, flanked by two cantilevered wing platforms reaching out to the ship's sides.
+static func _build_bridge(parent: Node3D, wl: float, wall: Material, glass: Material, deck: Material) -> void:
+	var L: float = HULL_HALF_LEN
+	var y_sun: float = wl + DECK_SUN
+	var y_top: float = wl + DECK_SPORTS + 1.2
+	var bz: float = SS_FWD * L - 7.0
+	_deckhouse(parent, bz - 5.0, bz + 5.0, 12.0, y_sun, y_top, wall, glass, deck, false)
+	# Forward-facing wheelhouse windows.
+	_box(parent, Vector3(0.0, y_top - 1.3, bz + 5.06), Vector3(22.0, 1.4, 0.18), glass, false)
+	# Bridge wings: thin walkable platforms cantilevered to port and starboard.
+	for sx in [-1.0, 1.0]:
+		_box(parent, Vector3(sx * 15.0, y_sun + 0.0, bz), Vector3(7.0, 0.3, 5.0), deck, true)
+
+
+# A straight stair run of solid steps climbing from (z_base, y_base) to (z_top, y_top);
+# each step is filled to the deck below so the capsule rounds them into a walkable ramp.
+static func _stair_run(parent: Node3D, cx: float, z_base: float, z_top: float, y_base: float, y_top: float, width: float, mat: Material) -> void:
+	var n: int = 16
+	var dz: float = (z_top - z_base) / float(n)
+	var dy: float = (y_top - y_base) / float(n)
+	for j in range(n):
+		var z: float = z_base + (float(j) + 0.5) * dz
+		var fill_h: float = float(j + 1) * dy
+		_box(parent, Vector3(cx, y_base + fill_h * 0.5, z), Vector3(width, fill_h, absf(dz) + 0.05), mat, true)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------
