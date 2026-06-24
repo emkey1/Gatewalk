@@ -142,6 +142,8 @@ static func _hull_color(y: float, wl: float) -> Color:
 static func _build_hull(parent: Node3D, wl: float) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var body := StaticBody3D.new()
+	body.name = "Hull"
 	var n: int = HULL_STATIONS
 	for i in range(n):
 		var z0: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i) / float(n))
@@ -160,30 +162,55 @@ static func _build_hull(parent: Node3D, wl: float) -> void:
 		var dR1 := Vector3(b1, s1, z1)
 		var bR0 := Vector3(b0 * 0.72, k0, z0)
 		var bR1 := Vector3(b1 * 0.72, k1, z1)
-		_quad(st, dL0, bL0, bL1, dL1, wl)   # port side
-		_quad(st, dR0, dR1, bR1, bR0, wl)   # starboard side
-		_quad(st, bL0, bL1, bR1, bR0, wl)   # flat bottom
-	_cap(st, HULL_HALF_LEN, wl)             # bow
+		# Visual faces, each wound so its normal points OUTWARD (away from the hull axis),
+		# so the hull lights correctly from outside instead of going dark where the loft
+		# winding would otherwise flip (which read as the bow being "clipped").
+		_quad_out(st, dL0, bL0, bL1, dL1, wl)   # port side
+		_quad_out(st, dR0, bR0, bR1, dR1, wl)   # starboard side
+		_quad_out(st, bL0, bR0, bR1, bL1, wl)   # flat bottom
+		# Collision: one SOLID convex slice per segment. A thin trimesh shell is hollow and
+		# one-sided in Godot (you can swim through the bow and fall out the bottom — see
+		# ConcavePolygonShape3D docs); convex slices are reliably solid from every side, and
+		# each slice's top face is the deck.
+		var cvx := ConvexPolygonShape3D.new()
+		cvx.points = PackedVector3Array([dL0, dR0, dL1, dR1, bL0, bR0, bL1, bR1])
+		var cs := CollisionShape3D.new()
+		cs.shape = cvx
+		body.add_child(cs)
+	_cap(st, HULL_HALF_LEN, wl)             # bow (tiny; cull-disabled handles its facing)
 	_cap(st, -HULL_HALF_LEN, wl)            # stern
 	st.generate_normals()
-	var mesh: ArrayMesh = st.commit()
-	var body := StaticBody3D.new()
-	body.name = "Hull"
 	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
+	mi.mesh = st.commit()
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 0.55
 	mat.metallic = 0.05
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED   # closed hull; dodge any inverted winding
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED   # fallback for the tiny end caps
 	mi.material_override = mat
 	body.add_child(mi)
-	# Seal the hull: a fall overboard slides down the OUTSIDE into the sea instead of
-	# dropping through the shell into the flooded hollow below the waterline.
-	var col := CollisionShape3D.new()
-	col.shape = mesh.create_trimesh_shape()
-	body.add_child(col)
 	parent.add_child(body)
+
+
+# World Y of the hull's vertical mid-line at z — used to orient faces/normals outward.
+static func _hull_mid_y(z: float, wl: float) -> float:
+	return (_sheer_y(z, wl) + _keel_y(z, wl)) * 0.5
+
+
+# A quad whose two triangles are each wound so the normal points away from the hull centre
+# axis (outward), whatever order the corners are given in.
+static func _quad_out(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, wl: float) -> void:
+	_tri_out(st, a, b, c, wl)
+	_tri_out(st, a, c, d, wl)
+
+
+static func _tri_out(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, wl: float) -> void:
+	var centroid: Vector3 = (a + b + c) / 3.0
+	var axis := Vector3(0.0, _hull_mid_y(centroid.z, wl), centroid.z)
+	if (b - a).cross(c - a).dot(centroid - axis) < 0.0:
+		_tri(st, a, c, b, wl)
+	else:
+		_tri(st, a, b, c, wl)
 
 
 # The walkable teak weather deck: a flat surface across the beam at the sheer line, run
