@@ -367,14 +367,18 @@ static func _promenade_windows(parent: Node3D, z_aft: float, z_fwd: float, half_
 static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, y_base: float, y_top: float, wall: Material, glass: Material, deck: Material, prom_windows: bool) -> void:
 	var cz: float = (z_aft + z_fwd) * 0.5
 	var length: float = z_fwd - z_aft
-	var h: float = y_top - y_base
-	var cy: float = (y_base + y_top) * 0.5
+	# Walls stop 0.3 m below the deck and the teak slab oversails them (its underside buried in
+	# the wall tops), so the white wall tops are never coplanar with the teak deck surface —
+	# that exact coincidence z-fought as a dashed white line running along the deck.
+	var wall_top: float = y_top - 0.3
+	var h: float = wall_top - y_base
+	var cy: float = (y_base + wall_top) * 0.5
 	var t: float = 0.4
 	_box(parent, Vector3(-half_w, cy, cz), Vector3(t, h, length), wall, true)
 	_box(parent, Vector3(half_w, cy, cz), Vector3(t, h, length), wall, true)
 	_box(parent, Vector3(0.0, cy, z_aft), Vector3(half_w * 2.0, h, t), wall, true)
 	_box(parent, Vector3(0.0, cy, z_fwd), Vector3(half_w * 2.0, h, t), wall, true)
-	_box(parent, Vector3(0.0, y_top - 0.15, cz), Vector3(half_w * 2.0 + 0.6, 0.3, length + 3.0), deck, true)
+	_box(parent, Vector3(0.0, y_top - 0.175, cz), Vector3(half_w * 2.0 + 0.6, 0.35, length + 3.0), deck, true)
 	var bands: Array = [y_top - 1.4]
 	if prom_windows:
 		bands = [y_top - 1.4, y_base + 1.7]
@@ -393,11 +397,13 @@ static func _build_bridge(parent: Node3D, wl: float, wall: Material, glass: Mate
 	var hw: float = 12.0
 	var glaze := _mat(Color(0.07, 0.09, 0.13), 0.7, 0.0)
 	_deckhouse(parent, bz - 5.0, bz + 5.0, hw, y_sun, y_top, wall, glass, deck, false)
-	# Wheelhouse windows: a continuous dark strip across the front and down each side.
+	# Wheelhouse windows: a continuous dark strip across the front and down each side. Held
+	# proud of the 0.4 m walls (front face was coplanar with the wall front, the sides buried
+	# inside it) so the dark glazing doesn't z-fight the white wall.
 	var wy: float = y_top - 1.3
-	_box(parent, Vector3(0.0, wy, bz + 5.12), Vector3(hw * 2.0 - 1.0, 1.5, 0.16), glaze, false)
+	_box(parent, Vector3(0.0, wy, bz + 5.26), Vector3(hw * 2.0 - 1.0, 1.5, 0.16), glaze, false)
 	for sx in [-1.0, 1.0]:
-		_box(parent, Vector3(sx * (hw + 0.08), wy, bz), Vector3(0.16, 1.5, 9.0), glaze, false)
+		_box(parent, Vector3(sx * (hw + 0.20), wy, bz), Vector3(0.16, 1.5, 9.0), glaze, false)
 	# Monkey island / compass platform on the wheelhouse roof, with side rails.
 	_box(parent, Vector3(0.0, y_top + 0.55, bz), Vector3(8.0, 0.25, 6.0), deck, true)
 	for sx in [-1.0, 1.0]:
