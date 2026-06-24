@@ -872,6 +872,8 @@ func _map_node_color(map_type: String, is_current: bool) -> Color:
 			base = Color(0.40, 0.70, 0.92)
 		WorldGraph.MAP_RUINED_CITY:
 			base = Color(0.58, 0.54, 0.50)
+		WorldGraph.MAP_LINER:
+			base = Color(0.22, 0.42, 0.60)
 	if is_current:
 		return base.lightened(0.28)
 	return base

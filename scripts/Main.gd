@@ -15,6 +15,7 @@ const RoadFactory = preload("res://scripts/factories/RoadFactory.gd")
 const BridgeFactory = preload("res://scripts/factories/BridgeFactory.gd")
 const CityFactory = preload("res://scripts/factories/CityFactory.gd")
 const SkyscraperFactory = preload("res://scripts/factories/SkyscraperFactory.gd")
+const LinerFactory = preload("res://scripts/factories/LinerFactory.gd")
 const FlowerFactory = preload("res://scripts/factories/FlowerFactory.gd")
 const CreatureFactory = preload("res://scripts/factories/CreatureFactory.gd")
 const WeatherFactory = preload("res://scripts/factories/WeatherFactory.gd")
@@ -3717,7 +3718,7 @@ func _toggle_day_night() -> void:
 func _update_day_night_cycle() -> void:
 	if sun_light == null or world_environment == null:
 		return
-	if _is_current_map_moon() or _is_current_map_water() or _is_current_map_cave():
+	if _is_current_map_moon() or _is_current_map_water() or _is_current_map_cave() or _is_current_map_liner():
 		return
 	if _is_current_map_skyscraper():
 		_update_skyscraper_daynight()
@@ -3991,6 +3992,8 @@ func _next_objective_hint(map_record: Dictionary) -> String:
 		if city_total <= 0 or city_found < city_total:
 			return "Objective: Explore the ruined buildings for data cores (" + str(city_found) + "/" + str(maxi(city_total, 1)) + ")."
 		return "Objective: All data cores recovered. Cross a gate to chart onward."
+	if _is_current_map_liner():
+		return "Objective: Explore the decks of the great ocean liner, then board a gate to chart onward."
 
 	var available: int = int(map_record.get("available_discoveries", 0))
 	var found: int = map_record.get("discoveries", {}).size()
@@ -4239,6 +4242,8 @@ func _map_type_label(map_type: String) -> String:
 			return "Ruined City"
 		WorldGraph.MAP_SKYSCRAPER:
 			return "Skyscraper"
+		WorldGraph.MAP_LINER:
+			return "Ocean Liner"
 		_:
 			return map_type
 
@@ -4348,6 +4353,11 @@ func _is_current_map_ruined_city() -> bool:
 func _is_current_map_skyscraper() -> bool:
 	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
 	return str(raw.get("type", "")) == WorldGraph.MAP_SKYSCRAPER
+
+
+func _is_current_map_liner() -> bool:
+	var raw: Dictionary = _get_map_record(current_world_id, current_map_id)
+	return str(raw.get("type", "")) == WorldGraph.MAP_LINER
 
 
 func _current_map_type() -> String:
@@ -4611,6 +4621,9 @@ func _load_map(world_id: String, map_id: String) -> void:
 	elif _is_current_map_skyscraper():
 		_scatter_skyscraper()
 		await get_tree().process_frame
+	elif _is_current_map_liner():
+		_scatter_liner()
+		await get_tree().process_frame
 	else:
 		if _is_current_map_arctic():
 			AudioManager.setup_arctic_audio(generated_root)
@@ -4695,8 +4708,8 @@ func _load_map(world_id: String, map_id: String) -> void:
 	_store_current_map_available_discoveries()
 	await get_tree().process_frame
 
-	if _is_current_map_gate_room() or _is_current_map_map_nexus() or _is_current_map_skyscraper():
-		pass   # tower / hub walls already carry their own collision
+	if _is_current_map_gate_room() or _is_current_map_map_nexus() or _is_current_map_skyscraper() or _is_current_map_liner():
+		pass   # tower / hub / ship walls already carry their own collision
 	else:
 		_add_environment_collision()
 
@@ -4951,6 +4964,18 @@ func _setup_environment() -> void:
 			sun_light.light_color = Color(1.0, 0.96, 0.88)
 			sun_light.light_energy = 1.9
 			sun_light.rotation_degrees = Vector3(-78.0, -28.0, 0.0)   # globe is high overhead
+	elif _is_current_map_liner():
+		# Open ocean under a bright sky (fixed daylight, like the water map).
+		world_environment.background_mode = Environment.BG_COLOR
+		world_environment.background_color = Color(0.45, 0.65, 0.88)
+		world_environment.ambient_light_color = Color(0.55, 0.70, 0.82)
+		world_environment.ambient_light_energy = 0.75
+		world_environment.fog_density = 0.001
+		world_environment.fog_light_color = Color(0.50, 0.68, 0.82)
+		if sun_light != null:
+			sun_light.light_color = _sun_color_for_world()
+			sun_light.light_energy = 2.6
+			sun_light.rotation_degrees = Vector3(-55.0, -30.0, 0.0)
 	else:
 		world_environment.background_mode = Environment.BG_COLOR
 		world_environment.background_color = Color(0.55, 0.72, 0.95)
@@ -5071,6 +5096,25 @@ func _scatter_fish_schools() -> void:
 func _scatter_critter_herds() -> void:
 	_begin_generation_channel("critters")
 	CreatureFactory.scatter_critters(generated_root, world_seed, map_context)
+
+
+func _scatter_liner() -> void:
+	# Build the Queen Mary on the open ocean and place its four exit gates across the open
+	# decks (gate 0 is aft, by the arrival spawn). The ship carries its own collision, so the
+	# broad environment-collision sweep is skipped for this map (see _load_map).
+	_begin_generation_channel("gates")
+	var positions: Array = LinerFactory.build(generated_root, world_seed, WATER_LEVEL)
+	var target_seeds: Array[int] = []
+	for gi in range(positions.size()):
+		target_seeds.append(_gate_target_seed(gi))
+	GateFactory.create_gates_at_positions(generated_root, world_seed, target_seeds, positions)
+	_gate_positions_to_wonders()
+	# Arrive on the aft deck, looking toward the bow (+Z).
+	var arrival: Vector3 = LinerFactory.spawn_position(WATER_LEVEL)
+	if is_instance_valid(_player_ref):
+		_player_ref.global_position = arrival
+		_player_ref.velocity = Vector3.ZERO
+		_player_ref.rotation.y = PI   # face +Z (toward the bow)
 
 
 func _scatter_skyscraper() -> void:
@@ -6024,6 +6068,9 @@ func _find_spawn_position() -> Vector3:
 
 	if _is_current_map_skyscraper():
 		return Vector3(0.0, 1.2, 11.0)   # ground-floor ring, clear of the central core/stairs
+
+	if _is_current_map_liner():
+		return LinerFactory.spawn_position(WATER_LEVEL)
 
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "spawn"))
 	var half: float = _world_half_size() * 0.84

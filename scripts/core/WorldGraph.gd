@@ -11,6 +11,7 @@ const MAP_NEXUS := "map_nexus"
 const MAP_FLOATING_ISLAND := "floating_island"
 const MAP_RUINED_CITY := "ruined_city"
 const MAP_SKYSCRAPER := "skyscraper"
+const MAP_LINER := "liner"
 
 
 static func create_map_record(map_seed: int, map_type: String = MAP_NORMAL) -> MapRecord:

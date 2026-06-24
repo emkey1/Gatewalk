@@ -146,7 +146,7 @@ func biome_value(wx: float, wz: float) -> float:
 
 
 func river_distance(wx: float, wz: float) -> float:
-	if map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_RUINED_CITY or map_type == WorldGraph.MAP_SKYSCRAPER:
+	if map_type == WorldGraph.MAP_FLOATING_ISLAND or map_type == WorldGraph.MAP_RUINED_CITY or map_type == WorldGraph.MAP_SKYSCRAPER or map_type == WorldGraph.MAP_LINER:
 		return 999.0
 	# Two sines of different wavelength + noise so the river snakes naturally instead of
 	# tracing one predictable curve.
@@ -210,6 +210,12 @@ func height_at_world(wx: float, wz: float) -> float:
 		var islands: float = noise.get_noise_2d(wx * 0.12, wz * 0.12) * 15.0
 		var detail_islands: float = noise.get_noise_2d(wx * 0.4 + 500.0, wz * 0.4 + 1000.0) * 5.0
 		return islands + detail_islands - 7.0
+
+	if map_type == WorldGraph.MAP_LINER:
+		# Open ocean: a deep, almost-flat seabed well below the hull (the ship draws
+		# 11.8 m at the -1.7 m waterline), so nothing pokes through the ship and a fall
+		# overboard just sinks into deep water.
+		return -28.0 + noise.get_noise_2d(wx * 0.05 + 5000.0, wz * 0.05 - 5000.0) * 1.5
 
 	if map_type == WorldGraph.MAP_FLOATING_ISLAND:
 		var half_extent: float = world_half_size() * 0.92

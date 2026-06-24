@@ -157,6 +157,9 @@ func _terrain_color(pos: Vector3) -> Color:
 			return Color(0.62, 0.55, 0.34)
 		return Color(0.28, 0.25, 0.18)
 
+	if map_type == WorldGraph.MAP_LINER:
+		return Color(0.16, 0.20, 0.24)   # deep, dim seabed under the open ocean
+
 	var river: float = _river_distance(pos.x, pos.z)
 	if pos.y <= WATER_LEVEL + 0.25 or river < 7.5:
 		return Color(0.42, 0.34, 0.18)
@@ -656,7 +659,7 @@ func _create_world_bounds() -> void:
 
 
 func _place_rivers() -> void:
-	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC:
+	if map_type == WorldGraph.MAP_MOON or map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_ARCTIC or map_type == WorldGraph.MAP_LINER:
 		return
 	var g: int = _effective_grid_size()
 	var river_mat := StandardMaterial3D.new()
@@ -827,7 +830,7 @@ func _create_water() -> void:
 	else:
 		var mat := ShaderMaterial.new()
 		mat.shader = _water_shader()
-		if map_type == WorldGraph.MAP_WATER:
+		if map_type == WorldGraph.MAP_WATER or map_type == WorldGraph.MAP_LINER:
 			mat.set_shader_parameter("shallow_color", Color(0.08, 0.30, 0.50, 0.44))
 			mat.set_shader_parameter("deep_color", Color(0.02, 0.13, 0.30, 0.54))
 			mat.set_shader_parameter("alpha_boost", 0.08)

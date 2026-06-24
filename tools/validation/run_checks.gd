@@ -7,6 +7,7 @@ const GateTravelService = preload("res://scripts/core/GateTravelService.gd")
 const MapContext = preload("res://scripts/core/MapContext.gd")
 const TreeFactory = preload("res://scripts/factories/TreeFactory.gd")
 const ProgressionService = preload("res://scripts/core/ProgressionService.gd")
+const LinerFactory = preload("res://scripts/factories/LinerFactory.gd")
 
 const GRAPHICS_LEVEL := 0
 const DENSITY_LEVEL := 2
@@ -32,6 +33,7 @@ func _init() -> void:
 	_run_rock_multimesh_checks(failures)
 	_run_flower_multimesh_checks(failures)
 	_run_crystal_multimesh_checks(failures)
+	_run_liner_checks(failures)
 
 	if failures.is_empty():
 		print("VALIDATION OK: deterministic generation and save migration checks passed")
@@ -52,6 +54,7 @@ func _run_map_determinism_checks(failures: Array[String]) -> void:
 		WorldGraph.MAP_CAVE,
 		WorldGraph.MAP_GATE_ROOM,
 		WorldGraph.MAP_NEXUS,
+		WorldGraph.MAP_LINER,
 	]
 
 	for map_type in map_types:
@@ -80,6 +83,42 @@ func _run_map_determinism_checks(failures: Array[String]) -> void:
 	var moon_a: Dictionary = _build_map_signature(SEED_A, WorldGraph.MAP_MOON)
 	if str(normal_a.get("signature", "")) == str(moon_a.get("signature", "")):
 		failures.append("Normal and moon map signatures unexpectedly match for seed %d." % SEED_A)
+
+
+# The Queen Mary is built by LinerFactory (from Main's scatter), not MapGenerator, so its
+# determinism + construction need a dedicated check: identical seed -> identical geometry
+# and gate positions, exactly 4 gates, all up on a deck (well above the waterline).
+func _run_liner_checks(failures: Array[String]) -> void:
+	var wl: float = -1.7
+	var root_a := Node3D.new()
+	var gates_a: Array = LinerFactory.build(root_a, SEED_A, wl)
+	var count_a: int = _count_descendants(root_a)
+	var root_b := Node3D.new()
+	var gates_b: Array = LinerFactory.build(root_b, SEED_A, wl)
+	var count_b: int = _count_descendants(root_b)
+
+	if count_a <= 0:
+		failures.append("Liner build produced no geometry.")
+	if count_a != count_b:
+		failures.append("Liner build is non-deterministic for seed %d (%d vs %d nodes)." % [SEED_A, count_a, count_b])
+	if gates_a.size() != 4:
+		failures.append("Liner expected 4 gate positions, got %d." % gates_a.size())
+	for gi in range(gates_a.size()):
+		var g: Vector3 = gates_a[gi]
+		if g.y <= wl + 1.0:
+			failures.append("Liner gate %d is not up on a deck (y=%.2f)." % [gi, g.y])
+		if gi < gates_b.size() and g != gates_b[gi]:
+			failures.append("Liner gate %d differs across identical-seed builds." % gi)
+
+	root_a.free()
+	root_b.free()
+
+
+func _count_descendants(node: Node) -> int:
+	var total: int = 0
+	for child in node.get_children():
+		total += 1 + _count_descendants(child)
+	return total
 
 
 func _run_save_migration_checks(failures: Array[String]) -> void:
