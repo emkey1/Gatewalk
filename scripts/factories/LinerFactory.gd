@@ -69,6 +69,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_railings(root, wl)
 	_build_forecastle(root, wl)
 	_build_deck_details(root, wl)
+	_build_deck_structures(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): gate 0 on the
 	# forecastle by the arrival, then one further forward and two on the aft well deck. All
@@ -639,6 +640,24 @@ static func _build_deck_details(parent: Node3D, wl: float) -> void:
 	for spec2 in [[-2.6, -148.0], [2.6, -148.0]]:
 		var bz: float = float(spec2[1])
 		_ellipse_cyl(root, Vector3(float(spec2[0]), _sheer_y(bz, wl) + 0.4, bz), 0.3, 0.8, 1.0, 1.0, dark)
+
+
+# Deck houses (fan houses) between the funnels on the sports deck, and glass skylights over
+# the public rooms on the boat deck — to fill the otherwise-bare upper decks.
+static func _build_deck_structures(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "DeckStructures"
+	parent.add_child(root)
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var glaze := _mat(Color(0.10, 0.16, 0.22), 0.3, 0.1)
+	var sports_y: float = wl + DECK_SPORTS
+	for dz in [52.0, 16.0, -20.0]:
+		_box(root, Vector3(0.0, sports_y + 1.0, float(dz)), Vector3(6.0, 2.0, 5.0), white, true)
+		_box(root, Vector3(0.0, sports_y + 1.6, float(dz) + 2.56), Vector3(5.0, 0.8, 0.14), glaze, false)
+	var boat_y: float = wl + DECK_SUN
+	for sz in [-80.0, 68.0]:
+		_box(root, Vector3(0.0, boat_y + 0.35, float(sz)), Vector3(6.0, 0.5, 4.0), white, true)
+		_box(root, Vector3(0.0, boat_y + 0.72, float(sz)), Vector3(5.2, 0.25, 3.2), glaze, false)
 
 
 # A cowl ventilator: a vertical trunk with a bell mouth bent to face fore or aft.
