@@ -110,8 +110,28 @@ func _run_liner_checks(failures: Array[String]) -> void:
 		if gi < gates_b.size() and g != gates_b[gi]:
 			failures.append("Liner gate %d differs across identical-seed builds." % gi)
 
+	# Construction: every subsystem is present and the ship carries real collision (a
+	# regression that dropped the hull/decks/railings collider would slip past determinism).
+	var ship: Node = root_a.get_child(0) if root_a.get_child_count() > 0 else null
+	if ship == null or ship.name != "QueenMary":
+		failures.append("Liner root has no QueenMary ship node.")
+	else:
+		for sub in ["Hull", "MainDeck", "Superstructure", "Funnels", "Masts", "Lifeboats", "Railings"]:
+			if ship.get_node_or_null(sub) == null:
+				failures.append("Liner is missing its %s subsystem." % sub)
+	var bodies: int = _count_class(root_a, "StaticBody3D")
+	if bodies < 60:
+		failures.append("Liner has too few collidable bodies (%d) — hull/decks/railings collision may be missing." % bodies)
+
 	root_a.free()
 	root_b.free()
+
+
+func _count_class(node: Node, klass: String) -> int:
+	var total: int = 1 if node.is_class(klass) else 0
+	for child in node.get_children():
+		total += _count_class(child, klass)
+	return total
 
 
 func _count_descendants(node: Node) -> int:
