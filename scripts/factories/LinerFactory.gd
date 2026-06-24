@@ -506,7 +506,12 @@ static func _deckhouse_tapered(parent: Node3D, z_aft: float, z_fwd: float, y_bas
 			_box(parent, Vector3(s * _house_half_w(mz), (glaze_y0 + glaze_y1) * 0.5, mz), Vector3(t + 0.1, glaze_y1 - glaze_y0, 0.24), wall, false)
 	var hwa: float = _house_half_w(z_aft)
 	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_aft), Vector3(hwa * 2.0, wall_top - y_base, t), wall, true)
-	_transverse_door_wall(parent, z_fwd, _house_half_w(z_fwd), y_base, wall_top, t, fwd_door_x, 3.2, 2.4, wall)
+	# The forward (entry) wall stands where the weather deck has risen on the bow sheer, ~1.3 m above
+	# the flat amidships y_base — so size the door to clear ~2.1 m above the LOCAL deck, else the
+	# lintel lands at chest height (the short doorway the player hit right at the spawn).
+	var wl_local: float = y_base - DECK_MAIN
+	var door_h: float = (_sheer_y(z_fwd, wl_local) - y_base) + 2.1
+	_transverse_door_wall(parent, z_fwd, _house_half_w(z_fwd), y_base, wall_top, t, fwd_door_x, 3.2, door_h, wall)
 	_tapered_slab(parent, z_aft - 1.5, z_fwd + 1.5, y_top, 0.35, 0.5, deck)
 
 
@@ -992,7 +997,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 			_deco_column(root, wl, sx, cz, col_cream, col_wood, col_green)
 
 	# A teak threshold strip just inside the forward door, so the doorway reads as an entrance.
-	_box(root, Vector3(-4.0, y_main + 0.04, SS_FWD * L - 1.2), Vector3(3.4, 0.12, 2.0), _mat(COL_TEAK, 0.7, 0.0), false)
+	_box(root, Vector3(-4.0, _sheer_y(SS_FWD * L - 1.2, wl) + 0.06, SS_FWD * L - 1.2), Vector3(3.4, 0.12, 2.0), _mat(COL_TEAK, 0.7, 0.0), false)
 
 	# Promenade fit-out (white beamed deckhead, pipe runs, globe pendants, wood dado + handrail)
 	# and the first public room off it: the First Class Main Lounge, amidships.
