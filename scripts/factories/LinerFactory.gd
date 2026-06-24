@@ -63,6 +63,8 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_hull(root, wl)
 	_build_main_deck(root, wl)
 	_build_superstructure(root, wl)
+	_build_funnels(root, wl)
+	_build_masts(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): two on the
 	# aft well deck by the arrival, two up on the forecastle. All reachable on the flat
@@ -324,6 +326,86 @@ static func _stair_run(parent: Node3D, cx: float, z_base: float, z_top: float, y
 		_box(parent, Vector3(cx, y_base + fill_h * 0.5, z), Vector3(width, fill_h, absf(dz) + 0.05), mat, true)
 
 
+# --- Funnels & masts ----------------------------------------------------------------
+
+# Three Cunard funnels over midships, seated on the boat-deck house (Sports deck level):
+# elliptical (longer fore-and-aft than wide, ~11 x 7 m), red with black tops and two thin
+# black bands, the forward funnel tallest and stepping down aft so the forward funnel tops
+# out ~43 m above the waterline.
+static func _build_funnels(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Funnels"
+	parent.add_child(root)
+	var red := _mat(Color(0.80, 0.27, 0.10), 0.55, 0.0)   # Cunard red
+	var black := _mat(Color(0.06, 0.06, 0.07), 0.6, 0.0)
+	var base_y: float = wl + DECK_SPORTS
+	_funnel(root, 35.0, base_y, 20.0, red, black)
+	_funnel(root, -2.0, base_y, 19.0, red, black)
+	_funnel(root, -39.0, base_y, 18.0, red, black)
+
+
+static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red: Material, black: Material) -> void:
+	var top_y: float = base_y + height
+	var cy: float = base_y + height * 0.5
+	var ax: float = 3.5    # half-width athwartships (X) — 7 m
+	var az: float = 5.5    # half-length fore-and-aft (Z) — 11 m
+	_ellipse_cyl(parent, Vector3(0.0, cy, cz), 1.0, height, ax, az, red, 0.92)
+	var cap: float = 2.8
+	_ellipse_cyl(parent, Vector3(0.0, top_y - cap * 0.5, cz), 0.96, cap, ax, az, black, 0.94)
+	for bi in range(2):
+		var by: float = top_y - cap - 0.9 - float(bi) * 1.1
+		_ellipse_cyl(parent, Vector3(0.0, by, cz), 1.0, 0.45, ax, az, black, 1.0)
+	# Invisible collider just inside the ellipse so the player walks around it on deck.
+	_collider_box(parent, Vector3(0.0, cy, cz), Vector3(ax * 1.85, height, az * 1.85))
+
+
+# Two raked-free masts on the centreline: a tall foremast just abaft the bridge and a
+# mainmast aft, each a tapered buff pole with a signal yard near the top.
+static func _build_masts(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Masts"
+	parent.add_child(root)
+	var buff := _mat(Color(0.80, 0.68, 0.45), 0.5, 0.2)
+	_mast(root, Vector3(0.0, wl + DECK_SPORTS, 50.0), 27.0, buff)
+	_mast(root, Vector3(0.0, wl + DECK_SPORTS, -55.0), 23.0, buff)
+
+
+static func _mast(parent: Node3D, base: Vector3, height: float, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.bottom_radius = 0.55
+	cm.top_radius = 0.18
+	cm.height = height
+	cm.radial_segments = 10
+	mi.mesh = cm
+	mi.material_override = mat
+	mi.position = base + Vector3(0.0, height * 0.5, 0.0)
+	parent.add_child(mi)
+	var yard := MeshInstance3D.new()
+	var ym := BoxMesh.new()
+	ym.size = Vector3(11.0, 0.3, 0.3)
+	yard.mesh = ym
+	yard.material_override = mat
+	yard.position = base + Vector3(0.0, height * 0.66, 0.0)
+	parent.add_child(yard)
+
+
+# A vertical cylinder stretched into an ellipse (scale x by sx, z by sz); slight taper via
+# top_factor. Visual only — funnels carry a separate box collider.
+static func _ellipse_cyl(parent: Node3D, center: Vector3, bottom_r: float, height: float, sx: float, sz: float, mat: Material, top_factor: float = 1.0) -> void:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.bottom_radius = bottom_r
+	cm.top_radius = bottom_r * top_factor
+	cm.height = height
+	cm.radial_segments = 22
+	mi.mesh = cm
+	mi.material_override = mat
+	mi.position = center
+	mi.scale = Vector3(sx, 1.0, sz)
+	parent.add_child(mi)
+
+
 # --- Primitives (shared with every later increment) ---------------------------------
 
 # An axis-aligned box mesh, optionally wrapped in a StaticBody box collider so the
@@ -347,6 +429,19 @@ static func _box(parent: Node3D, center: Vector3, size: Vector3, mat: Material, 
 	else:
 		mi.position = center
 		parent.add_child(mi)
+
+
+# An invisible box collider (StaticBody + shape, no mesh) — for funnels and other props
+# whose visible mesh is a scaled/elliptical shape that shouldn't carry the collision.
+static func _collider_box(parent: Node3D, center: Vector3, size: Vector3) -> void:
+	var body := StaticBody3D.new()
+	body.position = center
+	var cs := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = size
+	cs.shape = sh
+	body.add_child(cs)
+	parent.add_child(body)
 
 
 static func _mat(color: Color, rough: float, metal: float) -> StandardMaterial3D:
