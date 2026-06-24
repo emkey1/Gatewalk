@@ -65,6 +65,8 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_superstructure(root, wl)
 	_build_funnels(root, wl)
 	_build_masts(root, wl)
+	_build_lifeboats(root, wl)
+	_build_railings(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): two on the
 	# aft well deck by the arrival, two up on the forecastle. All reachable on the flat
@@ -406,6 +408,77 @@ static func _ellipse_cyl(parent: Node3D, center: Vector3, bottom_r: float, heigh
 	parent.add_child(mi)
 
 
+# --- Lifeboats, davits & railings ---------------------------------------------------
+
+# 24 lifeboats (12 a side) lined up on the boat-deck walkways, each on two davit posts.
+# Both are one MultiMesh apiece (one draw call) — decorative, no collision (the boat-deck
+# railing keeps the player aboard).
+static func _build_lifeboats(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Lifeboats"
+	parent.add_child(root)
+	var L: float = HULL_HALF_LEN
+	var deck_y: float = wl + DECK_SUN
+	var boat_mesh := BoxMesh.new()
+	boat_mesh.size = Vector3(2.8, 1.8, 9.0)
+	var boat_mat := _mat(Color(0.90, 0.88, 0.80), 0.7, 0.0)
+	var davit_mesh := BoxMesh.new()
+	davit_mesh.size = Vector3(0.18, 2.4, 0.18)
+	var davit_mat := _mat(Color(0.20, 0.21, 0.23), 0.6, 0.4)
+	var boats: Array = []
+	var davits: Array = []
+	for side in [-1.0, 1.0]:
+		for k in range(12):
+			var z: float = lerpf(BH_AFT * L + 6.0, BH_FWD * L - 6.0, float(k) / 11.0)
+			boats.append(Transform3D(Basis(), Vector3(side * 12.0, deck_y + 1.2, z)))
+			for dz in [-3.8, 3.8]:
+				davits.append(Transform3D(Basis(), Vector3(side * 10.8, deck_y + 1.2, z + float(dz))))
+	MultiMeshScatter.build(root, "LifeboatHulls", boat_mesh, boat_mat, boats)
+	MultiMeshScatter.build(root, "DavitPosts", davit_mesh, davit_mat, davits)
+
+
+# Perimeter railings that keep the player aboard (collidable): a bulwark following the
+# curved Main-deck sheer all the way round, plus port/starboard rails on the Boat and
+# Sports decks (their fore/aft ends are left open for the companionways and step-downs).
+static func _build_railings(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Railings"
+	parent.add_child(root)
+	var rail := _mat(Color(0.86, 0.86, 0.83), 0.6, 0.0)
+	var L: float = HULL_HALF_LEN
+	var h: float = 1.05
+	var n: int = 26
+	for i in range(n):
+		var z0: float = lerpf(-L, L, float(i) / float(n))
+		var z1: float = lerpf(-L, L, float(i + 1) / float(n))
+		var b0: float = _half_beam(z0) * 0.96
+		var b1: float = _half_beam(z1) * 0.96
+		var s0: float = _sheer_y(z0, wl)
+		var s1: float = _sheer_y(z1, wl)
+		_rail_segment(root, -b0, s0, z0, -b1, s1, z1, h, rail)
+		_rail_segment(root, b0, s0, z0, b1, s1, z1, h, rail)
+	_deck_side_rails(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl + DECK_SUN, h, rail)
+	_deck_side_rails(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, wl + DECK_SPORTS, h, rail)
+
+
+# A railing run between two deck-edge points, standing `h` above the deck.
+static func _rail_segment(parent: Node3D, x0: float, y0: float, z0: float, x1: float, y1: float, z1: float, h: float, mat: Material) -> void:
+	var dx: float = x1 - x0
+	var dz: float = z1 - z0
+	var length: float = sqrt(dx * dx + dz * dz) + 0.1
+	var cy: float = (y0 + y1) * 0.5 + h * 0.5
+	_oriented_box(parent, Vector3((x0 + x1) * 0.5, cy, (z0 + z1) * 0.5), Vector3(0.12, h, length), atan2(dx, dz), mat, true)
+
+
+# Port + starboard rails along a rectangular upper deck (fore/aft left open for stairs).
+static func _deck_side_rails(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, y_deck: float, h: float, mat: Material) -> void:
+	var cz: float = (z_aft + z_fwd) * 0.5
+	var length: float = z_fwd - z_aft
+	var cy: float = y_deck + h * 0.5
+	_box(parent, Vector3(-half_w, cy, cz), Vector3(0.12, h, length), mat, true)
+	_box(parent, Vector3(half_w, cy, cz), Vector3(0.12, h, length), mat, true)
+
+
 # --- Primitives (shared with every later increment) ---------------------------------
 
 # An axis-aligned box mesh, optionally wrapped in a StaticBody box collider so the
@@ -442,6 +515,30 @@ static func _collider_box(parent: Node3D, center: Vector3, size: Vector3) -> voi
 	cs.shape = sh
 	body.add_child(cs)
 	parent.add_child(body)
+
+
+# A box with a Y rotation (for railing runs that follow the curved deck edge).
+static func _oriented_box(parent: Node3D, center: Vector3, size: Vector3, yaw: float, mat: Material, collide: bool) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	if collide:
+		var body := StaticBody3D.new()
+		body.position = center
+		body.rotation.y = yaw
+		body.add_child(mi)
+		var cs := CollisionShape3D.new()
+		var sh := BoxShape3D.new()
+		sh.size = size
+		cs.shape = sh
+		body.add_child(cs)
+		parent.add_child(body)
+	else:
+		mi.position = center
+		mi.rotation.y = yaw
+		parent.add_child(mi)
 
 
 static func _mat(color: Color, rough: float, metal: float) -> StandardMaterial3D:
