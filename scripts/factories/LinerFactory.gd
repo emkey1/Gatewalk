@@ -97,7 +97,7 @@ static func _half_beam(z: float) -> float:
 	var t: float = z / HULL_HALF_LEN          # -1 (stern) .. +1 (bow)
 	if t > 0.30:
 		var f: float = (t - 0.30) / 0.70      # 0..1 over the forward run
-		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.7)), 0.35)
+		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.5)), 1.8)   # fuller entry to a visible raked stem
 	if t < -0.40:
 		var a: float = (-t - 0.40) / 0.60     # 0..1 over the aft run
 		return maxf(HULL_HALF_BEAM * (1.0 - 0.72 * pow(a, 1.5)), 4.5)
@@ -166,20 +166,28 @@ static func _build_hull(parent: Node3D, wl: float) -> void:
 	_cap(st, HULL_HALF_LEN, wl)             # bow
 	_cap(st, -HULL_HALF_LEN, wl)            # stern
 	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var body := StaticBody3D.new()
+	body.name = "Hull"
 	var mi := MeshInstance3D.new()
-	mi.name = "Hull"
-	mi.mesh = st.commit()
+	mi.mesh = mesh
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 0.55
 	mat.metallic = 0.05
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED   # closed hull; dodge any inverted winding
 	mi.material_override = mat
-	parent.add_child(mi)
+	body.add_child(mi)
+	# Seal the hull: a fall overboard slides down the OUTSIDE into the sea instead of
+	# dropping through the shell into the flooded hollow below the waterline.
+	var col := CollisionShape3D.new()
+	col.shape = mesh.create_trimesh_shape()
+	body.add_child(col)
+	parent.add_child(body)
 
 
-# The walkable teak weather deck: a flat surface across the beam at the sheer line,
-# inset just inside the hull edge so a thin black covering board shows. Lofted as one
+# The walkable teak weather deck: a flat surface across the beam at the sheer line, run
+# right out to the hull edge so there's no lip to fall through into the hull. Lofted as one
 # mesh with a trimesh collider so the player stands exactly on it.
 static func _build_main_deck(parent: Node3D, wl: float) -> void:
 	var st := SurfaceTool.new()
@@ -189,8 +197,8 @@ static func _build_main_deck(parent: Node3D, wl: float) -> void:
 	for i in range(n):
 		var z0: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i) / float(n))
 		var z1: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i + 1) / float(n))
-		var b0: float = _half_beam(z0) * 0.96
-		var b1: float = _half_beam(z1) * 0.96
+		var b0: float = _half_beam(z0)
+		var b1: float = _half_beam(z1)
 		var s0: float = _sheer_y(z0, wl)
 		var s1: float = _sheer_y(z1, wl)
 		var l0 := Vector3(-b0, s0, z0)
