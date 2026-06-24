@@ -331,8 +331,9 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 
 	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks. A door
 	# in the forward wall lets you walk in off the forecastle; the long sides carry the big
-	# Promenade windows as a real see-through glazed band (sill 15.7 -> head 18.2).
-	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0, wl + 15.7, wl + 18.2, seaglass)
+	# Promenade windows as a real see-through glazed band over a waist-high dado (sill 16.4 ->
+	# head 18.2), matching the real enclosed promenade.
+	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0, wl + 16.4, wl + 18.2, seaglass)
 	# Three window rows down each long side: boat-deck, the big square Promenade row, A deck.
 	_promenade_windows(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl, glass)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
@@ -822,14 +823,15 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_box(root, Vector3(hx, y_prom + 0.5, (hz0 + hz1) * 0.5), Vector3(0.12, 1.0, hz1 - hz0), railmat, true)
 	_box(root, Vector3(0.0, y_prom + 0.5, hz1), Vector3(hx * 2.0, 1.0, 0.12), railmat, true)
 
-	# Warm deckhead lamps on BOTH levels now (Promenade + A deck), no shadows — cheap fill.
-	for ly in [y_prom + 2.6, y_main + 2.0]:
+	# Warm deckhead lamps on the A-deck/entrance level (the Promenade is lit by the globe
+	# pendants in _build_promenade_fit), no shadows — cheap fill.
+	for ly in [y_main + 2.0]:
 		for lz in [-78.0, -54.0, -30.0, -6.0, 18.0, 42.0, 64.0]:
 			var lamp := OmniLight3D.new()
 			lamp.position = Vector3(0.0, float(ly), float(lz))
 			lamp.light_color = Color(1.0, 0.92, 0.76)
-			lamp.light_energy = 4.5
-			lamp.omni_range = 30.0
+			lamp.light_energy = 2.6
+			lamp.omni_range = 24.0
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
 
@@ -845,8 +847,71 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# A teak threshold strip just inside the forward door, so the doorway reads as an entrance.
 	_box(root, Vector3(-4.0, y_main + 0.04, SS_FWD * L - 1.2), Vector3(3.4, 0.12, 2.0), _mat(COL_TEAK, 0.7, 0.0), false)
 
-	# First public room off the Promenade: the First Class Main Lounge, amidships.
+	# Promenade fit-out (white beamed deckhead, pipe runs, globe pendants, wood dado + handrail)
+	# and the first public room off it: the First Class Main Lounge, amidships.
+	_build_promenade_fit(root, wl)
 	_build_lounge(root, wl)
+
+
+# Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
+# transverse deck beams and longitudinal pipe/conduit runs, hanging globe pendant lights, and a
+# wood dado + handrail below the windows down each side.
+static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "PromenadeFit"
+	parent.add_child(root)
+	var L: float = HULL_HALF_LEN
+	var z0: float = SS_AFT * L
+	var z1: float = SS_FWD * L
+	var zc: float = (z0 + z1) * 0.5
+	var zl: float = z1 - z0
+	var hw: float = SS_HALF_W
+	var y_prom: float = wl + DECK_PROM
+	var y_sill: float = wl + 16.4
+	var y_ceil: float = wl + DECK_SUN - 0.45
+	var lining := _mat(Color(0.78, 0.74, 0.65), 0.9, 0.0)
+	var beam := _mat(Color(0.70, 0.65, 0.55), 0.8, 0.0)
+	var cream := _mat(Color(0.64, 0.58, 0.47), 0.6, 0.1)
+	var wood := _mat(COL_TEAK, 0.7, 0.0)
+	# Warm cream deckhead lining over the Promenade.
+	_box(root, Vector3(0.0, y_ceil + 0.08, zc), Vector3(hw * 2.0 - 0.4, 0.12, zl), lining, false)
+	# Transverse deck beams every ~4 m, a shade darker than the lining so they read.
+	var nb: int = int(zl / 4.0)
+	for i in range(nb + 1):
+		var bz: float = z0 + zl * float(i) / float(nb)
+		_box(root, Vector3(0.0, y_ceil - 0.22, bz), Vector3(hw * 2.0 - 0.4, 0.34, 0.28), beam, false)
+	# Longitudinal pipe/conduit runs (near each window line + two inboard).
+	for px in [-hw + 1.6, -2.2, 2.2, hw - 1.6]:
+		_box(root, Vector3(px, y_ceil - 0.4, zc), Vector3(0.14, 0.14, zl), cream, false)
+	# Globe pendant lights down the centreline.
+	var globemat := StandardMaterial3D.new()
+	globemat.albedo_color = Color(1.0, 0.96, 0.84)
+	globemat.emission_enabled = true
+	globemat.emission = Color(1.0, 0.93, 0.76)
+	globemat.emission_energy_multiplier = 0.7
+	for gz in [-78.0, -54.0, -30.0, -6.0, 18.0, 42.0, 64.0]:
+		# Thin stem hanging the globe down off the deckhead toward head height.
+		_box(root, Vector3(0.0, y_ceil - 0.65, float(gz)), Vector3(0.06, 1.1, 0.06), cream, false)
+		var globe := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.26
+		sm.height = 0.52
+		globe.mesh = sm
+		globe.material_override = globemat
+		globe.position = Vector3(0.0, y_ceil - 1.35, float(gz))
+		root.add_child(globe)
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, y_ceil - 1.45, float(gz))
+		lamp.light_color = Color(1.0, 0.93, 0.78)
+		lamp.light_energy = 1.6
+		lamp.omni_range = 21.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
+	# Wood dado + handrail below the windows, down each side.
+	for sgn in [-1.0, 1.0]:
+		var xw: float = sgn * (hw - 0.22)
+		_box(root, Vector3(xw, (y_prom + y_sill) * 0.5, zc), Vector3(0.18, y_sill - y_prom, zl), wood, false)
+		_box(root, Vector3(xw, y_sill + 0.06, zc), Vector3(0.16, 0.12, zl), wood, false)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
@@ -886,12 +951,13 @@ static func _build_lounge(parent: Node3D, wl: float) -> void:
 	for sx in [-1.0, 1.0]:
 		for sz in [-11.0, -3.0, 5.0, 13.0]:
 			_box(root, Vector3(sx * (hw - 1.1), y_prom + 0.45, float(sz)), Vector3(1.5, 0.9, 3.2), sofa, true)
-	# Pendant light over the dance floor.
+	# Pendant light over the dance floor (hung well below the deckhead so it lights the floor,
+	# not the ceiling).
 	var lamp := OmniLight3D.new()
-	lamp.position = Vector3(0.0, y_prom + 3.1, 0.0)
+	lamp.position = Vector3(0.0, y_prom + 2.2, 0.0)
 	lamp.light_color = Color(1.0, 0.95, 0.82)
-	lamp.light_energy = 6.0
-	lamp.omni_range = 24.0
+	lamp.light_energy = 2.0
+	lamp.omni_range = 17.0
 	lamp.shadow_enabled = false
 	root.add_child(lamp)
 
