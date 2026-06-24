@@ -47,8 +47,11 @@ const COL_WINDOW := Color(0.10, 0.13, 0.17)    # dark glazing
 # house then carries the funnels up to the Sports deck. SS_HALF_W runs the deckhouse out
 # close to the shell (~92% of the 18 m half-beam) the way the real enclosed Promenade Deck
 # does — only a ~1.5 m open side deck remains along the Main deck for the fore-aft walk.
-const SS_AFT: float = -0.56
-const SS_FWD: float = 0.46
+# SS_AFT/SS_FWD run the deckhouse out to ~81% of the LOA (the way the real Promenade Deck does),
+# leaving a ~34 m open forecastle forward and a ~23 m open deck aft. All the fore/aft fittings are
+# positioned relative to these so they ride with the deckhouse ends.
+const SS_AFT: float = -0.85
+const SS_FWD: float = 0.78
 const SS_HALF_W: float = 16.5
 const BH_AFT: float = -0.40
 const BH_FWD: float = 0.40
@@ -78,19 +81,19 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_anchors(root, wl)
 	_build_interior(root, wl)
 
-	# --- Four exit gates, placed clear of deck gear: two on the forecastle (gate 0 by the
-	# arrival, gate 1 in the gap between the kingpost and windlass) and two on the open aft
-	# well deck. A small per-seed jitter keeps them within the clear zones. ---
+	# --- Four exit gates on the open weather decks, clear of deck gear: three on the ~34 m
+	# forecastle (gate 0 by the arrival) and one on the after deck. A small per-seed jitter
+	# keeps them within the clear zones. ---
 	var gates: Array = []
 	var gate_specs: Array = [
-		[-3.5, SS_FWD * HULL_HALF_LEN + 12.0],
-		[4.0, SS_FWD * HULL_HALF_LEN + 33.0],
-		[-5.0, SS_AFT * HULL_HALF_LEN - 22.0],
-		[5.0, SS_AFT * HULL_HALF_LEN - 44.0],
+		[-5.0, SS_FWD * HULL_HALF_LEN + 8.0],
+		[5.0, SS_FWD * HULL_HALF_LEN + 18.0],
+		[-5.0, SS_FWD * HULL_HALF_LEN + 27.0],
+		[5.0, SS_AFT * HULL_HALF_LEN - 4.0],
 	]
 	for spec in gate_specs:
-		var gz: float = float(spec[1]) + rng.randf_range(-2.5, 2.5)
-		var gx: float = float(spec[0]) + rng.randf_range(-1.5, 1.5)
+		var gz: float = float(spec[1]) + rng.randf_range(-1.5, 1.5)
+		var gx: float = float(spec[0]) + rng.randf_range(-1.0, 1.0)
 		gates.append(Vector3(gx, _sheer_y(gz, wl) + 0.05, gz))
 	return gates
 
@@ -566,8 +569,8 @@ static func _build_lifeboats(parent: Node3D, wl: float) -> void:
 	var boats: Array = []
 	var davits: Array = []
 	for side in [-1.0, 1.0]:
-		for k in range(12):
-			var z: float = lerpf(BH_AFT * L + 6.0, BH_FWD * L - 6.0, float(k) / 11.0)
+		for k in range(14):
+			var z: float = lerpf(SS_AFT * L + 28.0, SS_FWD * L - 28.0, float(k) / 13.0)
 			boats.append(Transform3D(Basis(), Vector3(side * 15.0, deck_y + 1.2, z)))
 			for dz in [-3.8, 3.8]:
 				davits.append(Transform3D(Basis(), Vector3(side * 13.8, deck_y + 1.2, z + float(dz))))
@@ -632,35 +635,40 @@ static func _build_forecastle(parent: Node3D, wl: float) -> void:
 	var grey := _mat(Color(0.55, 0.56, 0.58), 0.7, 0.2)
 	var dark := _mat(Color(0.30, 0.31, 0.34), 0.6, 0.3)
 	var buff := _mat(Color(0.80, 0.68, 0.45), 0.5, 0.2)
+	var fc: float = SS_FWD * HULL_HALF_LEN   # forecastle runs from here forward to the stem
+
+	# Cowl ventilators flanking the deck, set well outboard of the starboard companionway.
+	for sx2 in [-10.5, 10.5]:
+		var vz: float = fc + 4.0
+		var vd: float = _sheer_y(vz, wl)
+		_ellipse_cyl(root, Vector3(float(sx2), vd + 1.1, vz), 0.5, 2.2, 1.0, 1.0, white)
+		_box(root, Vector3(float(sx2), vd + 2.3, vz + 0.4), Vector3(1.0, 0.9, 0.9), white, false)
+
+	# Forward kingpost (cargo mast) with a derrick yard, on the centreline clear of the stair.
+	var kz: float = fc + 9.0
+	_mast(root, Vector3(0.0, _sheer_y(kz, wl), kz), 17.0, buff)
 
 	# Breakwater: a low chevron wall pointing forward, throwing spray off the foredeck.
-	var bd: float = _sheer_y(92.0, wl)
-	_oriented_box(root, Vector3(-4.5, bd + 0.75, 92.0), Vector3(0.3, 1.5, 11.0), 0.42, white, true)
-	_oriented_box(root, Vector3(4.5, bd + 0.75, 92.0), Vector3(0.3, 1.5, 11.0), -0.42, white, true)
-
-	# Forward kingpost (cargo mast) with a derrick yard — vertical presence at the bow.
-	_mast(root, Vector3(0.0, _sheer_y(96.0, wl), 96.0), 17.0, buff)
+	var brz: float = fc + 15.0
+	var bd: float = _sheer_y(brz, wl)
+	_oriented_box(root, Vector3(-4.5, bd + 0.75, brz), Vector3(0.3, 1.5, 9.0), 0.42, white, true)
+	_oriented_box(root, Vector3(4.5, bd + 0.75, brz), Vector3(0.3, 1.5, 9.0), -0.42, white, true)
 
 	# Anchor windlass house + two warping drums.
-	var wd: float = _sheer_y(112.0, wl)
-	_box(root, Vector3(0.0, wd + 0.9, 112.0), Vector3(7.0, 1.8, 4.0), dark, true)
-	for sx in [-1.9, 1.9]:
-		_ellipse_cyl(root, Vector3(float(sx), wd + 2.15, 112.0), 0.7, 0.7, 1.0, 1.0, grey)
+	var wz: float = fc + 20.0
+	var wd: float = _sheer_y(wz, wl)
+	_box(root, Vector3(0.0, wd + 0.9, wz), Vector3(6.0, 1.8, 3.5), dark, true)
+	for sx in [-1.7, 1.7]:
+		_ellipse_cyl(root, Vector3(float(sx), wd + 2.15, wz), 0.7, 0.7, 1.0, 1.0, grey)
 
 	# Mooring bollards toward the bow.
-	for spec in [[-4.0, 122.0], [4.0, 122.0], [-2.8, 133.0], [2.8, 133.0]]:
+	for spec in [[-3.5, fc + 25.0], [3.5, fc + 25.0], [-2.6, fc + 28.0], [2.6, fc + 28.0]]:
 		var bz: float = float(spec[1])
 		_ellipse_cyl(root, Vector3(float(spec[0]), _sheer_y(bz, wl) + 0.45, bz), 0.32, 0.9, 1.0, 1.0, dark)
 
-	# Cowl ventilators flanking the forward deck, set well outboard so they clear the
-	# starboard forward companionway (cx=6, ~4 m wide).
-	for sx2 in [-10.5, 10.5]:
-		var vd: float = _sheer_y(85.0, wl)
-		_ellipse_cyl(root, Vector3(float(sx2), vd + 1.1, 85.0), 0.5, 2.2, 1.0, 1.0, white)
-		_box(root, Vector3(float(sx2), vd + 2.3, 85.4), Vector3(1.0, 0.9, 0.9), white, false)
-
 	# Jackstaff at the stem.
-	_box(root, Vector3(0.0, _sheer_y(149.0, wl) + 3.0, 149.0), Vector3(0.16, 6.0, 0.16), buff, false)
+	var jz: float = fc + 31.0
+	_box(root, Vector3(0.0, _sheer_y(jz, wl) + 3.0, jz), Vector3(0.16, 6.0, 0.16), buff, false)
 
 
 # --- Deck details: cowl ventilators + aft mooring gear, to fill out the open decks ---
@@ -684,11 +692,12 @@ static func _build_deck_details(parent: Node3D, wl: float) -> void:
 	for v in vents:
 		_cowl_vent(root, v[0], float(v[1]), white, ventred)
 
-	# Aft mooring gear near the stern (clear of the aft gates): capstans + bollards.
-	for spec in [[-3.5, -142.0], [3.5, -142.0]]:
+	# Aft mooring gear on the open after deck (clear of the aft gates): capstans + bollards.
+	var aft: float = SS_AFT * HULL_HALF_LEN
+	for spec in [[-3.5, aft - 6.0], [3.5, aft - 6.0]]:
 		var cz: float = float(spec[1])
 		_ellipse_cyl(root, Vector3(float(spec[0]), _sheer_y(cz, wl) + 0.6, cz), 0.6, 1.2, 1.0, 1.0, dark)
-	for spec2 in [[-2.6, -148.0], [2.6, -148.0]]:
+	for spec2 in [[-2.6, aft - 11.0], [2.6, aft - 11.0]]:
 		var bz: float = float(spec2[1])
 		_ellipse_cyl(root, Vector3(float(spec2[0]), _sheer_y(bz, wl) + 0.4, bz), 0.3, 0.8, 1.0, 1.0, dark)
 
@@ -787,7 +796,7 @@ static func _build_anchors(parent: Node3D, wl: float) -> void:
 	parent.add_child(root)
 	var dark := _mat(Color(0.16, 0.17, 0.20), 0.6, 0.3)
 	for side in [-1.0, 1.0]:
-		var z: float = 118.0
+		var z: float = SS_FWD * HULL_HALF_LEN + 20.0
 		var k: float = _keel_y(z, wl)
 		var s: float = _sheer_y(z, wl)
 		var b: float = _half_beam(z)
