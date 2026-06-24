@@ -74,15 +74,19 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_flags(root, wl)
 	_build_anchors(root, wl)
 
-	# --- Four exit gates on the open Main deck (clear of the superstructure): gate 0 on the
-	# forecastle by the arrival, then one further forward and two on the aft well deck. All
-	# reachable on the flat via the open side decks. ---
+	# --- Four exit gates, placed clear of deck gear: two on the forecastle (gate 0 by the
+	# arrival, gate 1 in the gap between the kingpost and windlass) and two on the open aft
+	# well deck. A small per-seed jitter keeps them within the clear zones. ---
 	var gates: Array = []
-	var gate_zs: Array = [SS_FWD * HULL_HALF_LEN + 18.0, SS_FWD * HULL_HALF_LEN + 38.0, SS_AFT * HULL_HALF_LEN - 22.0, SS_AFT * HULL_HALF_LEN - 44.0]
-	for gi in range(4):
-		var gz: float = float(gate_zs[gi])
-		var lim: float = maxf(_half_beam(gz) - 3.5, 1.0)
-		var gx: float = clampf(rng.randf_range(-lim, lim), -lim, lim)
+	var gate_specs: Array = [
+		[-3.5, SS_FWD * HULL_HALF_LEN + 12.0],
+		[4.0, SS_FWD * HULL_HALF_LEN + 33.0],
+		[-5.0, SS_AFT * HULL_HALF_LEN - 22.0],
+		[5.0, SS_AFT * HULL_HALF_LEN - 44.0],
+	]
+	for spec in gate_specs:
+		var gz: float = float(spec[1]) + rng.randf_range(-2.5, 2.5)
+		var gx: float = float(spec[0]) + rng.randf_range(-1.5, 1.5)
 		gates.append(Vector3(gx, _sheer_y(gz, wl) + 0.05, gz))
 	return gates
 
@@ -410,7 +414,10 @@ static func _build_bridge(parent: Node3D, wl: float, wall: Material, glass: Mate
 # A straight stair run of solid steps climbing from (z_base, y_base) to (z_top, y_top);
 # each step is filled to the deck below so the capsule rounds them into a walkable ramp.
 static func _stair_run(parent: Node3D, cx: float, z_base: float, z_top: float, y_base: float, y_top: float, width: float, mat: Material) -> void:
-	var n: int = 16
+	# Size the step count to the rise so each step is ~0.24 m — low enough that the player
+	# capsule walks up it instead of having to jump each one (the 16-step flights gave 0.47 m
+	# steps on the 7.5 m companionways).
+	var n: int = maxi(int(ceil(absf(y_top - y_base) / 0.24)), 6)
 	var dz: float = (z_top - z_base) / float(n)
 	var dy: float = (y_top - y_base) / float(n)
 	for j in range(n):
@@ -605,8 +612,9 @@ static func _build_forecastle(parent: Node3D, wl: float) -> void:
 		var bz: float = float(spec[1])
 		_ellipse_cyl(root, Vector3(float(spec[0]), _sheer_y(bz, wl) + 0.45, bz), 0.32, 0.9, 1.0, 1.0, dark)
 
-	# Cowl ventilators flanking the forward deck.
-	for sx2 in [-7.0, 7.0]:
+	# Cowl ventilators flanking the forward deck, set well outboard so they clear the
+	# starboard forward companionway (cx=6, ~4 m wide).
+	for sx2 in [-10.5, 10.5]:
 		var vd: float = _sheer_y(85.0, wl)
 		_ellipse_cyl(root, Vector3(float(sx2), vd + 1.1, 85.0), 0.5, 2.2, 1.0, 1.0, white)
 		_box(root, Vector3(float(sx2), vd + 2.3, 85.4), Vector3(1.0, 0.9, 0.9), white, false)
