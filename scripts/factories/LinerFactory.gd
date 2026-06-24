@@ -97,7 +97,7 @@ static func _half_beam(z: float) -> float:
 	var t: float = z / HULL_HALF_LEN          # -1 (stern) .. +1 (bow)
 	if t > 0.30:
 		var f: float = (t - 0.30) / 0.70      # 0..1 over the forward run
-		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.5)), 1.8)   # fuller entry to a visible raked stem
+		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.5)), 0.8)   # fine entry to a sharp stem
 	if t < -0.40:
 		var a: float = (-t - 0.40) / 0.60     # 0..1 over the aft run
 		return maxf(HULL_HALF_BEAM * (1.0 - 0.72 * pow(a, 1.5)), 4.5)
@@ -128,6 +128,15 @@ static func _sheer_y(z: float, wl: float) -> float:
 	return deck
 
 
+# Forward of ~0.6 L, lean the stem forward (a raked bow): points higher above the water
+# shift forward in z, so the deck overhangs a finer forefoot — the classic liner profile.
+static func _rake_z(z: float, y: float, wl: float) -> float:
+	if z <= HULL_HALF_LEN * 0.6:
+		return z
+	var f: float = (z - HULL_HALF_LEN * 0.6) / (HULL_HALF_LEN * 0.4)
+	return z + f * maxf(0.0, y - (wl - 1.0)) * 0.42
+
+
 static func _hull_color(y: float, wl: float) -> Color:
 	if y >= wl + 0.7:
 		return COL_TOPSIDE
@@ -154,14 +163,14 @@ static func _build_hull(parent: Node3D, wl: float) -> void:
 		var k1: float = _keel_y(z1, wl)
 		var s0: float = _sheer_y(z0, wl)
 		var s1: float = _sheer_y(z1, wl)
-		var dL0 := Vector3(-b0, s0, z0)
-		var dL1 := Vector3(-b1, s1, z1)
-		var bL0 := Vector3(-b0 * 0.72, k0, z0)
-		var bL1 := Vector3(-b1 * 0.72, k1, z1)
-		var dR0 := Vector3(b0, s0, z0)
-		var dR1 := Vector3(b1, s1, z1)
-		var bR0 := Vector3(b0 * 0.72, k0, z0)
-		var bR1 := Vector3(b1 * 0.72, k1, z1)
+		var dL0 := Vector3(-b0, s0, _rake_z(z0, s0, wl))
+		var dL1 := Vector3(-b1, s1, _rake_z(z1, s1, wl))
+		var bL0 := Vector3(-b0 * 0.72, k0, _rake_z(z0, k0, wl))
+		var bL1 := Vector3(-b1 * 0.72, k1, _rake_z(z1, k1, wl))
+		var dR0 := Vector3(b0, s0, _rake_z(z0, s0, wl))
+		var dR1 := Vector3(b1, s1, _rake_z(z1, s1, wl))
+		var bR0 := Vector3(b0 * 0.72, k0, _rake_z(z0, k0, wl))
+		var bR1 := Vector3(b1 * 0.72, k1, _rake_z(z1, k1, wl))
 		# Visual faces, each wound so its normal points OUTWARD (away from the hull axis),
 		# so the hull lights correctly from outside instead of going dark where the loft
 		# winding would otherwise flip (which read as the bow being "clipped").
@@ -276,15 +285,26 @@ static func _cap(st: SurfaceTool, z: float, wl: float) -> void:
 	var b: float = _half_beam(z)
 	var k: float = _keel_y(z, wl)
 	var s: float = _sheer_y(z, wl)
-	var dL := Vector3(-b, s, z)
-	var dR := Vector3(b, s, z)
-	var bL := Vector3(-b * 0.72, k, z)
-	var bR := Vector3(b * 0.72, k, z)
-	var c := Vector3(0.0, (s + k) * 0.5, z)
-	_tri(st, dL, dR, c, wl)
-	_tri(st, dR, bR, c, wl)
-	_tri(st, bR, bL, c, wl)
-	_tri(st, bL, dL, c, wl)
+	var mid: float = (s + k) * 0.5
+	var dL := Vector3(-b, s, _rake_z(z, s, wl))
+	var dR := Vector3(b, s, _rake_z(z, s, wl))
+	var bL := Vector3(-b * 0.72, k, _rake_z(z, k, wl))
+	var bR := Vector3(b * 0.72, k, _rake_z(z, k, wl))
+	var c := Vector3(0.0, mid, _rake_z(z, mid, wl))
+	var outz: float = signf(z)   # the bow cap faces +Z, the stern cap faces -Z
+	_cap_tri(st, dL, dR, c, wl, outz)
+	_cap_tri(st, dR, bR, c, wl, outz)
+	_cap_tri(st, bR, bL, c, wl, outz)
+	_cap_tri(st, bL, dL, c, wl, outz)
+
+
+# A cap fan triangle wound so the engine's normal points outward along ±Z (seals the hull
+# end so you can't see into the interior from dead ahead/astern).
+static func _cap_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, wl: float, outz: float) -> void:
+	if (b - a).cross(c - a).z * outz > 0.0:
+		_tri(st, a, c, b, wl)
+	else:
+		_tri(st, a, b, c, wl)
 
 
 # --- Superstructure: the stepped white decks + companionway stairs ------------------
