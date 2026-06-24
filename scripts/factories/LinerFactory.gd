@@ -314,9 +314,10 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	var y_sun: float = wl + DECK_SUN
 	var y_sports: float = wl + DECK_SPORTS
 
-	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks. The
-	# long sides carry the Promenade window row plus a lower deck-window band.
-	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, true)
+	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks.
+	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false)
+	# Three window rows down each long side: boat-deck, the big square Promenade row, A deck.
+	_promenade_windows(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl, glass)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
 	# so the boat-deck walkways (for the lifeboats) stay open along each side.
 	_deckhouse(root, BH_AFT * L, BH_FWD * L, BH_HALF_W, y_sun, y_sports, white, glass, deck, false)
@@ -329,6 +330,28 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	_stair_run(root, -6.0, SS_AFT * L - 13.0, SS_AFT * L - 1.5, y_main, y_sun, 4.0, deck)
 	_stair_run(root, 0.0, BH_AFT * L - 9.0, BH_AFT * L - 1.5, y_sun, y_sports, 3.6, deck)
 	_stair_run(root, 6.0, SS_FWD * L + 13.0, SS_FWD * L + 1.5, y_main, y_sun, 4.0, deck)
+
+
+# Three rows of windows down each long side of the base block: continuous dark glazing
+# strips (boat-deck, the tall Promenade row, A-deck), with white mullions dividing the
+# Promenade strip into individual square windows. Reads as a glazed promenade at deck scale.
+static func _promenade_windows(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, wl: float, glass_unused: Material) -> void:
+	var cz: float = (z_aft + z_fwd) * 0.5
+	var length: float = z_fwd - z_aft
+	var glaze := _mat(Color(0.07, 0.09, 0.13), 0.7, 0.0)
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	# each row: [world-y above wl, strip height]
+	for spec in [[16.2, 1.9], [18.2, 0.9], [13.7, 1.0]]:
+		var y: float = wl + float(spec[0])
+		var hh: float = float(spec[1])
+		for sx in [-1.0, 1.0]:
+			_box(parent, Vector3(sx * (half_w + 0.26), y, cz), Vector3(0.14, hh, length * 0.97), glaze, false)
+	# Mullions on the Promenade strip: thin white verticals every ~3.2 m -> square windows.
+	var nm: int = maxi(int(length / 3.2), 1)
+	for i in range(nm + 1):
+		var z: float = z_aft + float(i) * (length / float(nm))
+		for sx2 in [-1.0, 1.0]:
+			_box(parent, Vector3(sx2 * (half_w + 0.30), wl + 16.2, z), Vector3(0.2, 2.1, 0.2), white, false)
 
 
 # A white deckhouse box: four walls + a walkable top-deck slab (overhanging slightly to
