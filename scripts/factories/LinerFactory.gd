@@ -73,6 +73,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_portholes(root, wl)
 	_build_flags(root, wl)
 	_build_anchors(root, wl)
+	_build_interior(root, wl)
 
 	# --- Four exit gates, placed clear of deck gear: two on the forecastle (gate 0 by the
 	# arrival, gate 1 in the gap between the kingpost and windlass) and two on the open aft
@@ -322,8 +323,10 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	var y_sun: float = wl + DECK_SUN
 	var y_sports: float = wl + DECK_SPORTS
 
-	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks.
-	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false)
+	# Base block: Main deck -> open Boat/Sun deck, enclosing the A and Promenade decks. A door
+	# in the forward wall (slightly to port, clear of the starboard companionway) lets you walk
+	# in off the forecastle.
+	_deckhouse(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, y_main, y_sun, white, glass, deck, false, -4.0)
 	# Three window rows down each long side: boat-deck, the big square Promenade row, A deck.
 	_promenade_windows(root, SS_AFT * L, SS_FWD * L, SS_HALF_W, wl, glass)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
@@ -364,7 +367,7 @@ static func _promenade_windows(parent: Node3D, z_aft: float, z_fwd: float, half_
 
 # A white deckhouse box: four walls + a walkable top-deck slab (overhanging slightly to
 # meet stairs and deck edges), with dark window bands on the long sides.
-static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, y_base: float, y_top: float, wall: Material, glass: Material, deck: Material, prom_windows: bool) -> void:
+static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float, y_base: float, y_top: float, wall: Material, glass: Material, deck: Material, prom_windows: bool, fwd_door_x: float = NAN) -> void:
 	var cz: float = (z_aft + z_fwd) * 0.5
 	var length: float = z_fwd - z_aft
 	# Walls stop 0.3 m below the deck and the teak slab oversails them (its underside buried in
@@ -377,7 +380,18 @@ static func _deckhouse(parent: Node3D, z_aft: float, z_fwd: float, half_w: float
 	_box(parent, Vector3(-half_w, cy, cz), Vector3(t, h, length), wall, true)
 	_box(parent, Vector3(half_w, cy, cz), Vector3(t, h, length), wall, true)
 	_box(parent, Vector3(0.0, cy, z_aft), Vector3(half_w * 2.0, h, t), wall, true)
-	_box(parent, Vector3(0.0, cy, z_fwd), Vector3(half_w * 2.0, h, t), wall, true)
+	if is_nan(fwd_door_x):
+		_box(parent, Vector3(0.0, cy, z_fwd), Vector3(half_w * 2.0, h, t), wall, true)
+	else:
+		# Entry doorway in the forward wall (onto the forecastle): two jambs + a lintel over it.
+		var dw: float = 3.2
+		var dh: float = 2.4
+		var da: float = fwd_door_x - dw * 0.5
+		var db: float = fwd_door_x + dw * 0.5
+		_box(parent, Vector3((-half_w + da) * 0.5, cy, z_fwd), Vector3(da + half_w, h, t), wall, true)
+		_box(parent, Vector3((db + half_w) * 0.5, cy, z_fwd), Vector3(half_w - db, h, t), wall, true)
+		var ly: float = y_base + dh
+		_box(parent, Vector3(fwd_door_x, (ly + wall_top) * 0.5, z_fwd), Vector3(dw, wall_top - ly, t), wall, true)
 	_box(parent, Vector3(0.0, y_top - 0.175, cz), Vector3(half_w * 2.0 + 0.6, 0.35, length + 3.0), deck, true)
 	var bands: Array = [y_top - 1.4]
 	if prom_windows:
@@ -761,6 +775,41 @@ static func _build_anchors(parent: Node3D, wl: float) -> void:
 		var bw: float = b * (0.72 + 0.28 * frac)
 		_box(root, Vector3(side * (bw + 0.05), 5.9, z), Vector3(0.12, 2.6, 1.3), dark, false)
 		_box(root, Vector3(side * (bw + 0.08), 4.6, z), Vector3(0.16, 0.7, 2.3), dark, false)
+
+
+# --- Interior (increment 1: walk inside the superstructure) --------------------------
+# The base block is already a sealed, teak-floored volume: the main-deck mesh runs full-beam
+# through it at Main level (the floor), and the side walls + boat-deck slab enclose it. So the
+# first interior pass just makes it read and behave as a room — warm deckhead lighting and two
+# rows of panelled columns. The forward-wall door (see the base-block _deckhouse call) is the
+# way in off the forecastle. Later passes lay the Promenade floor at 15.5, a grand staircase,
+# and the public rooms.
+static func _build_interior(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Interior"
+	parent.add_child(root)
+	var L: float = HULL_HALF_LEN
+	var y_main: float = wl + DECK_MAIN
+	var y_sun: float = wl + DECK_SUN
+	# Warm deckhead lamps down the length of the enclosed volume (no shadows — cheap fill).
+	for lz in [-78.0, -54.0, -30.0, -6.0, 18.0, 42.0, 64.0]:
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, y_sun - 1.4, lz)
+		lamp.light_color = Color(1.0, 0.92, 0.76)
+		lamp.light_energy = 5.5
+		lamp.omni_range = 36.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
+	# Two rows of panelled support columns from the deck up to the deckhead, with simple capitals.
+	var colmat := _mat(Color(0.82, 0.79, 0.72), 0.5, 0.05)
+	var cap := _mat(Color(0.70, 0.58, 0.36), 0.4, 0.1)
+	var col_h: float = y_sun - y_main
+	for cz in [-66.0, -44.0, -22.0, 0.0, 22.0, 44.0, 62.0]:
+		for sx in [-6.5, 6.5]:
+			_box(root, Vector3(sx, (y_main + y_sun) * 0.5, cz), Vector3(0.7, col_h, 0.7), colmat, true)
+			_box(root, Vector3(sx, y_sun - 0.35, cz), Vector3(1.1, 0.4, 1.1), cap, false)
+	# A teak threshold strip just inside the forward door, so the doorway reads as an entrance.
+	_box(root, Vector3(-4.0, y_main + 0.04, SS_FWD * L - 1.2), Vector3(3.4, 0.12, 2.0), _mat(COL_TEAK, 0.7, 0.0), false)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------

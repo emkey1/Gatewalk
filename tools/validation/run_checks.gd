@@ -116,9 +116,12 @@ func _run_liner_checks(failures: Array[String]) -> void:
 	if ship == null or ship.name != "QueenMary":
 		failures.append("Liner root has no QueenMary ship node.")
 	else:
-		for sub in ["Hull", "MainDeck", "Superstructure", "Funnels", "Masts", "Lifeboats", "Railings", "Forecastle"]:
+		for sub in ["Hull", "MainDeck", "Superstructure", "Funnels", "Masts", "Lifeboats", "Railings", "Forecastle", "Interior"]:
 			if ship.get_node_or_null(sub) == null:
 				failures.append("Liner is missing its %s subsystem." % sub)
+		var interior: Node = ship.get_node_or_null("Interior")
+		if interior != null and _count_class(interior, "OmniLight3D") < 1:
+			failures.append("Liner interior is unlit (no OmniLight3D).")
 	var bodies: int = _count_class(root_a, "StaticBody3D")
 	if bodies < 60:
 		failures.append("Liner has too few collidable bodies (%d) — hull/decks/railings collision may be missing." % bodies)
