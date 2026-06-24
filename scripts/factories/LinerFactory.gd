@@ -68,6 +68,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_lifeboats(root, wl)
 	_build_railings(root, wl)
 	_build_forecastle(root, wl)
+	_build_deck_details(root, wl)
 
 	# --- Four exit gates on the open Main deck (clear of the superstructure): gate 0 on the
 	# forecastle by the arrival, then one further forward and two on the aft well deck. All
@@ -572,6 +573,52 @@ static func _build_forecastle(parent: Node3D, wl: float) -> void:
 
 	# Jackstaff at the stem.
 	_box(root, Vector3(0.0, _sheer_y(149.0, wl) + 3.0, 149.0), Vector3(0.16, 6.0, 0.16), buff, false)
+
+
+# --- Deck details: cowl ventilators + aft mooring gear, to fill out the open decks ---
+
+static func _build_deck_details(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "DeckDetails"
+	parent.add_child(root)
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var ventred := _mat(Color(0.68, 0.20, 0.12), 0.6, 0.0)
+	var dark := _mat(Color(0.30, 0.31, 0.34), 0.6, 0.3)
+	var boat_y: float = wl + DECK_SUN
+
+	# Cowl ventilators in the open boat-deck spaces fore and aft of the funnel casing.
+	var vents: Array = [
+		[Vector3(-9.5, boat_y, -82.0), 1.0], [Vector3(9.5, boat_y, -82.0), 1.0],
+		[Vector3(-5.5, boat_y, -75.0), -1.0], [Vector3(5.5, boat_y, -75.0), -1.0],
+		[Vector3(-10.0, boat_y, -67.0), 1.0], [Vector3(10.0, boat_y, -67.0), 1.0],
+		[Vector3(-9.5, boat_y, 65.0), -1.0], [Vector3(9.5, boat_y, 65.0), -1.0],
+	]
+	for v in vents:
+		_cowl_vent(root, v[0], float(v[1]), white, ventred)
+
+	# Aft mooring gear near the stern (clear of the aft gates): capstans + bollards.
+	for spec in [[-3.5, -142.0], [3.5, -142.0]]:
+		var cz: float = float(spec[1])
+		_ellipse_cyl(root, Vector3(float(spec[0]), _sheer_y(cz, wl) + 0.6, cz), 0.6, 1.2, 1.0, 1.0, dark)
+	for spec2 in [[-2.6, -148.0], [2.6, -148.0]]:
+		var bz: float = float(spec2[1])
+		_ellipse_cyl(root, Vector3(float(spec2[0]), _sheer_y(bz, wl) + 0.4, bz), 0.3, 0.8, 1.0, 1.0, dark)
+
+
+# A cowl ventilator: a vertical trunk with a bell mouth bent to face fore or aft.
+static func _cowl_vent(parent: Node3D, base: Vector3, face: float, body: Material, mouth: Material) -> void:
+	_ellipse_cyl(parent, base + Vector3(0.0, 1.15, 0.0), 0.38, 2.3, 1.0, 1.0, body)
+	var head := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.52
+	cm.bottom_radius = 0.36
+	cm.height = 0.95
+	cm.radial_segments = 12
+	head.mesh = cm
+	head.material_override = mouth
+	head.position = base + Vector3(0.0, 2.45, 0.3 * face)
+	head.rotation = Vector3(deg_to_rad(58.0 * face), 0.0, 0.0)
+	parent.add_child(head)
 
 
 # --- Primitives (shared with every later increment) ---------------------------------
