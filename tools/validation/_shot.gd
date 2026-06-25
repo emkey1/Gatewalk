@@ -50,14 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Pool stairwell — player POV from the reported screenshot (A-deck, fwd of the well, looking in)
-		["pool_pov", Vector3(-4.0, 12.9, 81.0), Vector3(1.0, 6.5, 72.0), Vector3.UP],
-		# From inside the pool, looking up+fwd at the stairwell (stair fills opening, walls enclose)
-		["pool_inside", Vector3(8.0, 8.0, 52.0), Vector3(0.0, 11.0, 74.0), Vector3.UP],
-		# A-deck aft edge of the well, looking fwd — confirm the aft parapet + solid floor
-		["pool_aftedge", Vector3(0.0, 12.9, 60.0), Vector3(0.0, 8.5, 73.0), Vector3.UP],
-		# Forward promenade (z~73) at eye level — find the stray green cubes
-		["prom_fwd73", Vector3(0.0, 16.0, 64.0), Vector3(6.0, 15.4, 75.0), Vector3.UP],
+		# Lift lobby — overview from the forward (entry) side looking aft at the switchback + lifts
+		["lobby1", Vector3(2.5, 13.3, 63.0), Vector3(-1.5, 12.8, 51.0), Vector3.UP],
+		# The lift bank on the port wall — head-on at the forward lift
+		["lobby_lift", Vector3(-2.5, 13.0, 49.5), Vector3(-7.0, 12.9, 49.7), Vector3.UP],
+		# The switchback flights + landing
+		["lobby_stair", Vector3(-5.0, 13.4, 61.0), Vector3(1.5, 13.0, 51.0), Vector3.UP],
+		# From the Promenade, looking down into the well over the etched-glass balustrade
+		["lobby_top", Vector3(-3.0, 16.0, 48.0), Vector3(1.0, 13.5, 55.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

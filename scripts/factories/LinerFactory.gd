@@ -1026,13 +1026,9 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_tapered_slab(root, PROM_FWD, 90.0, y_prom, 0.3, 0.0, floor_mat)
 	_tapered_slab(root, -115.0, PROM_AFT, y_prom, 0.3, 0.0, floor_mat)
 
-	# Grand staircase up from the entrance (A deck, 12) to the Promenade (15.5), rising aft.
-	_stair_run(root, 0.0, 58.0, 50.0, y_main, y_prom, 6.0, _mat(COL_TEAK, 0.7, 0.0))
-	# Balustrade around the three closed sides of the stairwell so you don't step into it.
-	var railmat := _mat(Color(0.72, 0.60, 0.38), 0.4, 0.1)
-	_box(root, Vector3(-hx, y_prom + 0.5, (hz0 + hz1) * 0.5), Vector3(0.12, 1.0, hz1 - hz0), railmat, true)
-	_box(root, Vector3(hx, y_prom + 0.5, (hz0 + hz1) * 0.5), Vector3(0.12, 1.0, hz1 - hz0), railmat, true)
-	_box(root, Vector3(0.0, y_prom + 0.5, hz1), Vector3(hx * 2.0, 1.0, 0.12), railmat, true)
+	# Art Deco lift lobby + switchback grand staircase up from A-deck to the Promenade (replaces the
+	# old straight flight + plain balustrade): two flights round a burl spine, lift bank, etched glass.
+	_build_lift_lobby(root, wl, hz0, hz1, hx)
 
 	# Warm deckhead lamps on the A-deck/entrance level (the Promenade is lit by the globe
 	# pendants in _build_promenade_fit), no shadows — cheap fill.
@@ -1602,6 +1598,91 @@ static func _build_main_hall(parent: Node3D, wl: float) -> void:
 		root.add_child(lamp)
 
 
+# One Art Deco passenger lift: brushed-steel two-leaf doors in a golden-burl surround, with chrome
+# quarter-round kick strips up the jambs and a chrome call-plaque — the QM's preserved "Historical
+# Elevator" look. `faces_x` = +1 if the doors face +x (sit on a port wall), -1 for a starboard wall.
+static func _elevator(parent: Node3D, center: Vector3, faces_x: float, burl: Material, steel: Material, chrome: Material) -> void:
+	var dw: float = 1.2     # door opening width (along z)
+	var dh: float = 2.2     # door opening height
+	for sz in [-1.0, 1.0]:
+		_box(parent, center + Vector3(0.0, 0.0, sz * (dw * 0.5 + 0.16)), Vector3(0.34, dh + 0.4, 0.32), burl, true)   # burl jambs
+		_box(parent, center + Vector3(faces_x * 0.08, -dh * 0.5 + 0.45, sz * dw * 0.5), Vector3(0.1, 0.9, 0.14), chrome, false)  # chrome kick strip
+	_box(parent, center + Vector3(0.0, dh * 0.5 + 0.2, 0.0), Vector3(0.34, 0.4, dw + 0.64), burl, true)               # burl lintel
+	for leaf in [-1.0, 1.0]:
+		_box(parent, center + Vector3(faces_x * 0.03, 0.0, leaf * dw * 0.25), Vector3(0.06, dh, dw * 0.5 - 0.015), steel, true)   # steel door leaves
+	_box(parent, center + Vector3(faces_x * 0.06, 0.35, dw * 0.5 + 0.16), Vector3(0.05, 0.32, 0.12), chrome, false)   # call plaque
+
+
+# First Class lift lobby + grand SWITCHBACK staircase, in the forward stairwell (the straight flight
+# was replaced). Two short flights with a green/cream checkerboard mid-landing climb A-deck -> the
+# Promenade around a burl central spine; a bank of two Art Deco lifts faces the lobby off the port
+# wall; etched-glass balustrades with chrome handrails ring the well on the Promenade above. The QM's
+# preserved Art Deco vocabulary (burl panelling over a dark dado, brushed steel, chrome, etched
+# glass, checkerboard marble) — modelled on the real first-class stair-and-lift foyers.
+static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float, hx: float) -> void:
+	var root := Node3D.new()
+	root.name = "LiftLobby"
+	parent.add_child(root)
+	var ya: float = wl + DECK_MAIN          # A-deck floor
+	var yp: float = wl + DECK_PROM          # Promenade floor (lobby ceiling)
+	var ym: float = (ya + yp) * 0.5         # mid-landing
+	var burl := _mat(Color(0.60, 0.42, 0.19), 0.35, 0.1)
+	var dado := _mat(Color(0.28, 0.16, 0.09), 0.5, 0.0)
+	var steel := _mat(Color(0.62, 0.64, 0.66), 0.35, 0.85)
+	var chrome := _mat(Color(0.82, 0.84, 0.86), 0.18, 0.95)
+	var tread := _mat(COL_TEAK, 0.7, 0.0)
+	var glass := _etched_glass_mat()
+	var zc: float = (hz0 + hz1) * 0.5
+	# Checkerboard marble lobby floor on the A-deck.
+	_box(root, Vector3(0.0, ya + 0.02, 53.0), Vector3(14.0, 0.04, 18.0), _checker_mat(14.0, 18.0, 0.62), false)
+	# Switchback: lower flight (port) -> checkerboard mid-landing -> upper flight (starboard) -> a top
+	# landing onto the Promenade. Short ~3 m flights so the steps are normal depth, not a long ramp.
+	var checker_land := _checker_mat(7.8, 3.4, 0.62)
+	_stair_run(root, -2.0, 57.0, 54.0, ya, ym, 3.4, tread)
+	_box(root, Vector3(0.0, ym - 0.1, 52.3), Vector3(7.8, 0.2, 3.4), checker_land, true)
+	_stair_run(root, 2.0, 54.0, 57.0, ym, yp, 3.4, tread)
+	_box(root, Vector3(2.0, yp - 0.1, 58.0), Vector3(3.4, 0.2, 2.4), tread, true)
+	# Burl central spine between the flights (burl over a dark dado), and burl stringer walls on each
+	# flight's outer edge — these hide _stair_run's solid flanks and read as panelled balustrades.
+	_box(root, Vector3(0.0, ya + 0.55, 55.5), Vector3(0.3, 1.1, 3.6), dado, true)
+	_box(root, Vector3(0.0, (ya + 1.1 + yp) * 0.5, 55.5), Vector3(0.3, yp - ya - 1.1, 3.6), burl, true)
+	_box(root, Vector3(-3.9, (ya + ym + 1.0) * 0.5, 55.5), Vector3(0.28, ym + 1.0 - ya, 3.8), burl, true)
+	_box(root, Vector3(3.9, (ym + yp + 1.0) * 0.5, 55.5), Vector3(0.28, yp + 1.0 - ym, 3.8), burl, true)
+	# Lobby walls (two-tone: dark dado course + burl above), port + starboard + aft. Forward stays
+	# open toward the entrance / Main Hall.
+	for sx in [-1.0, 1.0]:
+		_box(root, Vector3(sx * 7.0, ya + 0.6, 53.0), Vector3(0.3, 1.2, 18.0), dado, true)
+		_box(root, Vector3(sx * 7.0, (ya + 1.2 + yp) * 0.5, 53.0), Vector3(0.3, yp - ya - 1.2, 18.0), burl, true)
+	_box(root, Vector3(0.0, ya + 0.6, 44.0), Vector3(14.0, 1.2, 0.3), dado, true)
+	_box(root, Vector3(0.0, (ya + 1.2 + yp) * 0.5, 44.0), Vector3(14.0, yp - ya - 1.2, 0.3), burl, true)
+	# Bank of two lifts on the port wall, facing the lobby.
+	for ez in [49.5, 56.5]:
+		_elevator(root, Vector3(-6.83, ya + 1.2, float(ez)), 1.0, burl, steel, chrome)
+	# Etched-glass balustrade + chrome handrail ringing the well on the Promenade, except the
+	# starboard step-off where the upper flight lands.
+	var gy: float = yp + 0.5
+	var rails: Array = [
+		[-hx, zc, 0.1, hz1 - hz0],      # port side
+		[hx, zc - 1.9, 0.1, hz1 - hz0 - 3.8],   # starboard side (short — leave the step-off clear)
+		[0.0, hz0, hx * 2.0, 0.1],      # aft end
+		[-hx * 0.5, hz1, hx, 0.1],      # forward port half
+	]
+	for r in rails:
+		_box(root, Vector3(float(r[0]), gy, float(r[1])), Vector3(float(r[2]), 1.0, float(r[3])), glass, true)
+		_box(root, Vector3(float(r[0]), gy + 0.55, float(r[1])), Vector3(float(r[2]) + 0.06, 0.08, float(r[3]) + 0.06), chrome, false)
+	# Lighting: a stepped Deco ceiling fixture each side + warm omni fill.
+	_deco_ceiling_light(root, Vector3(-3.5, yp - 0.3, 53.0), 1.4, 2.4, _mat(Color(0.95, 0.92, 0.82), 0.5, 0.0), chrome, 1.4)
+	_deco_ceiling_light(root, Vector3(3.5, yp - 0.3, 53.0), 1.4, 2.4, _mat(Color(0.95, 0.92, 0.82), 0.5, 0.0), chrome, 1.4)
+	for lz in [48.0, 56.0]:
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, yp - 0.6, float(lz))
+		lamp.light_color = Color(1.0, 0.93, 0.80)
+		lamp.light_energy = 1.5
+		lamp.omni_range = 13.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
+
+
 # A wing of First Class staterooms on the aft A-deck: a near-1:1 central corridor (1.0 m wide — the
 # real cabin alleyways were ~3 ft) lined with cabin doors, the cabins behind them divided by
 # partitions and closed by an outboard wall (the structural columns at x=±6.5 fall in the void
@@ -2001,3 +2082,37 @@ static func _deco_carpet_mat(width: float, length: float, medallion: float) -> S
 	mat.uv1_scale = Vector3(maxf(width / medallion, 1.0), maxf(length / medallion, 1.0), 1.0)
 	mat.roughness = 0.95
 	return mat
+
+
+# A green-and-cream checkerboard marble floor (the QM stair-landing / lobby floor), painted as an
+# 8×8-square tile and UV-tiled so each square is ~`tile` m on the given width × length.
+static func _checker_mat(width: float, length: float, tile: float) -> StandardMaterial3D:
+	var n: int = 64
+	var sq: int = 8
+	var img := Image.create(n, n, true, Image.FORMAT_RGB8)
+	var cream := Color(0.80, 0.76, 0.62)
+	var green := Color(0.22, 0.34, 0.24)
+	for y in range(n):
+		for x in range(n):
+			img.set_pixel(x, y, cream if ((x / sq) + (y / sq)) % 2 == 0 else green)
+	img.generate_mipmaps()
+	var spi: float = float(n) / float(sq)        # squares per image axis (8)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = ImageTexture.create_from_image(img)
+	mat.uv1_scale = Vector3(maxf(width / (spi * tile), 1.0), maxf(length / (spi * tile), 1.0), 1.0)
+	mat.roughness = 0.35
+	return mat
+
+
+# Frosted, faintly self-lit etched glass (the QM stair / lift-lobby balustrade + door panels).
+static func _etched_glass_mat() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.80, 0.85, 0.84, 0.5)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.35
+	m.metallic = 0.0
+	m.emission_enabled = true
+	m.emission = Color(0.78, 0.84, 0.82)
+	m.emission_energy_multiplier = 0.18
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
