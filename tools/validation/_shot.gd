@@ -50,13 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Corrected double stair (the photo-2 view): from the pool deck looking aft — two flights, a
-		# central half-landing + centre pylon, then both flights continuing down to the deck.
+		# Double stair head-on (photo-2 view): upper flights + landing + pylon, lower flights now splay OUT.
 		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
-		# Inc-74 finish: a stepped buff pier with teal bands at the gallery line.
-		["pool_pier", Vector3(2.0, 7.0, 50.0), Vector3(11.0, 8.2, 58.0), Vector3.UP],
-		# The turquoise-mosaic basin + dark coping, from the deck.
-		["pool_basin", Vector3(9.0, 7.2, 53.0), Vector3(0.0, 5.4, 53.0), Vector3.UP],
+		# The starboard lower flight, now turned 90° to descend out toward the side deck.
+		["stair_low", Vector3(12.5, 7.2, 58.0), Vector3(5.5, 6.4, 67.0), Vector3.UP],
+		# Close on the stair bottom — confirm the tile pixelation is gone (solid buff treads now).
+		["stair_bottom", Vector3(11.0, 6.9, 63.5), Vector3(6.5, 6.2, 67.5), Vector3.UP],
 		# 3/4 angle on the double stair (buff treads now).
 		["stair_3q", Vector3(9.0, 6.7, 53.0), Vector3(-1.0, 7.6, 68.0), Vector3.UP],
 		# Whole galleried room down the length.
