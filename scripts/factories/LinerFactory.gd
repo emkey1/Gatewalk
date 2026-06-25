@@ -74,8 +74,8 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	parent.add_child(root)
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "liner", 1))
 
-	_build_hull(root, wl, wl + 5.04, -28.0, 28.0)   # carve the upper hull hollow over the Dining Room (floor at C deck)
-	_build_main_deck(root, wl, 15.0, 25.0, 4.0)   # stairwell opening for the Dining Room descent
+	_build_hull(root, wl, wl + 5.04, -28.0, 28.0, 36.0, 82.0)   # carve the upper hull over the Dining Room + the pool (floor at C deck)
+	_build_main_deck(root, wl, 15.0, 25.0, 4.0, 67.0, 79.0, 4.0)   # stairwell openings: Dining Room + swimming-pool descents
 	_build_superstructure(root, wl)
 	_build_funnels(root, wl)
 	_build_masts(root, wl)
@@ -166,7 +166,7 @@ static func _hull_color(y: float, wl: float) -> Color:
 # Loft the hull as a single vertex-coloured mesh: a slightly tumblehome side (deck edge
 # out over a narrower keel) plus a flat bottom, swept over the station profiles, with
 # end caps fanned at bow and stern.
-static func _build_hull(parent: Node3D, wl: float, carve_y: float = NAN, carve_z0: float = NAN, carve_z1: float = NAN) -> void:
+static func _build_hull(parent: Node3D, wl: float, carve_y: float = NAN, carve_z0: float = NAN, carve_z1: float = NAN, carve2_z0: float = NAN, carve2_z1: float = NAN) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var body := StaticBody3D.new()
@@ -200,7 +200,7 @@ static func _build_hull(parent: Node3D, wl: float, carve_y: float = NAN, carve_z
 		# ConcavePolygonShape3D docs); convex slices are reliably solid from every side, and
 		# each slice's top face is the deck.
 		var cvx := ConvexPolygonShape3D.new()
-		if not is_nan(carve_y) and z1 > carve_z0 and z0 < carve_z1:
+		if not is_nan(carve_y) and ((z1 > carve_z0 and z0 < carve_z1) or (not is_nan(carve2_z0) and z1 > carve2_z0 and z0 < carve2_z1)):
 			# Carve the UPPER hull hollow over the Dining Room: keep the slice solid only up to
 			# carve_y (the room floor) so the player can stand in the room instead of inside solid
 			# hull. The lower hull stays solid (nothing falls through to the sea); the room's own
@@ -252,7 +252,7 @@ static func _tri_out(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, wl: fl
 # The walkable teak weather deck: a flat surface across the beam at the sheer line, run
 # right out to the hull edge so there's no lip to fall through into the hull. Lofted as one
 # mesh with a trimesh collider so the player stands exactly on it.
-static func _build_main_deck(parent: Node3D, wl: float, hz0: float = NAN, hz1: float = NAN, hx: float = 0.0) -> void:
+static func _build_main_deck(parent: Node3D, wl: float, hz0: float = NAN, hz1: float = NAN, hx: float = 0.0, hz0b: float = NAN, hz1b: float = NAN, hxb: float = 0.0) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_color(COL_TEAK)
@@ -268,11 +268,16 @@ static func _build_main_deck(parent: Node3D, wl: float, hz0: float = NAN, hz1: f
 		var r0 := Vector3(b0, s0, z0)
 		var l1 := Vector3(-b1, s1, z1)
 		var r1 := Vector3(b1, s1, z1)
+		var hxh: float = 0.0
 		if not is_nan(hz0) and z1 > hz0 and z0 < hz1:
-			# Stairwell opening (the First Class Dining Room descent): build port + starboard strips
-			# and leave the centre ±hx open so the grand staircase can drop through into the hull.
-			_quad_flat(st, l0, Vector3(-hx, s0, z0), Vector3(-hx, s1, z1), l1)
-			_quad_flat(st, Vector3(hx, s0, z0), r0, r1, Vector3(hx, s1, z1))
+			hxh = hx
+		elif not is_nan(hz0b) and z1 > hz0b and z0 < hz1b:
+			hxh = hxb
+		if hxh > 0.0:
+			# Stairwell opening (Dining Room / swimming-pool descent): build port + starboard strips
+			# and leave the centre ±hxh open so a grand staircase can drop through into the hull.
+			_quad_flat(st, l0, Vector3(-hxh, s0, z0), Vector3(-hxh, s1, z1), l1)
+			_quad_flat(st, Vector3(hxh, s0, z0), r0, r1, Vector3(hxh, s1, z1))
 		else:
 			_quad_flat(st, l0, r0, r1, l1)
 	st.generate_normals()
@@ -1036,6 +1041,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_dining_room(root, wl)
 	_build_main_hall(root, wl)
 	_build_cabins(root, wl)
+	_build_pool(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
@@ -1359,6 +1365,73 @@ static func _build_dining_room(parent: Node3D, wl: float) -> void:
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
 	_furnish_dining_room(root, wl)
+
+
+# The First Class indoor swimming pool: a tall tiled room deep in the hull (the hull is carved hollow
+# over it, see _build_hull), reached by a grand staircase down from the A-deck. A raised tiled pool
+# deck surrounds a recessed, water-filled basin amidships, with columns and a luminous ceiling.
+static func _build_pool(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "SwimmingPool"
+	parent.add_child(root)
+	var deck_y: float = wl + 6.5          # raised pool deck (world ~4.8)
+	var basin_y: float = wl + 5.04        # basin floor = carved hull top (world ~3.34)
+	var water_y: float = wl + 6.2         # water surface
+	var ay: float = wl + DECK_MAIN        # A-deck (stair head)
+	var cy: float = wl + 12.0             # ceiling (world ~10.3)
+	var z0: float = 38.0
+	var z1: float = 80.0
+	var hw: float = 14.0
+	var bz0: float = 42.0
+	var bz1: float = 62.0
+	var bhw: float = 6.5
+	var tile := _mat(Color(0.62, 0.40, 0.28), 0.4, 0.1)    # terracotta tile (the QM pool's colour)
+	var cream := _mat(Color(0.84, 0.80, 0.72), 0.6, 0.0)
+	var rail := _mat(Color(0.72, 0.60, 0.38), 0.4, 0.1)
+	var water := StandardMaterial3D.new()
+	water.albedo_color = Color(0.20, 0.55, 0.62, 0.55)
+	water.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	water.roughness = 0.05
+	water.metallic = 0.2
+	# Raised pool deck with the basin opening.
+	_floor_with_hole(root, z0, z1, hw, deck_y, bz0, bz1, bhw, 0.3, tile)
+	# Basin: side + end walls (deck down to the basin floor), a tiled bottom, and the water surface.
+	for sx in [-1.0, 1.0]:
+		_box(root, Vector3(sx * bhw, (basin_y + deck_y) * 0.5, (bz0 + bz1) * 0.5), Vector3(0.2, deck_y - basin_y, bz1 - bz0), tile, true)
+	for ez in [bz0, bz1]:
+		_box(root, Vector3(0.0, (basin_y + deck_y) * 0.5, float(ez)), Vector3(bhw * 2.0, deck_y - basin_y, 0.2), tile, true)
+	_box(root, Vector3(0.0, basin_y - 0.1, (bz0 + bz1) * 0.5), Vector3(bhw * 2.0, 0.2, bz1 - bz0), tile, true)
+	_box(root, Vector3(0.0, water_y, (bz0 + bz1) * 0.5), Vector3(bhw * 2.0 - 0.3, 0.08, bz1 - bz0 - 0.3), water, false)
+	# Room side + fore/aft walls (deck to ceiling) + a luminous ceiling with the stairwell opening.
+	for sx2 in [-1.0, 1.0]:
+		_box(root, Vector3(sx2 * hw, (deck_y + cy) * 0.5, (z0 + z1) * 0.5), Vector3(0.4, cy - deck_y, z1 - z0), cream, true)
+	for ez2 in [z0, z1]:
+		_box(root, Vector3(0.0, (deck_y + cy) * 0.5, float(ez2)), Vector3(hw * 2.0, cy - deck_y, 0.4), cream, true)
+	var lum := StandardMaterial3D.new()
+	lum.albedo_color = Color(0.95, 0.92, 0.82)
+	lum.emission_enabled = true
+	lum.emission = Color(1.0, 0.95, 0.82)
+	lum.emission_energy_multiplier = 0.3
+	_floor_with_hole(root, z0, z1, hw, cy, 70.0, 80.0, 4.0, 0.2, lum)
+	# Columns down each side of the pool.
+	for cz in [44.0, 54.0, 64.0]:
+		for sx3 in [-10.0, 10.0]:
+			_cyl(root, Vector3(sx3, (deck_y + cy) * 0.5, float(cz)), 0.5, cy - deck_y, cream, true)
+	# Grand staircase down from the A-deck to the pool deck (forward end), with a balustraded well.
+	_stair_run(root, 0.0, 66.0, 78.0, deck_y, ay, 6.0, tile)
+	for sx4 in [-1.0, 1.0]:
+		_box(root, Vector3(sx4 * 4.0, ay + 0.5, 72.0), Vector3(0.12, 1.0, 12.0), rail, true)
+	_box(root, Vector3(0.0, ay + 0.5, 66.0), Vector3(8.0, 1.0, 0.12), rail, true)
+	# Lighting (deep in the hull).
+	for lz in [46.0, 56.0, 66.0]:
+		for lx in [-8.0, 0.0, 8.0]:
+			var lamp := OmniLight3D.new()
+			lamp.position = Vector3(float(lx), cy - 1.2, float(lz))
+			lamp.light_color = Color(1.0, 0.94, 0.82)
+			lamp.light_energy = 1.8
+			lamp.omni_range = 14.0
+			lamp.shadow_enabled = false
+			root.add_child(lamp)
 
 
 # Furnish the Dining Saloon: rows of white-clothed tables + chairs, a long captain's table down the
