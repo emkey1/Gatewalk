@@ -1034,6 +1034,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_promenade_rooms(root, wl)
 	_furnish_promenade_ends(root, wl)
 	_build_dining_room(root, wl)
+	_build_main_hall(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
@@ -1389,6 +1390,50 @@ static func _dining_table(parent: Node3D, pos: Vector3, cloth: Material, chair: 
 	_box(parent, pos + Vector3(0.0, 0.81, 0.0), Vector3(2.0, 0.06, 1.1), cloth, false)
 	for off in [[-1.15, 0.0], [1.15, 0.0], [0.0, -0.8], [0.0, 0.8]]:
 		_box(parent, pos + Vector3(float(off[0]), 0.42, float(off[1])), Vector3(0.5, 0.85, 0.5), chair, false)
+
+
+# First Class Main Hall: the tall A-deck entrance foyer you board into off the forward door (it was
+# a bare volume). A reception/purser's desk with an office screen + ship's crest behind it, flanking
+# sofas + side tables, decorative urns, and a glowing pendant. The forward A-deck floor rises on the
+# bow sheer, so every piece is seated on the LOCAL floor (_sheer_y), not the flat amidships level.
+static func _build_main_hall(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "MainHall"
+	parent.add_child(root)
+	var wood := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
+	var darkwood := _mat(Color(0.22, 0.14, 0.09), 0.5, 0.0)
+	var sofa := _mat(Color(0.30, 0.34, 0.42), 0.85, 0.0)
+	var brass := _mat(Color(0.66, 0.52, 0.24), 0.4, 0.5)
+	# Reception / purser's desk across the aft end, facing the entrance, with an office screen behind
+	# (kept to ±4.5 so the side passages aft to the grand staircase stay open).
+	var dy: float = _sheer_y(97.0, wl)
+	_box(root, Vector3(0.0, dy + 0.55, 97.0), Vector3(9.0, 1.1, 1.4), darkwood, true)
+	_box(root, Vector3(0.0, dy + 1.16, 97.0), Vector3(9.4, 0.12, 1.6), wood, false)
+	var sy: float = _sheer_y(94.5, wl)
+	_box(root, Vector3(0.0, sy + 1.4, 94.5), Vector3(9.0, 2.8, 0.3), wood, true)
+	_box(root, Vector3(0.0, sy + 1.9, 94.32), Vector3(2.2, 1.3, 0.12), brass, false)   # ship's crest
+	# Flanking sofas + side tables along the entrance approach, and decorative urns by the desk.
+	for sx in [-1.0, 1.0]:
+		var y2: float = _sheer_y(108.0, wl)
+		_box(root, Vector3(sx * 7.0, y2 + 0.45, 108.0), Vector3(1.4, 0.9, 3.4), sofa, true)
+		_box(root, Vector3(sx * 4.8, y2 + 0.4, 108.0), Vector3(1.2, 0.4, 1.2), wood, true)
+		_cyl(root, Vector3(sx * 4.2, _sheer_y(101.0, wl) + 1.0, 101.0), 0.5, 2.0, darkwood, true)
+	# A glowing pendant over the hall.
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = Color(1.0, 0.95, 0.82)
+	glow.emission_enabled = true
+	glow.emission = Color(1.0, 0.93, 0.78)
+	glow.emission_energy_multiplier = 0.7
+	_box(root, Vector3(0.0, _sheer_y(108.0, wl) + 3.4, 108.0), Vector3(2.4, 0.5, 2.4), glow, false)
+	# Warm light down the hall (seated above the rising floor).
+	for lz in [98.0, 108.0, 116.0]:
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, _sheer_y(float(lz), wl) + 2.6, float(lz))
+		lamp.light_color = Color(1.0, 0.92, 0.78)
+		lamp.light_energy = 2.4
+		lamp.omni_range = 20.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
