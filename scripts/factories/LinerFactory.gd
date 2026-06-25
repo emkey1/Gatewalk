@@ -1462,14 +1462,13 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 		_box(root, Vector3(sgn * cd, (ya + yc) * 0.5, (z0 + z1) * 0.5), Vector3(0.2, yc - ya, z1 - z0), white, true)
 		for pz in [-38.0, -43.0, -48.0, -53.0, -58.0, -63.0, -68.0, -73.0, -78.0]:
 			_box(root, Vector3(sgn * (cw + cd) * 0.5, (ya + yc) * 0.5, float(pz)), Vector3(cd - cw, yc - ya, 0.2), white, true)
-	# Furnish every cabin: bed against the outboard wall + pillow, a wardrobe and a washbasin by the
-	# door (clear of the columns at x=±6.5, which sit in the void behind the outboard wall).
+	# Furnish every cabin: bed (pillow end against the aft partition), a wardrobe, and a compact
+	# ensuite bathroom — toilet, washbasin, shower — tucked in the corner by the door, the way a real
+	# cruise stateroom is laid out (~25-30 sq ft modular unit). See _cabin_interior.
+	var porc := _mat(Color(0.93, 0.93, 0.95), 0.2, 0.0)
 	for cz in [-40.5, -45.5, -50.5, -55.5, -60.5, -65.5, -70.5, -75.5]:
 		for sgn2 in [-1.0, 1.0]:
-			_box(root, Vector3(sgn2 * 4.3, ya + 0.3, float(cz)), Vector3(1.9, 0.5, 1.9), bedmat, true)
-			_box(root, Vector3(sgn2 * 4.3, ya + 0.62, float(cz) - 0.65), Vector3(1.9, 0.16, 0.5), white, false)
-			_box(root, Vector3(sgn2 * 1.7, ya + 1.0, float(cz) + 1.7), Vector3(0.9, 2.0, 0.5), wood, true)
-			_box(root, Vector3(sgn2 * 1.7, ya + 0.5, float(cz) - 1.7), Vector3(0.6, 0.3, 0.6), white, true)
+			_cabin_interior(root, float(cz), float(sgn2), ya, yc, white, wood, bedmat, porc)
 	# Corridor lighting.
 	for lz in [-44.0, -54.0, -64.0, -74.0]:
 		var lamp := OmniLight3D.new()
@@ -1479,6 +1478,35 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 		lamp.omni_range = 9.0
 		lamp.shadow_enabled = false
 		root.add_child(lamp)
+
+
+# One stateroom's fit-out (s = +1 starboard / -1 port): the bed against the outboard wall with its
+# pillow end against the aft partition; a wardrobe in the forward-outboard corner; and a compact
+# ensuite bathroom (toilet, washbasin, shower stall; door in its aft wall) filling the forward-
+# inboard corner by the cabin door, the way a cruise stateroom's modular bathroom sits. Bathroom door
+# is 1.0 m so the 0.9 m-wide player can just get in (a true ~0.6 m bathroom door wouldn't fit).
+static func _cabin_interior(parent: Node3D, cz: float, s: float, ya: float, yc: float, white: Material, wood: Material, bedmat: Material, porc: Material) -> void:
+	var hh: float = yc - ya
+	var hy: float = (ya + yc) * 0.5
+	_box(parent, Vector3(s * 4.45, ya + 0.3, cz - 1.45), Vector3(1.7, 0.5, 1.9), bedmat, true)            # bed
+	_box(parent, Vector3(s * 4.45, ya + 0.62, cz - 2.25), Vector3(1.7, 0.16, 0.45), white, false)        # pillow (at the aft partition)
+	_box(parent, Vector3(s * 4.7, hy, cz + 2.0), Vector3(0.8, hh, 0.7), wood, true)                       # wardrobe
+	_box(parent, Vector3(s * 2.5, hy, cz + 1.5), Vector3(0.15, hh, 1.9), white, true)                     # bathroom cabin-side wall
+	_box(parent, Vector3(s * 1.025, hy, cz + 0.55), Vector3(0.35, hh, 0.15), white, true)                 # bathroom aft wall (corridor seg)
+	_box(parent, Vector3(s * 2.35, hy, cz + 0.55), Vector3(0.3, hh, 0.15), white, true)                   # bathroom aft wall (cabin seg)
+	_box(parent, Vector3(s * 1.7, ya + 2.1 + (hh - 2.1) * 0.5, cz + 0.55), Vector3(1.0, hh - 2.1, 0.15), white, true)  # door lintel
+	_box(parent, Vector3(s * 1.2, ya + 0.3, cz + 2.0), Vector3(0.5, 0.6, 0.55), porc, false)              # toilet bowl
+	_box(parent, Vector3(s * 1.2, ya + 0.75, cz + 2.25), Vector3(0.45, 0.45, 0.18), porc, false)          # cistern
+	_box(parent, Vector3(s * 1.05, ya + 0.55, cz + 1.05), Vector3(0.4, 0.16, 0.4), porc, false)           # washbasin
+	_box(parent, Vector3(s * 2.1, ya + 0.06, cz + 1.6), Vector3(0.7, 0.12, 0.9), porc, false)             # shower tray
+	_box(parent, Vector3(s * 2.1, ya + 1.6, cz + 1.6), Vector3(0.12, 0.12, 0.12), porc, false)            # shower head
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(s * 3.0, yc - 0.4, cz)
+	lamp.light_color = Color(1.0, 0.93, 0.80)
+	lamp.light_energy = 1.2
+	lamp.omni_range = 6.0
+	lamp.shadow_enabled = false
+	parent.add_child(lamp)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
