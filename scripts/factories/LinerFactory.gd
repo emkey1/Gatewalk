@@ -1229,13 +1229,13 @@ static func _furnish_promenade_rooms(parent: Node3D, wl: float) -> void:
 			_box(parent, Vector3(sx * 9.4, yp + 1.06, float(sz)), Vector3(1.34, 0.1, 2.6), glasslt, false)
 	_box(parent, Vector3(0.0, yp + 1.0, 23.0), Vector3(2.2, 2.0, 2.2), wood, true)
 
-	# Ballroom (-40..-18, door z=-29): a parquet dance floor, a bandstand + gilded back panel forward
-	# of it, and edge tables clear of the door.
-	_box(parent, Vector3(0.0, yp + 0.05, -26.0), Vector3(9.0, 0.06, 13.0), parquet, false)
-	_box(parent, Vector3(0.0, yp + 0.3, -36.0), Vector3(7.5, 0.5, 2.6), wood, true)
-	_box(parent, Vector3(0.0, yp + 2.0, -37.2), Vector3(7.0, 3.2, 0.2), _mat(Color(0.72, 0.56, 0.30), 0.4, 0.35), false)
+	# Ballroom (-40..-18, door z=-29): a raised parquet dance floor + perimeter tables. The dance floor
+	# is set clearly ABOVE the room rug (they used to share a plane and z-fought into a flickering
+	# floor). The old bandstand + gilded back panel were removed — they sat across the aft doorway and
+	# blocked the passage to the Long Gallery; the orchestra dais lives in the Main Lounge instead.
+	_box(parent, Vector3(0.0, yp + 0.13, -29.0), Vector3(9.0, 0.06, 16.0), parquet, false)
 	for sx in [-1.0, 1.0]:
-		for tz in [-21.0, -33.0]:
+		for tz in [-22.0, -36.0]:
 			_box(parent, Vector3(sx * 8.6, yp + 0.5, float(tz)), Vector3(1.1, 0.75, 1.1), green, true)
 
 	# Long Gallery (-54..-40, door z=-47): central back-to-back settees + framed panels flanking the door.
