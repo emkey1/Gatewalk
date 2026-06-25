@@ -1452,20 +1452,24 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 	var bedmat := _mat(Color(0.50, 0.28, 0.30), 0.85, 0.0)
 	var z0: float = -78.0
 	var z1: float = -38.0
-	var cw: float = 0.5                 # corridor half-width (1.0 m alley)
-	var cd: float = 5.0                 # cabin outboard wall (4.5 m deep cabins)
+	# Corridor + doors must clear the 0.9 m-wide player capsule (radius 0.45): true 1:1 (~0.9 m
+	# alleys, ~0.9 m doors) won't fit, so widen to the practical minimum — ~1.5 m clear, 1.3 m doors.
+	var cw: float = 0.85                # corridor half-width -> ~1.5 m clear alley
+	var cd: float = 5.3                 # cabin outboard wall (~4.5 m deep cabins)
 	var doors: Array = [-75.5, -70.5, -65.5, -60.5, -55.5, -50.5, -45.5, -40.5]
 	for sgn in [-1.0, 1.0]:
-		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 0.9, 2.1, white)
+		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 1.3, 2.1, white)
 		_box(root, Vector3(sgn * cd, (ya + yc) * 0.5, (z0 + z1) * 0.5), Vector3(0.2, yc - ya, z1 - z0), white, true)
 		for pz in [-38.0, -43.0, -48.0, -53.0, -58.0, -63.0, -68.0, -73.0, -78.0]:
 			_box(root, Vector3(sgn * (cw + cd) * 0.5, (ya + yc) * 0.5, float(pz)), Vector3(cd - cw, yc - ya, 0.2), white, true)
-	# Furnish a sample of cabins (clear of the columns at x=±6.5, which sit behind the outboard wall).
-	for cz in [-45.5, -55.5, -65.5]:
+	# Furnish every cabin: bed against the outboard wall + pillow, a wardrobe and a washbasin by the
+	# door (clear of the columns at x=±6.5, which sit in the void behind the outboard wall).
+	for cz in [-40.5, -45.5, -50.5, -55.5, -60.5, -65.5, -70.5, -75.5]:
 		for sgn2 in [-1.0, 1.0]:
-			_box(root, Vector3(sgn2 * 3.3, ya + 0.3, float(cz)), Vector3(1.9, 0.5, 1.9), bedmat, true)
-			_box(root, Vector3(sgn2 * 3.3, ya + 0.62, float(cz) - 0.65), Vector3(1.9, 0.16, 0.5), white, false)
-			_box(root, Vector3(sgn2 * 1.5, ya + 1.0, float(cz) + 1.6), Vector3(0.9, 2.0, 0.5), wood, true)
+			_box(root, Vector3(sgn2 * 4.3, ya + 0.3, float(cz)), Vector3(1.9, 0.5, 1.9), bedmat, true)
+			_box(root, Vector3(sgn2 * 4.3, ya + 0.62, float(cz) - 0.65), Vector3(1.9, 0.16, 0.5), white, false)
+			_box(root, Vector3(sgn2 * 1.7, ya + 1.0, float(cz) + 1.7), Vector3(0.9, 2.0, 0.5), wood, true)
+			_box(root, Vector3(sgn2 * 1.7, ya + 0.5, float(cz) - 1.7), Vector3(0.6, 0.3, 0.6), white, true)
 	# Corridor lighting.
 	for lz in [-44.0, -54.0, -64.0, -74.0]:
 		var lamp := OmniLight3D.new()
