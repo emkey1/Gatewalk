@@ -50,14 +50,16 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Lift lobby — overview from the forward (entry) side looking aft at the switchback + lifts
-		["lobby1", Vector3(2.5, 13.3, 63.0), Vector3(-1.5, 12.8, 51.0), Vector3.UP],
-		# The lift bank on the port wall — head-on at the forward lift
-		["lobby_lift", Vector3(-2.5, 13.0, 49.5), Vector3(-7.0, 12.9, 49.7), Vector3.UP],
-		# The switchback flights + landing
-		["lobby_stair", Vector3(-5.0, 13.4, 61.0), Vector3(1.5, 13.0, 51.0), Vector3.UP],
-		# From the Promenade, looking down into the well over the etched-glass balustrade
-		["lobby_top", Vector3(-3.0, 16.0, 48.0), Vector3(1.0, 13.5, 55.0), Vector3.UP],
+		# Sports-deck companion-head from above (fwd-port) — etched-glass balustrade round the hatch
+		["sports_hatch", Vector3(2.0, 23.9, -49.5), Vector3(7.0, 20.9, -57.0), Vector3.UP],
+		# Step-off POV on the sports deck looking forward at the hatch + the aftmost funnel beyond
+		["sports_emerge", Vector3(6.5, 22.7, -63.0), Vector3(6.5, 21.2, -54.5), Vector3.UP],
+		# Inside the Verandah Grill: looking up the flight between the burl stringers to the open hatch
+		["grill_stair", Vector3(6.5, 18.9, -52.7), Vector3(6.5, 20.7, -57.5), Vector3.UP],
+		# The decorative Deco lift on the grill's starboard wall, head-on from inboard
+		["grill_lift", Vector3(9.2, 19.3, -54.0), Vector3(12.5, 19.1, -54.0), Vector3.UP],
+		# Exterior aft-3/4 — confirm the small companion-head reads on the sports deck silhouette
+		["aft34", Vector3(120.0, 52.0, -235.0), Vector3(0.0, 16.0, -55.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

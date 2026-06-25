@@ -390,7 +390,8 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	# Sun/boat-deck house above the Promenade: a wide tapered deckhouse with a cabin-window band —
 	# the wedding-cake second tier the funnels rise from — set inboard so the lifeboat walkways stay
 	# open outboard. (Was a narrow ±8 funnel casing, which read as a thin slab.)
-	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.5, wl + 21.6, 1.4)   # aft door -> the Verandah Grill
+	# aft door -> the Verandah Grill; a hatch cut in the roof aft-starboard for the sports-deck stair/lift trunk
+	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.5, wl + 21.6, 1.4, 4.75, 8.25, -58.2, -53.4)
 	# Navigating bridge across the forward end of the boat deck, with wing platforms.
 	_build_bridge(root, wl, white, glass, deck)
 
@@ -522,6 +523,67 @@ static func _tapered_slab(parent: Node3D, z_aft: float, z_fwd: float, y_top: flo
 	parent.add_child(body)
 
 
+# One quad panel of a (holed) tapered slab: a top + an underside spanning [xLa..xRa] at za and
+# [xLb..xRb] at zb, plus optional outboard edge skirts. The hole-side edges pass skirt=false so the
+# trunk coaming caps them instead (avoids a coplanar slab-skirt / coaming z-fight at the hatch edge).
+static func _slab_panel(st: SurfaceTool, za: float, zb: float, xLa: float, xRa: float, xLb: float, xRb: float, yt: float, yb: float, skirtL: bool, skirtR: bool) -> void:
+	_quad_flat(st, Vector3(xLa, yt, za), Vector3(xRa, yt, za), Vector3(xRb, yt, zb), Vector3(xLb, yt, zb))   # top
+	_quad_flat(st, Vector3(xLa, yb, za), Vector3(xLb, yb, zb), Vector3(xRb, yb, zb), Vector3(xRa, yb, za))   # underside
+	if skirtR:
+		_quad_flat(st, Vector3(xRa, yt, za), Vector3(xRa, yb, za), Vector3(xRb, yb, zb), Vector3(xRb, yt, zb))
+	if skirtL:
+		_quad_flat(st, Vector3(xLa, yt, za), Vector3(xLb, yt, zb), Vector3(xLb, yb, zb), Vector3(xLa, yb, za))
+
+
+# As _tapered_slab, but with a rectangular hole (hx0..hx1 across, hz0..hz1 fore-and-aft) cut clean
+# through it — a deck hatch for the sports-deck stair/lift trunk. The hole's z-bounds are clipped
+# EXACTLY within each loft station (split at hz0/hz1, never snapped to the coarse station edges —
+# the inc-66 over-cut-and-fall-through lesson); over the hole's z-span the top + underside become a
+# port strip (out to hx0) and a starboard strip (from hx1), leaving the rectangle open. The hatch
+# coaming (built by _build_sports_access) caps the four cut faces.
+static func _tapered_slab_holed(parent: Node3D, z_aft: float, z_fwd: float, y_top: float, thick: float, overhang: float, mat: Material, cap: float, side: float, hx0: float, hx1: float, hz0: float, hz1: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_color(Color(0.34, 0.25, 0.15))
+	var yb: float = y_top - thick
+	var n: int = 24
+	for i in range(n):
+		var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
+		var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
+		var zs: Array = [z0, z1]
+		if hz0 > z0 and hz0 < z1:
+			zs.append(hz0)
+		if hz1 > z0 and hz1 < z1:
+			zs.append(hz1)
+		zs.sort()
+		for k in range(zs.size() - 1):
+			var za: float = float(zs[k])
+			var zb: float = float(zs[k + 1])
+			var wa: float = _house_half_w(za, cap, side) + overhang
+			var wb: float = _house_half_w(zb, cap, side) + overhang
+			var mid: float = (za + zb) * 0.5
+			if mid > hz0 and mid < hz1:
+				_slab_panel(st, za, zb, -wa, hx0, -wb, hx0, y_top, yb, true, false)   # port strip
+				_slab_panel(st, za, zb, hx1, wa, hx1, wb, y_top, yb, false, true)     # starboard strip
+			else:
+				_slab_panel(st, za, zb, -wa, wa, -wb, wb, y_top, yb, true, true)      # full width
+	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var body := StaticBody3D.new()
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	var dm := StandardMaterial3D.new()
+	dm.albedo_color = COL_TEAK
+	dm.roughness = 0.9
+	dm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = dm
+	body.add_child(mi)
+	var col := CollisionShape3D.new()
+	col.shape = mesh.create_trimesh_shape()
+	body.add_child(col)
+	parent.add_child(body)
+
+
 # The long base-block deckhouse, tapered to follow the hull: port + starboard walls lofted as
 # yawed strips (solid sill course, a see-through glazed Promenade band, solid spandrel) over N
 # stations, vertical mullions at each station, solid aft cap, a forward cap with the entry door,
@@ -559,7 +621,7 @@ static func _deckhouse_tapered(parent: Node3D, z_aft: float, z_fwd: float, y_bas
 # penthouse): walls following min(cap, half_beam - side) with a cabin-window band, solid end caps
 # and a walkable tapered roof slab. No entry door / sea glazing — this is the wedding-cake bulk
 # above the Promenade, set well inboard so the boat-deck walkway (lifeboats) stays open outboard.
-static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float, side: float, y_base: float, y_top: float, wall: Material, glaze_mat: Material, deck: Material, win_y0: float, win_y1: float, aft_door_w: float = 0.0) -> void:
+static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float, side: float, y_base: float, y_top: float, wall: Material, glaze_mat: Material, deck: Material, win_y0: float, win_y1: float, aft_door_w: float = 0.0, hx0: float = NAN, hx1: float = NAN, hz0: float = NAN, hz1: float = NAN) -> void:
 	var wall_top: float = y_top - 0.25
 	var t: float = 0.4
 	var n: int = 18
@@ -585,7 +647,11 @@ static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float,
 	else:
 		_box(parent, Vector3(0.0, (y_sink + wall_top) * 0.5, z_aft), Vector3(_house_half_w(z_aft, cap, side) * 2.0, wall_top - y_sink, t), wall, true)
 	_box(parent, Vector3(0.0, (y_sink + wall_top) * 0.5, z_fwd), Vector3(_house_half_w(z_fwd, cap, side) * 2.0, wall_top - y_sink, t), wall, true)
-	_tapered_slab(parent, z_aft - 1.0, z_fwd + 1.0, y_top, 0.3, 0.4, deck, cap, side)
+	# The roof slab is also the sports deck; optionally cut a hatch through it for the stair/lift trunk.
+	if is_nan(hx0):
+		_tapered_slab(parent, z_aft - 1.0, z_fwd + 1.0, y_top, 0.3, 0.4, deck, cap, side)
+	else:
+		_tapered_slab_holed(parent, z_aft - 1.0, z_fwd + 1.0, y_top, 0.3, 0.4, deck, cap, side, hx0, hx1, hz0, hz1)
 
 
 # Navigating bridge: a wheelhouse box at the forward end of the boat deck with a forward
@@ -1065,6 +1131,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_cabins(root, wl)
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
+	_build_sports_access(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
@@ -1520,6 +1587,81 @@ static func _build_verandah_grill(parent: Node3D, wl: float) -> void:
 		lamp.omni_range = 16.0
 		lamp.shadow_enabled = false
 		root.add_child(lamp)
+
+
+# Sports-deck access: an Art Deco stair-and-lift trunk in the forward-starboard corner of the
+# Verandah Grill, climbing one deck and emerging through a hatch cut in the sun-house roof onto the
+# open sports deck (the topmost deck, with no stair up since the boat-deck companionway was removed
+# in inc 63). A single companion stair within burl stringer walls that carry up through the hatch as
+# a coaming topped with an etched-glass balustrade + chrome rail; a decorative Deco lift faces the
+# stair off the starboard wall. Reuses the lift-lobby vocabulary (burl, brushed steel, chrome,
+# etched glass, checkerboard marble). The hatch in the roof is cut by _upper_house/_tapered_slab_holed
+# with the SAME hx0/hx1/hz0/hz1 used here, so the opening and the trunk line up exactly.
+static func _build_sports_access(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "SportsAccess"
+	parent.add_child(root)
+	var fy: float = wl + DECK_SUN          # Verandah Grill floor / trunk foot
+	var yp: float = wl + DECK_SPORTS        # sports deck (sun-house roof top)
+	var ru: float = yp - 0.3                # roof underside (the grill ceiling)
+	var burl := _mat(Color(0.60, 0.42, 0.19), 0.35, 0.1)
+	var dado := _mat(Color(0.28, 0.16, 0.09), 0.5, 0.0)
+	var steel := _mat(Color(0.62, 0.64, 0.66), 0.35, 0.85)
+	var chrome := _mat(Color(0.82, 0.84, 0.86), 0.18, 0.95)
+	var tread := _mat(COL_TEAK, 0.7, 0.0)
+	var glass := _etched_glass_mat()
+	var cx: float = 6.5                     # trunk centreline (starboard, clear of the dance floor + bandstand)
+	var z_fwd: float = -53.0                # stair foot, against the grill's forward partition
+	var z_aft: float = -58.0                # stair top, emerging onto the sports deck
+	var hz0: float = -58.2                  # hatch aft edge (the open step-off side)
+	var hz1: float = -53.4                  # hatch forward edge (closed)
+	var hx0: float = 4.75                   # hatch inboard edge
+	var hx1: float = 8.25                   # hatch outboard edge
+	var zc: float = (hz0 + hz1) * 0.5
+
+	# A checkerboard marble threshold mat at the foot of the flight (clear of the partition at z=-52).
+	_box(root, Vector3(cx, fy + 0.02, -52.6), Vector3(3.6, 0.04, 0.7), _checker_mat(3.6, 0.7, 0.5), false)
+	# The single Art Deco companion stair up to the sports deck (solid steps the capsule rounds).
+	_stair_run(root, cx, z_fwd, z_aft, fy, yp, 3.0, tread)
+	# Burl stringer walls hiding the solid stair flanks, rising to deck level within the hatch z-span;
+	# a short forward flank covers the bottom step ahead of the hatch (under the solid roof there).
+	for sx in [-1.0, 1.0]:
+		var xw: float = cx + sx * 1.6
+		_box(root, Vector3(xw, (fy + yp) * 0.5, zc), Vector3(0.3, yp - fy, hz1 - hz0), burl, true)
+		_box(root, Vector3(xw, fy + 0.55, zc), Vector3(0.34, 1.1, hz1 - hz0), dado, false)
+		_box(root, Vector3(xw, (fy + ru) * 0.5, -53.15), Vector3(0.3, ru - fy, 0.6), burl, true)
+	# Forward hatch fascia (caps the slab's forward cut face below the balustrade — the closed side).
+	_box(root, Vector3(cx, (ru + yp) * 0.5, hz1 - 0.07), Vector3(hx1 - hx0, yp - ru, 0.16), burl, true)
+	# Aft cut-edge fascia (the open step-off side) — flush teak board, just capping the 0.3 m slab edge.
+	_box(root, Vector3(cx, (ru + yp) * 0.5, hz0 + 0.08), Vector3(hx1 - hx0, yp - ru, 0.12), tread, false)
+	# Etched-glass balustrade + chrome handrail ringing the hatch on the sports deck (forward + both
+	# outboard sides; the aft side is the open step-off onto the open deck).
+	var gy: float = yp + 0.5
+	var rails: Array = [
+		[cx, hz1 - 0.07, hx1 - hx0, 0.12],          # forward
+		[cx - 1.6, zc, 0.12, hz1 - hz0],            # port stringer top
+		[cx + 1.6, zc, 0.12, hz1 - hz0],            # starboard stringer top
+	]
+	for r in rails:
+		_box(root, Vector3(float(r[0]), gy, float(r[1])), Vector3(float(r[2]), 1.0, float(r[3])), glass, true)
+		_box(root, Vector3(float(r[0]), gy + 0.55, float(r[1])), Vector3(float(r[2]) + 0.06, 0.08, float(r[3]) + 0.06), chrome, false)
+
+	# A decorative Art Deco lift facing the stair off the grill's starboard wall (brushed-steel doors
+	# in a burl surround), with burl pilasters + lintel framing it on the wall.
+	_elevator(root, Vector3(12.4, fy + 1.2, -54.0), -1.0, burl, steel, chrome)
+	for ez in [-55.7, -52.3]:
+		_box(root, Vector3(12.7, fy + 1.4, float(ez)), Vector3(0.7, 2.8, 0.3), burl, true)
+	_box(root, Vector3(12.7, fy + 2.9, -54.0), Vector3(0.7, 0.3, 3.7), burl, true)
+
+	# Lighting: a stepped Deco ceiling fixture over the stair foot + a warm omni up in the open hatch.
+	_deco_ceiling_light(root, Vector3(cx, ru - 0.25, -52.6), 1.2, 0.5, _mat(Color(0.95, 0.92, 0.82), 0.5, 0.0), chrome, 1.4)
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(cx, yp + 0.4, hz0 + 1.4)
+	lamp.light_color = Color(1.0, 0.95, 0.85)
+	lamp.light_energy = 1.2
+	lamp.omni_range = 11.0
+	lamp.shadow_enabled = false
+	root.add_child(lamp)
 
 
 # Furnish the Dining Saloon: rows of white-clothed tables + chairs, a long captain's table down the
