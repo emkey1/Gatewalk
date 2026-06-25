@@ -373,7 +373,7 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	# Sun/boat-deck house above the Promenade: a wide tapered deckhouse with a cabin-window band —
 	# the wedding-cake second tier the funnels rise from — set inboard so the lifeboat walkways stay
 	# open outboard. (Was a narrow ±8 funnel casing, which read as a thin slab.)
-	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.5, wl + 21.6)
+	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.5, wl + 21.6, 1.4)   # aft door -> the Verandah Grill
 	# Navigating bridge across the forward end of the boat deck, with wing platforms.
 	_build_bridge(root, wl, white, glass, deck)
 
@@ -383,8 +383,9 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	# or the stair hangs below the deck it lands on. Solid steps the capsule rounds into a ramp.
 	# Kept well inboard so they land on the now-tapered (narrower) boat-deck ends, not off the edge.
 	_stair_run(root, -3.0, SS_AFT * L - 13.0, SS_AFT * L - 1.5, _sheer_y(SS_AFT * L - 13.0, wl), y_sun, 4.0, deck)
-	_stair_run(root, 0.0, BH_AFT * L - 9.0, BH_AFT * L - 1.5, y_sun, y_sports, 3.6, deck)
 	_stair_run(root, 3.0, SS_FWD * L + 13.0, SS_FWD * L + 1.5, _sheer_y(SS_FWD * L + 13.0, wl), y_sun, 4.0, deck)
+	# (The old boat-deck->sports-deck companionway at cx=0 was removed — it sat on the centreline INSIDE
+	# the sun-deck house, non-functional in the solid house and now barging through the Verandah Grill.)
 
 
 # Three rows of windows down each long side of the base block: continuous dark glazing
@@ -541,7 +542,7 @@ static func _deckhouse_tapered(parent: Node3D, z_aft: float, z_fwd: float, y_bas
 # penthouse): walls following min(cap, half_beam - side) with a cabin-window band, solid end caps
 # and a walkable tapered roof slab. No entry door / sea glazing — this is the wedding-cake bulk
 # above the Promenade, set well inboard so the boat-deck walkway (lifeboats) stays open outboard.
-static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float, side: float, y_base: float, y_top: float, wall: Material, glaze_mat: Material, deck: Material, win_y0: float, win_y1: float) -> void:
+static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float, side: float, y_base: float, y_top: float, wall: Material, glaze_mat: Material, deck: Material, win_y0: float, win_y1: float, aft_door_w: float = 0.0) -> void:
 	var wall_top: float = y_top - 0.25
 	var t: float = 0.4
 	var n: int = 18
@@ -558,7 +559,10 @@ static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float,
 		for i in range(n + 1):
 			var mz: float = lerpf(z_aft, z_fwd, float(i) / float(n))
 			_box(parent, Vector3(s * _house_half_w(mz, cap, side), (win_y0 + win_y1) * 0.5, mz), Vector3(t + 0.08, win_y1 - win_y0, 0.22), wall, false)
-	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_aft), Vector3(_house_half_w(z_aft, cap, side) * 2.0, wall_top - y_base, t), wall, true)
+	if aft_door_w > 0.0:
+		_transverse_door_wall(parent, z_aft, _house_half_w(z_aft, cap, side), y_base, wall_top, t, 0.0, aft_door_w, 2.1, wall)   # entry door (e.g. into the Verandah Grill)
+	else:
+		_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_aft), Vector3(_house_half_w(z_aft, cap, side) * 2.0, wall_top - y_base, t), wall, true)
 	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_fwd), Vector3(_house_half_w(z_fwd, cap, side) * 2.0, wall_top - y_base, t), wall, true)
 	_tapered_slab(parent, z_aft - 1.0, z_fwd + 1.0, y_top, 0.3, 0.4, deck, cap, side)
 
@@ -1042,6 +1046,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_main_hall(root, wl)
 	_build_cabins(root, wl)
 	_build_pool(root, wl)
+	_build_verandah_grill(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
@@ -1432,6 +1437,43 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 			lamp.omni_range = 14.0
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
+
+
+# The Verandah Grill: the QM's stylish à-la-carte restaurant + nightclub in the aft end of the sun-
+# deck house, entered off the after boat deck through the sun-house's aft door. A parquet dance floor
+# + a bandstand with a gilded back panel, à-la-carte tables down each side by the windows, closed off
+# forward by a partition. The floor, ceiling and side windows are the sun-house's; this adds the fit-out.
+static func _build_verandah_grill(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "VerandahGrill"
+	parent.add_child(root)
+	var fy: float = wl + DECK_SUN
+	var cy: float = wl + DECK_SPORTS - 0.35
+	var hw: float = 13.0
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var wood := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
+	var cloth := _mat(Color(0.90, 0.88, 0.83), 0.7, 0.0)
+	var chair := _mat(Color(0.40, 0.26, 0.16), 0.6, 0.0)
+	var parquet := _mat(Color(0.62, 0.46, 0.28), 0.4, 0.0)
+	# Forward partition closing the grill off from the rest of the sun-house.
+	_box(root, Vector3(0.0, (fy + cy) * 0.5, -52.0), Vector3(hw * 2.0, cy - fy, 0.3), white, true)
+	# Parquet dance floor + a bandstand with a gilded back panel against the partition.
+	_box(root, Vector3(0.0, fy + 0.05, -63.0), Vector3(8.0, 0.06, 9.0), parquet, false)
+	_box(root, Vector3(0.0, fy + 0.3, -55.0), Vector3(6.0, 0.5, 2.2), wood, true)
+	_box(root, Vector3(0.0, fy + 1.9, -52.25), Vector3(7.0, 3.0, 0.15), _mat(Color(0.72, 0.56, 0.30), 0.4, 0.35), false)
+	# À-la-carte tables down each side by the windows (clear of the dance floor + the aft entry door).
+	for sx in [-1.0, 1.0]:
+		for tz in [-60.0, -68.0, -74.0]:
+			_dining_table(root, Vector3(sx * 8.5, fy, float(tz)), cloth, chair)
+	# Lighting.
+	for lz in [-58.0, -68.0, -75.0]:
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, cy - 0.5, float(lz))
+		lamp.light_color = Color(1.0, 0.92, 0.80)
+		lamp.light_energy = 2.0
+		lamp.omni_range = 16.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
 
 
 # Furnish the Dining Saloon: rows of white-clothed tables + chairs, a long captain's table down the
