@@ -1035,6 +1035,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_furnish_promenade_ends(root, wl)
 	_build_dining_room(root, wl)
 	_build_main_hall(root, wl)
+	_build_cabins(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
@@ -1432,6 +1433,46 @@ static func _build_main_hall(parent: Node3D, wl: float) -> void:
 		lamp.light_color = Color(1.0, 0.92, 0.78)
 		lamp.light_energy = 2.4
 		lamp.omni_range = 20.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
+
+
+# A wing of First Class staterooms on the aft A-deck: a near-1:1 central corridor (1.0 m wide — the
+# real cabin alleyways were ~3 ft) lined with cabin doors, the cabins behind them divided by
+# partitions and closed by an outboard wall (the structural columns at x=±6.5 fall in the void
+# behind it). A sample of cabins is furnished (bed, pillow, wardrobe); the rest read as doors.
+static func _build_cabins(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Cabins"
+	parent.add_child(root)
+	var ya: float = wl + DECK_MAIN      # A-deck floor
+	var yc: float = wl + DECK_PROM      # ceiling = Promenade floor above
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var wood := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
+	var bedmat := _mat(Color(0.50, 0.28, 0.30), 0.85, 0.0)
+	var z0: float = -78.0
+	var z1: float = -38.0
+	var cw: float = 0.5                 # corridor half-width (1.0 m alley)
+	var cd: float = 5.0                 # cabin outboard wall (4.5 m deep cabins)
+	var doors: Array = [-75.5, -70.5, -65.5, -60.5, -55.5, -50.5, -45.5, -40.5]
+	for sgn in [-1.0, 1.0]:
+		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 0.9, 2.1, white)
+		_box(root, Vector3(sgn * cd, (ya + yc) * 0.5, (z0 + z1) * 0.5), Vector3(0.2, yc - ya, z1 - z0), white, true)
+		for pz in [-38.0, -43.0, -48.0, -53.0, -58.0, -63.0, -68.0, -73.0, -78.0]:
+			_box(root, Vector3(sgn * (cw + cd) * 0.5, (ya + yc) * 0.5, float(pz)), Vector3(cd - cw, yc - ya, 0.2), white, true)
+	# Furnish a sample of cabins (clear of the columns at x=±6.5, which sit behind the outboard wall).
+	for cz in [-45.5, -55.5, -65.5]:
+		for sgn2 in [-1.0, 1.0]:
+			_box(root, Vector3(sgn2 * 3.3, ya + 0.3, float(cz)), Vector3(1.9, 0.5, 1.9), bedmat, true)
+			_box(root, Vector3(sgn2 * 3.3, ya + 0.62, float(cz) - 0.65), Vector3(1.9, 0.16, 0.5), white, false)
+			_box(root, Vector3(sgn2 * 1.5, ya + 1.0, float(cz) + 1.6), Vector3(0.9, 2.0, 0.5), wood, true)
+	# Corridor lighting.
+	for lz in [-44.0, -54.0, -64.0, -74.0]:
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, yc - 0.4, float(lz))
+		lamp.light_color = Color(1.0, 0.92, 0.78)
+		lamp.light_energy = 1.6
+		lamp.omni_range = 9.0
 		lamp.shadow_enabled = false
 		root.add_child(lamp)
 
