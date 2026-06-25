@@ -50,17 +50,16 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Inc-71 sweep: confirm wall/column FEET are buried (clean bases) + walls didn't float/gap.
-		# Dining Saloon — grazing across the floor at the side-wall + column bases.
-		["dining", Vector3(11.0, 4.8, -8.0), Vector3(-12.0, 4.4, 9.0), Vector3.UP],
-		# Indoor pool — pool deck, basin rim + room-wall bases.
-		["pool", Vector3(9.5, 6.4, 47.0), Vector3(-7.0, 5.4, 63.0), Vector3.UP],
-		# A First Class cabin interior — wall/partition bases by the bed.
-		["cabin", Vector3(3.4, 12.4, -49.5), Vector3(5.6, 12.2, -52.5), Vector3.UP],
-		# Main Lounge — raised parquet + dais + partition base.
-		["lounge", Vector3(7.5, 15.4, 9.0), Vector3(-6.0, 14.95, -13.0), Vector3.UP],
-		# Verandah Grill — forward partition base + dance floor.
-		["grill", Vector3(9.0, 18.7, -70.0), Vector3(-3.0, 18.3, -54.0), Vector3.UP],
+		# Inc-72 galleried pool: from the side gallery looking down over the balustrade at the basin.
+		["pool_gallery", Vector3(12.6, 9.8, 55.0), Vector3(0.0, 5.2, 52.0), Vector3.UP],
+		# From the pool deck looking up at the grand flight + the gallery landing (the photo-2 view).
+		["pool_grand", Vector3(0.0, 5.9, 50.0), Vector3(0.0, 8.6, 67.0), Vector3.UP],
+		# From the pool deck by the basin, looking up at the two-storey void + side balcony.
+		["pool_void", Vector3(9.5, 5.6, 50.0), Vector3(11.0, 9.2, 60.0), Vector3.UP],
+		# Looking down the A-deck opening — the flight down to the gallery, gallery + pool below.
+		["pool_adeck", Vector3(2.5, 12.7, 75.5), Vector3(-0.5, 7.5, 70.0), Vector3.UP],
+		# Down the length from the aft gallery — the whole galleried room.
+		["pool_long", Vector3(0.0, 9.6, 71.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

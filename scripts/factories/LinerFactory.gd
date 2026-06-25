@@ -1479,9 +1479,11 @@ static func _build_dining_room(parent: Node3D, wl: float) -> void:
 	_furnish_dining_room(root, wl)
 
 
-# The First Class indoor swimming pool: a tall tiled room deep in the hull (the hull is carved hollow
-# over it, see _build_hull), reached by a grand staircase down from the A-deck. A raised tiled pool
-# deck surrounds a recessed, water-filled basin amidships, with columns and a luminous ceiling.
+# The First Class indoor swimming pool: a two-storey galleried room deep in the hull (the hull is
+# carved hollow over it, see _build_hull), modelled on the real QM pool. An upper gallery balcony rings
+# the double-height pool void; you come down from the A-deck onto the gallery, then descend a grand
+# flight to the pool deck, which surrounds a recessed water-filled basin. (Art Deco finish — teal/cream
+# mosaic, stepped corner piers, coved uplit ceiling, cubicles, water-entry steps — lands in later increments.)
 static func _build_pool(parent: Node3D, wl: float) -> void:
 	var root := Node3D.new()
 	root.name = "SwimmingPool"
@@ -1534,33 +1536,65 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	for cz in [44.0, 54.0, 64.0]:
 		for sx3 in [-10.0, 10.0]:
 			_cyl(root, Vector3(sx3, rwcy, float(cz)), 0.5, rwh, cream, true)
-	# Grand staircase down from the A-deck to the pool deck (forward end). _stair_run fills each tread
-	# solid to the floor, so its flanks are tall solid faces — left bare they read as a stray brown
-	# wall in the open room. Box the stair into a cream-walled stairwell (inner faces on the x=±4
-	# deck-opening edges) so those flanks become the well sides, and carry the walls 1 m above the
-	# A-deck floor as the opening's side parapets.
-	# Run the top tread right out to the A-deck opening's forward edge (z=79) so you step straight off
-	# the deck onto it — and so, seen from above, the flight reads as descending steps rather than a
-	# tall solid riser standing back from the hole.
-	# Stair fills the x=±4 opening almost edge-to-edge (3.98) so there's no fall-through gap beside it;
-	# the cream well walls (inner faces on the x=±4 opening edges) cover the last 0.02 m and the sides.
-	_stair_run(root, 0.0, 66.0, 79.0, deck_y, ay, 7.96, tile)
+	# --- Two-storey galleried layout (per the real First Class pool): an upper GALLERY balcony rings
+	# the double-height pool void; you come down from the A-deck onto the gallery, then descend a grand
+	# flight from the gallery to the pool deck (the photo-2 stair). Finish (teal/cream mosaic, stepped
+	# corner piers, coved uplit ceiling, cubicles, water-entry steps) comes in later increments. ---
+	var gy: float = wl + 9.8              # upper gallery / balcony floor (~3.3 m above the pool deck)
+	# Aft gallery (full width, carried back to the aft wall that supports it) with the A-deck stair
+	# well cut through it; forward gallery + the two side-arm balconies complete the ring round the
+	# pool void (inner edge x=±11), so the basin below is overlooked from the balcony all the way round.
+	_floor_with_hole(root, 68.0, 80.0, 13.8, gy, 72.0, 79.0, 4.0, 0.3, cream)
+	_box(root, Vector3(0.0, gy - 0.15, 41.0), Vector3(27.6, 0.3, 6.0), cream, true)
+	for sxg in [-1.0, 1.0]:
+		_box(root, Vector3(sxg * 12.4, gy - 0.15, 56.0), Vector3(2.8, 0.3, 24.0), cream, true)
+	# Deco balustrade round the gallery's inner edge, split aft-centre where the grand flight descends.
+	var balr: Array = [
+		[11.0, 56.0, 0.16, 24.0], [-11.0, 56.0, 0.16, 24.0],   # port + starboard arms
+		[0.0, 44.0, 22.0, 0.16],                                # forward
+		[7.25, 68.0, 7.5, 0.16], [-7.25, 68.0, 7.5, 0.16],      # aft (round the flight opening)
+	]
+	for b in balr:
+		_box(root, Vector3(float(b[0]), gy + 0.47, float(b[1])), Vector3(float(b[2]), 0.94, float(b[3])), cream, true)
+		_box(root, Vector3(float(b[0]), gy + 1.0, float(b[1])), Vector3(float(b[2]) + 0.1, 0.1, float(b[3]) + 0.1), rail, false)
+	# A-deck -> gallery flight (down through the aft-gallery well) + the grand gallery -> pool-deck
+	# flight. Stringer walls hide the solid stair flanks (feet sunk into the slab each lands on); the
+	# flight-1 well walls carry 1 m above the A-deck as the opening's side parapets.
+	_stair_run(root, 0.0, 72.0, 79.0, gy, ay, 7.0, tile)
+	_stair_run(root, 0.0, 63.0, 68.0, deck_y, gy, 7.0, tile)
 	for sx4 in [-1.0, 1.0]:
-		_box(root, Vector3(sx4 * 4.2, (deck_y + ay + 1.0) * 0.5 - 0.06, 72.5), Vector3(0.4, (ay + 1.0) - deck_y + 0.12, 14.0), cream, true)
-	# Parapet closing the aft edge of the deck opening (z=67) so you can't walk off A-deck into the
-	# well from astern; you descend from the forward edge where the top tread meets the deck. Rail cap.
-	_box(root, Vector3(0.0, ay + 0.5, 67.0), Vector3(8.4, 1.0, 0.4), cream, true)
-	_box(root, Vector3(0.0, ay + 1.05, 67.0), Vector3(8.8, 0.12, 0.5), rail, false)
-	# Lighting (deep in the hull).
-	for lz in [46.0, 56.0, 66.0]:
-		for lx in [-8.0, 0.0, 8.0]:
+		_box(root, Vector3(sx4 * 3.85, (gy - 0.12 + ay + 1.0) * 0.5, 73.0), Vector3(0.3, (ay + 1.0) - gy + 0.12, 12.0), cream, true)
+		_box(root, Vector3(sx4 * 3.85, (deck_y - 0.12 + gy) * 0.5, 65.5), Vector3(0.3, gy - deck_y + 0.12, 5.0), cream, true)
+	# Parapet closing the aft edge of the A-deck opening (you descend from the forward edge). Rail cap.
+	_box(root, Vector3(0.0, ay + 0.5, 67.0), Vector3(8.0, 1.0, 0.4), cream, true)
+	_box(root, Vector3(0.0, ay + 1.05, 67.0), Vector3(8.4, 0.12, 0.5), rail, false)
+	# Changing-cabin doors recessed in the gallery side walls (dark panel in a frame) — the references
+	# show a row of cubicles off the balcony; modelled as doors here, fitted out as cubicles later.
+	var doormat := _mat(Color(0.20, 0.14, 0.10), 0.5, 0.0)
+	for dz in [48.0, 56.0, 64.0]:
+		for sxd in [-1.0, 1.0]:
+			_box(root, Vector3(sxd * 13.55, gy + 1.0, float(dz)), Vector3(0.1, 2.0, 1.4), doormat, false)
+			_box(root, Vector3(sxd * 13.48, gy + 1.05, float(dz)), Vector3(0.14, 2.2, 1.7), rail, false)
+	# Lighting (deep in the hull): a ceiling tier over the void + a gallery-underside tier so the pool
+	# deck shaded beneath the side balconies stays lit.
+	for lz in [44.0, 54.0, 64.0, 74.0]:
+		for lx in [-7.0, 0.0, 7.0]:
 			var lamp := OmniLight3D.new()
 			lamp.position = Vector3(float(lx), cy - 1.2, float(lz))
 			lamp.light_color = Color(1.0, 0.94, 0.82)
-			lamp.light_energy = 1.8
-			lamp.omni_range = 14.0
+			lamp.light_energy = 1.7
+			lamp.omni_range = 15.0
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
+	for lz2 in [48.0, 60.0]:
+		for lx2 in [-12.0, 12.0]:
+			var lamp2 := OmniLight3D.new()
+			lamp2.position = Vector3(float(lx2), gy - 0.45, float(lz2))
+			lamp2.light_color = Color(1.0, 0.93, 0.80)
+			lamp2.light_energy = 1.3
+			lamp2.omni_range = 9.0
+			lamp2.shadow_enabled = false
+			root.add_child(lamp2)
 
 
 # The Verandah Grill: the QM's stylish à-la-carte restaurant + nightclub in the aft end of the sun-
