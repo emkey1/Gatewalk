@@ -50,13 +50,17 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Close, low, off-axis over the Smoking-Room floor at the z=-54 doorway — isolate whether the
-		# threshold marks are z-fight (fixed at geometry edges) or specular streaks (toward the lights).
-		["thresh_close", Vector3(2.2, 15.0, -56.5), Vector3(-1.0, 14.74, -52.5), Vector3.UP],
-		# Grazing look ACROSS the floor at the partition + gallery-wall bases (worst case for z-fight).
-		["gallery_graze", Vector3(-8.5, 15.15, -44.0), Vector3(8.5, 15.05, -45.5), Vector3.UP],
-		# Straight down the centreline enfilade doorways — confirm the doors still open (buried foot).
-		["door_thru", Vector3(0.0, 15.6, -58.0), Vector3(0.0, 15.3, -30.0), Vector3.UP],
+		# Inc-71 sweep: confirm wall/column FEET are buried (clean bases) + walls didn't float/gap.
+		# Dining Saloon — grazing across the floor at the side-wall + column bases.
+		["dining", Vector3(11.0, 4.8, -8.0), Vector3(-12.0, 4.4, 9.0), Vector3.UP],
+		# Indoor pool — pool deck, basin rim + room-wall bases.
+		["pool", Vector3(9.5, 6.4, 47.0), Vector3(-7.0, 5.4, 63.0), Vector3.UP],
+		# A First Class cabin interior — wall/partition bases by the bed.
+		["cabin", Vector3(3.4, 12.4, -49.5), Vector3(5.6, 12.2, -52.5), Vector3.UP],
+		# Main Lounge — raised parquet + dais + partition base.
+		["lounge", Vector3(7.5, 15.4, 9.0), Vector3(-6.0, 14.95, -13.0), Vector3.UP],
+		# Verandah Grill — forward partition base + dance floor.
+		["grill", Vector3(9.0, 18.7, -70.0), Vector3(-3.0, 18.3, -54.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

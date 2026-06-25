@@ -1448,15 +1448,18 @@ static func _build_dining_room(parent: Node3D, wl: float) -> void:
 	lum.emission = Color(1.0, 0.95, 0.82)
 	lum.emission_energy_multiplier = 0.32
 	_floor_with_hole(root, z0, z1, hw, cy, 18.0, 26.0, 4.0, 0.2, lum)
-	# Side + fore/aft walls, floor to ceiling.
+	# Side + fore/aft walls + columns, feet sunk 0.12 m into the floor so their bottom faces aren't
+	# coplanar with the floor top (z-fight slivers along the bases).
+	var wcy: float = (fy + cy) * 0.5 - 0.06
+	var wh: float = cy - fy + 0.12
 	for sx in [-1.0, 1.0]:
-		_box(root, Vector3(sx * hw, (fy + cy) * 0.5, (z0 + z1) * 0.5), Vector3(0.4, cy - fy, z1 - z0), cream, true)
+		_box(root, Vector3(sx * hw, wcy, (z0 + z1) * 0.5), Vector3(0.4, wh, z1 - z0), cream, true)
 	for ez in [z0, z1]:
-		_box(root, Vector3(0.0, (fy + cy) * 0.5, float(ez)), Vector3(hw * 2.0, cy - fy, 0.4), cream, true)
+		_box(root, Vector3(0.0, wcy, float(ez)), Vector3(hw * 2.0, wh, 0.4), cream, true)
 	# Tall columns down the room.
 	for cz in [-19.0, -9.0, 1.0, 11.0]:
 		for sx2 in [-9.0, 9.0]:
-			_cyl(root, Vector3(sx2, (fy + cy) * 0.5, float(cz)), 0.5, cy - fy, cream, true)
+			_cyl(root, Vector3(sx2, wcy, float(cz)), 0.5, wh, cream, true)
 	# Grand staircase down from the A-deck (ay) to the floor (fy) at the forward end.
 	_stair_run(root, 0.0, 14.0, 26.0, fy, ay, 6.0, floormat)
 	# Balustrade round the stairwell well at the A-deck level (open at the head, z=26, where you step on).
@@ -1504,18 +1507,23 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	water.metallic = 0.2
 	# Raised pool deck with the basin opening.
 	_floor_with_hole(root, z0, z1, hw, deck_y, bz0, bz1, bhw, 0.3, tile)
-	# Basin: side + end walls (deck down to the basin floor), a tiled bottom, and the water surface.
+	# Basin: side + end walls (deck down to the basin floor; feet sunk into the basin floor so they're
+	# not coplanar with it), a tiled bottom, and the water surface.
+	var bwcy: float = (basin_y + deck_y) * 0.5 - 0.06
+	var bwh: float = deck_y - basin_y + 0.12
 	for sx in [-1.0, 1.0]:
-		_box(root, Vector3(sx * bhw, (basin_y + deck_y) * 0.5, (bz0 + bz1) * 0.5), Vector3(0.2, deck_y - basin_y, bz1 - bz0), tile, true)
+		_box(root, Vector3(sx * bhw, bwcy, (bz0 + bz1) * 0.5), Vector3(0.2, bwh, bz1 - bz0), tile, true)
 	for ez in [bz0, bz1]:
-		_box(root, Vector3(0.0, (basin_y + deck_y) * 0.5, float(ez)), Vector3(bhw * 2.0, deck_y - basin_y, 0.2), tile, true)
+		_box(root, Vector3(0.0, bwcy, float(ez)), Vector3(bhw * 2.0, bwh, 0.2), tile, true)
 	_box(root, Vector3(0.0, basin_y - 0.1, (bz0 + bz1) * 0.5), Vector3(bhw * 2.0, 0.2, bz1 - bz0), tile, true)
 	_box(root, Vector3(0.0, water_y, (bz0 + bz1) * 0.5), Vector3(bhw * 2.0 - 0.3, 0.08, bz1 - bz0 - 0.3), water, false)
-	# Room side + fore/aft walls (deck to ceiling) + a luminous ceiling with the stairwell opening.
+	# Room side + fore/aft walls (deck to ceiling; feet sunk into the pool deck) + a luminous ceiling.
+	var rwcy: float = (deck_y + cy) * 0.5 - 0.06
+	var rwh: float = cy - deck_y + 0.12
 	for sx2 in [-1.0, 1.0]:
-		_box(root, Vector3(sx2 * hw, (deck_y + cy) * 0.5, (z0 + z1) * 0.5), Vector3(0.4, cy - deck_y, z1 - z0), cream, true)
+		_box(root, Vector3(sx2 * hw, rwcy, (z0 + z1) * 0.5), Vector3(0.4, rwh, z1 - z0), cream, true)
 	for ez2 in [z0, z1]:
-		_box(root, Vector3(0.0, (deck_y + cy) * 0.5, float(ez2)), Vector3(hw * 2.0, cy - deck_y, 0.4), cream, true)
+		_box(root, Vector3(0.0, rwcy, float(ez2)), Vector3(hw * 2.0, rwh, 0.4), cream, true)
 	var lum := StandardMaterial3D.new()
 	lum.albedo_color = Color(0.95, 0.92, 0.82)
 	lum.emission_enabled = true
@@ -1525,7 +1533,7 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	# Columns down each side of the pool.
 	for cz in [44.0, 54.0, 64.0]:
 		for sx3 in [-10.0, 10.0]:
-			_cyl(root, Vector3(sx3, (deck_y + cy) * 0.5, float(cz)), 0.5, cy - deck_y, cream, true)
+			_cyl(root, Vector3(sx3, rwcy, float(cz)), 0.5, rwh, cream, true)
 	# Grand staircase down from the A-deck to the pool deck (forward end). _stair_run fills each tread
 	# solid to the floor, so its flanks are tall solid faces — left bare they read as a stray brown
 	# wall in the open room. Box the stair into a cream-walled stairwell (inner faces on the x=±4
@@ -1538,7 +1546,7 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	# the cream well walls (inner faces on the x=±4 opening edges) cover the last 0.02 m and the sides.
 	_stair_run(root, 0.0, 66.0, 79.0, deck_y, ay, 7.96, tile)
 	for sx4 in [-1.0, 1.0]:
-		_box(root, Vector3(sx4 * 4.2, (deck_y + ay + 1.0) * 0.5, 72.5), Vector3(0.4, (ay + 1.0) - deck_y, 14.0), cream, true)
+		_box(root, Vector3(sx4 * 4.2, (deck_y + ay + 1.0) * 0.5 - 0.06, 72.5), Vector3(0.4, (ay + 1.0) - deck_y + 0.12, 14.0), cream, true)
 	# Parapet closing the aft edge of the deck opening (z=67) so you can't walk off A-deck into the
 	# well from astern; you descend from the forward edge where the top tread meets the deck. Rail cap.
 	_box(root, Vector3(0.0, ay + 0.5, 67.0), Vector3(8.4, 1.0, 0.4), cream, true)
@@ -1571,8 +1579,8 @@ static func _build_verandah_grill(parent: Node3D, wl: float) -> void:
 	var cloth := _mat(Color(0.90, 0.88, 0.83), 0.7, 0.0)
 	var chair := _mat(Color(0.40, 0.26, 0.16), 0.6, 0.0)
 	var parquet := _mat(Color(0.62, 0.46, 0.28), 0.4, 0.0)
-	# Forward partition closing the grill off from the rest of the sun-house.
-	_box(root, Vector3(0.0, (fy + cy) * 0.5, -52.0), Vector3(hw * 2.0, cy - fy, 0.3), white, true)
+	# Forward partition closing the grill off from the rest of the sun-house (foot sunk into the floor).
+	_box(root, Vector3(0.0, (fy + cy) * 0.5 - 0.06, -52.0), Vector3(hw * 2.0, cy - fy + 0.12, 0.3), white, true)
 	# Parquet dance floor + a bandstand with a gilded back panel against the partition.
 	_box(root, Vector3(0.0, fy + 0.05, -63.0), Vector3(8.0, 0.06, 9.0), parquet, false)
 	_box(root, Vector3(0.0, fy + 0.3, -55.0), Vector3(6.0, 0.5, 2.2), wood, true)
@@ -1630,9 +1638,9 @@ static func _build_sports_access(parent: Node3D, wl: float) -> void:
 	# a short forward flank covers the bottom step ahead of the hatch (under the solid roof there).
 	for sx in [-1.0, 1.0]:
 		var xw: float = cx + sx * 1.6
-		_box(root, Vector3(xw, (fy + yp) * 0.5, zc), Vector3(0.3, yp - fy, hz1 - hz0), burl, true)
-		_box(root, Vector3(xw, fy + 0.55, zc), Vector3(0.34, 1.1, hz1 - hz0), dado, false)
-		_box(root, Vector3(xw, (fy + ru) * 0.5, -53.15), Vector3(0.3, ru - fy, 0.6), burl, true)
+		_box(root, Vector3(xw, (fy + yp) * 0.5 - 0.06, zc), Vector3(0.3, yp - fy + 0.12, hz1 - hz0), burl, true)
+		_box(root, Vector3(xw, fy + 0.49, zc), Vector3(0.34, 1.22, hz1 - hz0), dado, false)
+		_box(root, Vector3(xw, (fy + ru) * 0.5 - 0.06, -53.15), Vector3(0.3, ru - fy + 0.12, 0.6), burl, true)
 	# Forward hatch fascia (caps the slab's forward cut face below the balustrade — the closed side).
 	_box(root, Vector3(cx, (ru + yp) * 0.5, hz1 - 0.07), Vector3(hx1 - hx0, yp - ru, 0.16), burl, true)
 	# Aft cut-edge fascia (the open step-off side) — flush teak board, just capping the 0.3 m slab edge.
@@ -1653,7 +1661,7 @@ static func _build_sports_access(parent: Node3D, wl: float) -> void:
 	# in a burl surround), with burl pilasters + lintel framing it on the wall.
 	_elevator(root, Vector3(12.4, fy + 1.2, -54.0), -1.0, burl, steel, chrome)
 	for ez in [-55.7, -52.3]:
-		_box(root, Vector3(12.7, fy + 1.4, float(ez)), Vector3(0.7, 2.8, 0.3), burl, true)
+		_box(root, Vector3(12.7, fy + 1.34, float(ez)), Vector3(0.7, 2.92, 0.3), burl, true)
 	_box(root, Vector3(12.7, fy + 2.9, -54.0), Vector3(0.7, 0.3, 3.7), burl, true)
 
 	# Lighting: a stepped Deco ceiling fixture over the stair foot + a warm omni up in the open hatch.
@@ -1796,9 +1804,9 @@ static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float,
 	# Lobby walls (two-tone: dark dado course + burl above), port + starboard + aft. Forward stays
 	# open toward the entrance / Main Hall.
 	for sx in [-1.0, 1.0]:
-		_box(root, Vector3(sx * 7.0, ya + 0.6, 53.0), Vector3(0.3, 1.2, 18.0), dado, true)
+		_box(root, Vector3(sx * 7.0, ya + 0.54, 53.0), Vector3(0.3, 1.32, 18.0), dado, true)   # foot sunk into the floor
 		_box(root, Vector3(sx * 7.0, (ya + 1.2 + yp) * 0.5, 53.0), Vector3(0.3, yp - ya - 1.2, 18.0), burl, true)
-	_box(root, Vector3(0.0, ya + 0.6, 44.0), Vector3(14.0, 1.2, 0.3), dado, true)
+	_box(root, Vector3(0.0, ya + 0.54, 44.0), Vector3(14.0, 1.32, 0.3), dado, true)             # foot sunk into the floor
 	_box(root, Vector3(0.0, (ya + 1.2 + yp) * 0.5, 44.0), Vector3(14.0, yp - ya - 1.2, 0.3), burl, true)
 	# Bank of two lifts on the port wall, facing the lobby.
 	for ez in [49.5, 56.5]:
@@ -1850,11 +1858,14 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 	var cw: float = 0.6                 # corridor half-width -> ~1.0 m clear alley (near 1:1)
 	var cd: float = 5.3                 # cabin outboard wall (~4.7 m deep cabins)
 	var doors: Array = [-75.5, -70.5, -65.5, -60.5, -55.5, -50.5, -45.5, -40.5]
+	# Cabin outboard walls + partitions, feet sunk 0.12 m into the A-deck floor (not coplanar with it).
+	var cwcy: float = (ya + yc) * 0.5 - 0.06
+	var cwh: float = yc - ya + 0.12
 	for sgn in [-1.0, 1.0]:
 		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 1.0, 2.1, white)
-		_box(root, Vector3(sgn * cd, (ya + yc) * 0.5, (z0 + z1) * 0.5), Vector3(0.2, yc - ya, z1 - z0), white, true)
+		_box(root, Vector3(sgn * cd, cwcy, (z0 + z1) * 0.5), Vector3(0.2, cwh, z1 - z0), white, true)
 		for pz in [-38.0, -43.0, -48.0, -53.0, -58.0, -63.0, -68.0, -73.0, -78.0]:
-			_box(root, Vector3(sgn * (cw + cd) * 0.5, (ya + yc) * 0.5, float(pz)), Vector3(cd - cw, yc - ya, 0.2), white, true)
+			_box(root, Vector3(sgn * (cw + cd) * 0.5, cwcy, float(pz)), Vector3(cd - cw, cwh, 0.2), white, true)
 	# Furnish every cabin: bed (pillow end against the aft partition), a wardrobe, and a compact
 	# ensuite bathroom — toilet, washbasin, shower — tucked in the corner by the door, the way a real
 	# cruise stateroom is laid out (~25-30 sq ft modular unit). See _cabin_interior.
@@ -2044,10 +2055,10 @@ static func _build_lounge(parent: Node3D, wl: float) -> void:
 	# Partition walls fore (z=+18) and aft (z=-18) with central doorways to the inboard areas.
 	_transverse_door_wall(root, 18.0, room_hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
 	_transverse_door_wall(root, -18.0, room_hw, y_prom, y_top, 0.4, 0.0, 3.2, 2.4, white)
-	# Parquet dance floor, centre.
-	_box(root, Vector3(0.0, y_prom + 0.06, 0.0), Vector3(12.0, 0.12, 16.0), _mat(Color(0.56, 0.42, 0.25), 0.45, 0.0), false)
-	# Orchestra dais at the aft end, raised, with a tall Deco back-panel on the partition.
-	_box(root, Vector3(0.0, y_prom + 0.2, -15.5), Vector3(10.0, 0.4, 4.0), _mat(Color(0.30, 0.22, 0.15), 0.6, 0.0), true)
+	# Parquet dance floor, centre (raised clear of the deck so its underside isn't coplanar with it).
+	_box(root, Vector3(0.0, y_prom + 0.08, 0.0), Vector3(12.0, 0.12, 16.0), _mat(Color(0.56, 0.42, 0.25), 0.45, 0.0), false)
+	# Orchestra dais at the aft end, raised (foot sunk into the deck), with a tall Deco back-panel.
+	_box(root, Vector3(0.0, y_prom + 0.14, -15.5), Vector3(10.0, 0.52, 4.0), _mat(Color(0.30, 0.22, 0.15), 0.6, 0.0), true)
 	_box(root, Vector3(0.0, y_prom + 2.3, -17.75), Vector3(8.0, 3.4, 0.16), _mat(Color(0.82, 0.67, 0.36), 0.4, 0.35), false)
 	# Perimeter banquettes along the lounge's port and starboard walls.
 	var sofa := _mat(Color(0.46, 0.20, 0.22), 0.85, 0.0)
