@@ -50,13 +50,13 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Lift-lobby well from the Promenade, looking down into the switchback (the user's view) — the
-		# Deco ceiling fixtures should now flank the well under solid ceiling, NOT float over the stairs.
-		["lobby_well", Vector3(0.0, 16.3, 47.0), Vector3(0.0, 13.4, 55.0), Vector3.UP],
-		# From the A-deck lobby looking up at the port ceiling fixture (over the lifts) — recessed flush.
-		["lobby_fixture", Vector3(0.5, 12.5, 53.0), Vector3(-5.4, 14.3, 53.0), Vector3.UP],
-		# Down the port well edge — confirm nothing hangs in the opening beside the glass balustrade.
-		["lobby_edge", Vector3(-1.0, 16.0, 49.0), Vector3(-5.0, 14.0, 54.0), Vector3.UP],
+		# Close, low, off-axis over the Smoking-Room floor at the z=-54 doorway — isolate whether the
+		# threshold marks are z-fight (fixed at geometry edges) or specular streaks (toward the lights).
+		["thresh_close", Vector3(2.2, 15.0, -56.5), Vector3(-1.0, 14.74, -52.5), Vector3.UP],
+		# Grazing look ACROSS the floor at the partition + gallery-wall bases (worst case for z-fight).
+		["gallery_graze", Vector3(-8.5, 15.15, -44.0), Vector3(8.5, 15.05, -45.5), Vector3.UP],
+		# Straight down the centreline enfilade doorways — confirm the doors still open (buried foot).
+		["door_thru", Vector3(0.0, 15.6, -58.0), Vector3(0.0, 15.3, -30.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

@@ -1244,10 +1244,13 @@ static func _build_promenade_rooms(parent: Node3D, wl: float) -> void:
 	# with a central doorway), so the side galleries flow on into the promenade extensions instead of
 	# hitting a full-width wall. The promenade itself is closed much further out by tapered end
 	# bulkheads at z=90 / -115, near the deckhouse ends.
+	# Wall top buried 0.1 m up into the deckhead lining (y_ceil+0.08), like the gallery walls — so the
+	# partition top FACE isn't coplanar with the lining/ceiling plane (and closes the old 0.02 m gap).
+	var y_wtop: float = y_ceil + 0.1
 	for ez in [62.0, -68.0]:
-		_transverse_door_wall(root, float(ez), rhw, y_prom, y_ceil, 0.4, 0.0, 3.0, 2.3, white)
+		_transverse_door_wall(root, float(ez), rhw, y_prom, y_wtop, 0.4, 0.0, 3.0, 2.3, white)
 	for ez2 in [90.0, -115.0]:
-		_box(root, Vector3(0.0, (y_prom + y_ceil) * 0.5, float(ez2)), Vector3(_house_half_w(float(ez2)) * 2.0, y_ceil - y_prom, 0.4), white, true)
+		_box(root, Vector3(0.0, (y_prom - 0.12 + y_wtop) * 0.5, float(ez2)), Vector3(_house_half_w(float(ez2)) * 2.0, y_wtop - y_prom + 0.12, 0.4), white, true)
 	# Warm light in the two promenade extensions.
 	for lz in [76.0, -92.0]:
 		var elamp := OmniLight3D.new()
@@ -1260,7 +1263,7 @@ static func _build_promenade_rooms(parent: Node3D, wl: float) -> void:
 	# Internal partitions, each with a central 3 m doorway (the Lounge's own ±18 partitions are
 	# built by _build_lounge; the Forward Hall is 48..62, around the grand staircase).
 	for pz in [48.0, 38.0, 28.0, -40.0, -54.0]:
-		_transverse_door_wall(root, float(pz), rhw, y_prom, y_ceil, 0.4, 0.0, 3.0, 2.3, white)
+		_transverse_door_wall(root, float(pz), rhw, y_prom, y_wtop, 0.4, 0.0, 3.0, 2.3, white)
 	# A distinct floor rug + a warm ceiling light per room: [z0, z1, rug colour, light energy].
 	var rooms: Array = [
 		[38.0, 48.0, Color(0.42, 0.31, 0.22), 2.4],    # Library
@@ -1978,8 +1981,14 @@ static func _cabin_interior(parent: Node3D, cz: float, s: float, ya: float, yc: 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
 # doorway (two jambs + a lintel) at door_x.
 static func _transverse_door_wall(parent: Node3D, z: float, half_w: float, y0: float, y1: float, t: float, door_x: float, dw: float, dh: float, mat: Material) -> void:
-	var h: float = y1 - y0
-	var cy: float = (y0 + y1) * 0.5
+	# Sink the wall foot 0.12 m below the floor so its bottom FACE is buried inside the floor/deck
+	# slab, never coplanar with the slab top — coincident same-plane faces depth-fight into flicker
+	# slivers along the wall base + door threshold (the inc-27 lesson, now in the shared helper). The
+	# door head stays measured from the REAL floor (y0); callers should bury the top into the ceiling
+	# slab the same way (pass y1 a touch into the deckhead lining).
+	var yb: float = y0 - 0.12
+	var h: float = y1 - yb
+	var cy: float = (yb + y1) * 0.5
 	var da: float = door_x - dw * 0.5
 	var db: float = door_x + dw * 0.5
 	_box(parent, Vector3((-half_w + da) * 0.5, cy, z), Vector3(da + half_w, h, t), mat, true)
@@ -1992,8 +2001,11 @@ static func _transverse_door_wall(parent: Node3D, z: float, half_w: float, y0: f
 # in door_zs. Used for the sheltered-promenade gallery walls separating the galleries from the
 # inboard public rooms.
 static func _longitudinal_door_wall(parent: Node3D, x: float, z0: float, z1: float, y0: float, y1: float, t: float, door_zs: Array, dw: float, dh: float, mat: Material) -> void:
-	var h: float = y1 - y0
-	var cy: float = (y0 + y1) * 0.5
+	# Sink the wall foot below the floor (see _transverse_door_wall) so the base isn't coplanar with
+	# the floor slab top and z-fight into flicker slivers.
+	var yb: float = y0 - 0.12
+	var h: float = y1 - yb
+	var cy: float = (yb + y1) * 0.5
 	# The wall-segment sweep below walks the door positions left-to-right and fills the gaps between
 	# them, so the doors MUST be in ascending z — otherwise the segments overlap into one solid wall
 	# and every doorway gets walled over (which sealed the galleries off the rooms). Sort defensively.
