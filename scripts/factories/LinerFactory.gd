@@ -1812,9 +1812,11 @@ static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float,
 	for r in rails:
 		_box(root, Vector3(float(r[0]), gy, float(r[1])), Vector3(float(r[2]), 1.0, float(r[3])), glass, true)
 		_box(root, Vector3(float(r[0]), gy + 0.55, float(r[1])), Vector3(float(r[2]) + 0.06, 0.08, float(r[3]) + 0.06), chrome, false)
-	# Lighting: a stepped Deco ceiling fixture each side + warm omni fill.
-	_deco_ceiling_light(root, Vector3(-3.5, yp - 0.3, 53.0), 1.4, 2.4, _mat(Color(0.95, 0.92, 0.82), 0.5, 0.0), chrome, 1.4)
-	_deco_ceiling_light(root, Vector3(3.5, yp - 0.3, 53.0), 1.4, 2.4, _mat(Color(0.95, 0.92, 0.82), 0.5, 0.0), chrome, 1.4)
+	# Lighting: a stepped Deco ceiling fixture over each side aisle + warm omni fill. The fixtures must
+	# sit on the SOLID lobby ceiling flanking the stairwell hole (x=±5.4, outside hx=±4), not over the
+	# open well — at the old x=±3.5 they hung in the cut-away void above the stairs as floating panels.
+	_deco_ceiling_light(root, Vector3(-5.4, yp - 0.3, 53.0), 1.3, 2.4, _mat(Color(0.95, 0.92, 0.82), 0.5, 0.0), chrome, 1.4)
+	_deco_ceiling_light(root, Vector3(5.4, yp - 0.3, 53.0), 1.3, 2.4, _mat(Color(0.95, 0.92, 0.82), 0.5, 0.0), chrome, 1.4)
 	for lz in [48.0, 56.0]:
 		var lamp := OmniLight3D.new()
 		lamp.position = Vector3(0.0, yp - 0.6, float(lz))
