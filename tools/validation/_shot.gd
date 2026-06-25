@@ -60,9 +60,9 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		["t49_smokedoor", Vector3(3.0, 16.35, -61.0), Vector3(-11.0, 15.6, -61.0), Vector3.UP],
-		["t49_shopdoor", Vector3(3.0, 16.35, 23.0), Vector3(-11.0, 15.6, 23.0), Vector3.UP],
-		["t49_gallery", Vector3(-13.3, 16.35, 38.0), Vector3(-13.3, 16.05, -64.0), Vector3.UP],
+		["t50_smokedoor", Vector3(3.0, 16.35, -61.0), Vector3(-13.0, 15.7, -61.0), Vector3.UP],
+		["t50_ballroomdoor", Vector3(3.0, 16.35, -29.0), Vector3(-13.0, 15.7, -29.0), Vector3.UP],
+		["t50_gallery", Vector3(-13.3, 16.35, 40.0), Vector3(-13.3, 16.05, -64.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

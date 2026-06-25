@@ -1245,8 +1245,13 @@ static func _transverse_door_wall(parent: Node3D, z: float, half_w: float, y0: f
 static func _longitudinal_door_wall(parent: Node3D, x: float, z0: float, z1: float, y0: float, y1: float, t: float, door_zs: Array, dw: float, dh: float, mat: Material) -> void:
 	var h: float = y1 - y0
 	var cy: float = (y0 + y1) * 0.5
+	# The wall-segment sweep below walks the door positions left-to-right and fills the gaps between
+	# them, so the doors MUST be in ascending z — otherwise the segments overlap into one solid wall
+	# and every doorway gets walled over (which sealed the galleries off the rooms). Sort defensively.
+	var dzs: Array = door_zs.duplicate()
+	dzs.sort()
 	var edges: Array = [z0]
-	for dz in door_zs:
+	for dz in dzs:
 		edges.append(float(dz) - dw * 0.5)
 		edges.append(float(dz) + dw * 0.5)
 	edges.append(z1)
@@ -1258,7 +1263,7 @@ static func _longitudinal_door_wall(parent: Node3D, x: float, z0: float, z1: flo
 			_box(parent, Vector3(x, cy, (sa + sb) * 0.5), Vector3(t, h, sb - sa), mat, true)
 		i += 2
 	var ly: float = y0 + dh
-	for dz in door_zs:
+	for dz in dzs:
 		_box(parent, Vector3(x, (ly + y1) * 0.5, float(dz)), Vector3(t, y1 - ly, dw), mat, true)
 
 
