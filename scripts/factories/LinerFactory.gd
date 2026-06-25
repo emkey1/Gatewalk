@@ -1356,6 +1356,39 @@ static func _build_dining_room(parent: Node3D, wl: float) -> void:
 			lamp.omni_range = 15.0
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
+	_furnish_dining_room(root, wl)
+
+
+# Furnish the Dining Saloon: rows of white-clothed tables + chairs, a long captain's table down the
+# centre aft, and the saloon's famous decorative Atlantic map in a gilt frame on the aft bulkhead.
+static func _furnish_dining_room(parent: Node3D, wl: float) -> void:
+	var fy: float = wl + 5.04
+	var cloth := _mat(Color(0.90, 0.88, 0.83), 0.7, 0.0)
+	var chair := _mat(Color(0.40, 0.26, 0.16), 0.6, 0.0)
+	# Tables in a grid, clear of the columns (x=±9), the central aisle, and the stair (z>14).
+	for tx in [-12.0, -5.0, 5.0, 12.0]:
+		for tz in [-22.0, -15.0, -8.0, -1.0, 6.0]:
+			_dining_table(parent, Vector3(float(tx), fy, float(tz)), cloth, chair)
+	# Captain's table down the centre aft.
+	_box(parent, Vector3(0.0, fy + 0.4, -21.0), Vector3(2.0, 0.8, 4.6), cloth, true)
+	_box(parent, Vector3(0.0, fy + 0.81, -21.0), Vector3(2.4, 0.06, 5.0), cloth, false)
+	for cz in [-23.4, -21.0, -18.6]:
+		for sx in [-1.6, 1.6]:
+			_box(parent, Vector3(float(sx), fy + 0.42, float(cz)), Vector3(0.5, 0.85, 0.5), chair, false)
+	# The famous decorative Atlantic map on the aft bulkhead, in a gilt frame.
+	var mapmat := _mat(Color(0.28, 0.40, 0.50), 0.5, 0.0)
+	var gilt := _mat(Color(0.66, 0.52, 0.24), 0.4, 0.5)
+	_box(parent, Vector3(0.0, fy + 4.6, -25.7), Vector3(13.0, 5.2, 0.15), mapmat, false)
+	for fr in [[0.0, 2.7, 13.4, 0.25], [0.0, -2.7, 13.4, 0.25], [6.7, 0.0, 0.25, 5.6], [-6.7, 0.0, 0.25, 5.6]]:
+		_box(parent, Vector3(float(fr[0]), fy + 4.6 + float(fr[1]), -25.62), Vector3(float(fr[2]), float(fr[3]), 0.3), gilt, false)
+
+
+# One dining table: a solid white-clothed table with a slight top overhang and four chairs round it.
+static func _dining_table(parent: Node3D, pos: Vector3, cloth: Material, chair: Material) -> void:
+	_box(parent, pos + Vector3(0.0, 0.4, 0.0), Vector3(1.8, 0.8, 0.9), cloth, true)
+	_box(parent, pos + Vector3(0.0, 0.81, 0.0), Vector3(2.0, 0.06, 1.1), cloth, false)
+	for off in [[-1.15, 0.0], [1.15, 0.0], [0.0, -0.8], [0.0, 0.8]]:
+		_box(parent, pos + Vector3(float(off[0]), 0.42, float(off[1])), Vector3(0.5, 0.85, 0.5), chair, false)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
