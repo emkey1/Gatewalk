@@ -1019,6 +1019,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_promenade_fit(root, wl)
 	_build_lounge(root, wl)
 	_build_promenade_rooms(root, wl)
+	_furnish_promenade_ends(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
@@ -1244,6 +1245,50 @@ static func _furnish_promenade_rooms(parent: Node3D, wl: float) -> void:
 			_box(parent, Vector3(-3.0 + float(off[0]), yp + 0.42, float(grp) + float(off[1])), Vector3(0.9, 0.85, 0.9), leather, true)
 	_box(parent, Vector3(9.3, yp + 0.6, -65.0), Vector3(1.2, 1.2, 4.0), darkwood, true)
 	_box(parent, Vector3(9.3, yp + 1.26, -65.0), Vector3(1.4, 0.1, 4.0), wood, false)
+
+
+# Furnish the two promenade extensions: the forward one as the Observation Lounge & Cocktail Bar (a
+# bar across the forward end + lounge groups), the aft one as an open promenade lounge (settees round
+# low tables). Kept clear of the z=62/-68 room doors and the z=90/-115 end bulkheads.
+static func _furnish_promenade_ends(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "PromenadeEnds"
+	parent.add_child(root)
+	var yp: float = wl + DECK_PROM
+	var wood := _mat(Color(0.32, 0.20, 0.11), 0.6, 0.0)
+	var darkwood := _mat(Color(0.20, 0.12, 0.07), 0.5, 0.0)
+	var leather := _mat(Color(0.44, 0.17, 0.15), 0.85, 0.0)
+	var green := _mat(Color(0.20, 0.32, 0.23), 0.85, 0.0)
+	var brass := _mat(Color(0.66, 0.52, 0.24), 0.4, 0.5)
+	var rug := _mat(Color(0.34, 0.27, 0.33), 0.7, 0.0)
+
+	# Observation Lounge & Cocktail Bar (forward extension, 62..90): a bar across the forward end
+	# facing aft with a back-bar shelf, bar stools, and two tub-chair lounge groups.
+	_box(root, Vector3(0.0, yp + 0.04, 76.0), Vector3(16.0, 0.08, 22.0), rug, false)
+	_box(root, Vector3(0.0, yp + 0.6, 86.0), Vector3(11.0, 1.2, 1.4), darkwood, true)
+	_box(root, Vector3(0.0, yp + 1.26, 86.0), Vector3(11.4, 0.1, 1.6), wood, false)
+	_box(root, Vector3(0.0, yp + 1.2, 88.6), Vector3(9.0, 2.0, 0.4), darkwood, true)
+	_box(root, Vector3(0.0, yp + 1.35, 88.7), Vector3(7.6, 1.2, 0.16), brass, false)
+	for bx in [-4.0, -2.0, 0.0, 2.0, 4.0]:
+		_cyl(root, Vector3(float(bx), yp + 0.45, 84.0), 0.32, 0.9, leather, true)
+	for g in [[-6.0, 70.0], [6.0, 70.0]]:
+		_box(root, Vector3(float(g[0]), yp + 0.4, float(g[1])), Vector3(1.2, 0.5, 1.2), wood, true)
+		for off in [[-1.5, 0.0], [1.5, 0.0], [0.0, -1.5], [0.0, 1.5]]:
+			_box(root, Vector3(float(g[0]) + float(off[0]), yp + 0.42, float(g[1]) + float(off[1])), Vector3(0.85, 0.8, 0.85), green, true)
+	var bl := OmniLight3D.new()
+	bl.position = Vector3(0.0, yp + 2.3, 84.0)
+	bl.light_color = Color(1.0, 0.9, 0.74)
+	bl.light_energy = 2.4
+	bl.omni_range = 20.0
+	bl.shadow_enabled = false
+	root.add_child(bl)
+
+	# Aft promenade lounge (aft extension, -115..-68): settees facing across low tables.
+	_box(root, Vector3(0.0, yp + 0.04, -90.0), Vector3(18.0, 0.08, 30.0), rug, false)
+	for g2 in [[-7.0, -78.0], [7.0, -78.0], [-7.0, -102.0], [7.0, -102.0]]:
+		_box(root, Vector3(float(g2[0]), yp + 0.4, float(g2[1])), Vector3(1.2, 0.5, 1.2), wood, true)
+		for off2 in [-1.6, 1.6]:
+			_box(root, Vector3(float(g2[0]), yp + 0.42, float(g2[1]) + float(off2)), Vector3(1.8, 0.8, 0.85), leather, true)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
