@@ -1083,7 +1083,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	# public rooms, with doorways through to the rooms; benches along the windows.
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var bench := _mat(Color(0.30, 0.20, 0.13), 0.7, 0.0)
-	var door_zs: Array = [55.0, 43.0, 33.0, 23.0, 9.0, -9.0, -29.0, -47.0, -61.0]   # one gallery door per public room
+	var door_zs: Array = [55.0, 43.0, 33.0, 23.0, 9.0, -7.0, -29.0, -47.0, -61.0]   # one gallery door per public room (clear of the room furniture)
 	for sgn3 in [-1.0, 1.0]:
 		_longitudinal_door_wall(root, sgn3 * 11.0, z0, z1, y_prom, y_ceil + 0.1, 0.3, door_zs, 3.0, 2.4, white)
 		for bz in [-60.0, -36.0, -12.0, 12.0, 36.0, 56.0]:
@@ -1165,58 +1165,65 @@ static func _furnish_promenade_rooms(parent: Node3D, wl: float) -> void:
 	ember.emission = Color(1.0, 0.45, 0.12)
 	ember.emission_energy_multiplier = 1.8
 
-	# Library (38..48): bookshelves down both side walls + a central reading table with chairs.
+	# Wall furniture is placed in flanking PAIRS so it never crosses the centre gallery doorway in
+	# each side wall (the gallery door sits at each room's mid-length); centre-of-room pieces sit at
+	# x~0, clear of both the gallery doors (x=±11) and the centreline partition doors.
+
+	# Library (38..48, gallery door z=43): bookshelves flanking the door + a central reading table.
 	for sx in [-1.0, 1.0]:
-		_box(parent, Vector3(sx * 10.3, yp + 1.3, 43.0), Vector3(0.7, 2.6, 8.0), darkwood, true)
-		_box(parent, Vector3(sx * 9.9, yp + 1.3, 43.0), Vector3(0.1, 2.3, 7.6), books, false)
-	_box(parent, Vector3(0.0, yp + 0.74, 43.0), Vector3(2.4, 0.16, 3.6), wood, true)
-	_box(parent, Vector3(0.0, yp + 0.36, 43.0), Vector3(2.0, 0.72, 3.2), wood, false)
-	for cz in [40.8, 45.2]:
+		for sz in [40.0, 46.0]:
+			_box(parent, Vector3(sx * 10.3, yp + 1.3, float(sz)), Vector3(0.7, 2.6, 2.6), darkwood, true)
+			_box(parent, Vector3(sx * 9.9, yp + 1.3, float(sz)), Vector3(0.1, 2.3, 2.3), books, false)
+	_box(parent, Vector3(0.0, yp + 0.74, 43.0), Vector3(2.4, 0.16, 3.0), wood, true)
+	_box(parent, Vector3(0.0, yp + 0.36, 43.0), Vector3(2.0, 0.72, 2.6), wood, false)
+	for cz in [41.3, 44.7]:
 		for sx2 in [-1.0, 1.0]:
 			_box(parent, Vector3(sx2 * 2.1, yp + 0.42, float(cz)), Vector3(0.7, 0.85, 0.7), leather, true)
 
-	# Drawing Room (28..38): facing green sofas, a low centre table, a writing desk.
+	# Drawing Room (28..38, door z=33): green sofas flanking the door + a writing desk.
 	for sx in [-1.0, 1.0]:
-		_box(parent, Vector3(sx * 9.2, yp + 0.42, 33.0), Vector3(1.4, 0.85, 4.0), green, true)
-	_box(parent, Vector3(0.0, yp + 0.4, 33.0), Vector3(1.8, 0.4, 1.2), wood, true)
-	_box(parent, Vector3(0.0, yp + 0.74, 29.4), Vector3(2.2, 0.16, 1.0), wood, true)
-	_box(parent, Vector3(0.0, yp + 0.37, 29.4), Vector3(2.0, 0.72, 0.8), wood, false)
+		for sz in [30.0, 36.0]:
+			_box(parent, Vector3(sx * 9.3, yp + 0.42, float(sz)), Vector3(1.4, 0.85, 2.4), green, true)
+	_box(parent, Vector3(0.0, yp + 0.74, 33.0), Vector3(2.2, 0.16, 1.0), wood, true)
+	_box(parent, Vector3(0.0, yp + 0.37, 33.0), Vector3(2.0, 0.72, 0.8), wood, false)
 
-	# Shopping arcade (18..28): glass-topped display counters down both sides + a centre kiosk.
+	# Shopping arcade (18..28, door z=23): glass-topped counters flanking the door + a centre kiosk.
 	for sx in [-1.0, 1.0]:
-		_box(parent, Vector3(sx * 9.4, yp + 0.5, 23.0), Vector3(1.2, 1.0, 6.0), wood, true)
-		_box(parent, Vector3(sx * 9.4, yp + 1.06, 23.0), Vector3(1.34, 0.1, 6.0), glasslt, false)
+		for sz in [20.0, 26.0]:
+			_box(parent, Vector3(sx * 9.4, yp + 0.5, float(sz)), Vector3(1.2, 1.0, 2.6), wood, true)
+			_box(parent, Vector3(sx * 9.4, yp + 1.06, float(sz)), Vector3(1.34, 0.1, 2.6), glasslt, false)
 	_box(parent, Vector3(0.0, yp + 1.0, 23.0), Vector3(2.2, 2.0, 2.2), wood, true)
 
-	# Ballroom (-40..-18): a parquet dance floor with a raised bandstand + gilded back panel, and
-	# small tables round the edges.
+	# Ballroom (-40..-18, door z=-29): a parquet dance floor, a bandstand + gilded back panel forward
+	# of it, and edge tables clear of the door.
 	_box(parent, Vector3(0.0, yp + 0.05, -26.0), Vector3(9.0, 0.06, 13.0), parquet, false)
 	_box(parent, Vector3(0.0, yp + 0.3, -36.0), Vector3(7.5, 0.5, 2.6), wood, true)
 	_box(parent, Vector3(0.0, yp + 2.0, -37.2), Vector3(7.0, 3.2, 0.2), _mat(Color(0.72, 0.56, 0.30), 0.4, 0.35), false)
 	for sx in [-1.0, 1.0]:
-		for tz in [-21.0, -31.0]:
+		for tz in [-21.0, -33.0]:
 			_box(parent, Vector3(sx * 8.6, yp + 0.5, float(tz)), Vector3(1.1, 0.75, 1.1), green, true)
 
-	# Long Gallery (-54..-40): a row of back-to-back settees + framed panels on the side walls.
+	# Long Gallery (-54..-40, door z=-47): central back-to-back settees + framed panels flanking the door.
 	for gz in [-44.0, -50.0]:
 		_box(parent, Vector3(0.0, yp + 0.4, float(gz)), Vector3(3.2, 0.75, 1.4), leather, true)
 		for sx in [-1.0, 1.0]:
 			_box(parent, Vector3(sx * 10.75, yp + 1.6, float(gz)), Vector3(0.08, 1.4, 1.8), brass, false)
 
-	# Smoking Room (-68..-54): dark wainscot, two groups of club chairs round low tables, a bar down
-	# the starboard wall, and a fireplace with a glowing hearth on the solid aft bulkhead.
+	# Smoking Room (-68..-54, door z=-61): wainscot flanking the door, club-chair groups to port, a
+	# bar aft on the starboard wall, and a fireplace with a glowing hearth on the solid aft bulkhead.
 	for sx in [-1.0, 1.0]:
-		_box(parent, Vector3(sx * 10.85, yp + 0.7, -61.0), Vector3(0.1, 1.4, 13.0), darkwood, false)
+		for wz in [-65.0, -57.0]:
+			_box(parent, Vector3(sx * 10.85, yp + 0.7, float(wz)), Vector3(0.1, 1.4, 4.5), darkwood, false)
 	_box(parent, Vector3(0.0, yp + 1.1, -67.7), Vector3(3.6, 2.2, 0.5), darkwood, true)
 	_box(parent, Vector3(0.0, yp + 0.42, -67.45), Vector3(1.6, 0.6, 0.25), ember, false)
 	_box(parent, Vector3(0.0, yp + 1.95, -67.6), Vector3(4.0, 0.22, 0.7), wood, true)
 	_box(parent, Vector3(0.0, yp + 2.7, -67.72), Vector3(2.0, 1.0, 0.08), brass, false)
-	for grp in [-58.5, -63.5]:
-		_box(parent, Vector3(-3.5, yp + 0.4, float(grp)), Vector3(1.3, 0.5, 1.3), wood, true)
-		for off in [[-2.0, 0.0], [2.0, 0.0], [0.0, -1.9], [0.0, 1.9]]:
-			_box(parent, Vector3(-3.5 + float(off[0]), yp + 0.42, float(grp) + float(off[1])), Vector3(0.92, 0.85, 0.92), leather, true)
-	_box(parent, Vector3(9.3, yp + 0.6, -60.0), Vector3(1.2, 1.2, 6.0), darkwood, true)
-	_box(parent, Vector3(9.3, yp + 1.26, -60.0), Vector3(1.4, 0.1, 6.0), wood, false)
+	for grp in [-58.5, -64.0]:
+		_box(parent, Vector3(-3.0, yp + 0.4, float(grp)), Vector3(1.3, 0.5, 1.3), wood, true)
+		for off in [[-2.0, 0.0], [2.0, 0.0], [0.0, -1.7], [0.0, 1.7]]:
+			_box(parent, Vector3(-3.0 + float(off[0]), yp + 0.42, float(grp) + float(off[1])), Vector3(0.9, 0.85, 0.9), leather, true)
+	_box(parent, Vector3(9.3, yp + 0.6, -65.0), Vector3(1.2, 1.2, 4.0), darkwood, true)
+	_box(parent, Vector3(9.3, yp + 1.26, -65.0), Vector3(1.4, 0.1, 4.0), wood, false)
 
 
 # Transverse partition wall at longitudinal z, spanning ±half_w and y0..y1, with a central
