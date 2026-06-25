@@ -546,13 +546,17 @@ static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float,
 	var wall_top: float = y_top - 0.25
 	var t: float = 0.4
 	var n: int = 18
+	# Sink the wall feet 0.4 m into the boat-deck slab that forms this house's floor: the wall
+	# bottoms were exactly coplanar with the slab top (both at y_base), which z-fought into dashed
+	# white lines running along the deck inside the Verandah Grill.
+	var y_sink: float = y_base - 0.4
 	for s in [-1.0, 1.0]:
 		for i in range(n):
 			var z0: float = lerpf(z_aft, z_fwd, float(i) / float(n))
 			var z1: float = lerpf(z_aft, z_fwd, float(i + 1) / float(n))
 			var x0: float = s * _house_half_w(z0, cap, side)
 			var x1: float = s * _house_half_w(z1, cap, side)
-			_wall_strip(parent, x0, z0, x1, z1, y_base, win_y0, t, wall, true)            # below the windows
+			_wall_strip(parent, x0, z0, x1, z1, y_sink, win_y0, t, wall, true)            # below the windows
 			_wall_strip(parent, x0, z0, x1, z1, win_y1, wall_top, t, wall, true)          # above the windows
 			_wall_strip(parent, x0, z0, x1, z1, win_y0, win_y1, t * 0.6, glaze_mat, true) # cabin-window band
 			_wall_strip(parent, x0, z0, x1, z1, win_y1 - 0.06, win_y1 + 0.06, t + 0.1, wall, false) # head rail
@@ -562,8 +566,8 @@ static func _upper_house(parent: Node3D, z_aft: float, z_fwd: float, cap: float,
 	if aft_door_w > 0.0:
 		_transverse_door_wall(parent, z_aft, _house_half_w(z_aft, cap, side), y_base, wall_top, t, 0.0, aft_door_w, 2.1, wall)   # entry door (e.g. into the Verandah Grill)
 	else:
-		_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_aft), Vector3(_house_half_w(z_aft, cap, side) * 2.0, wall_top - y_base, t), wall, true)
-	_box(parent, Vector3(0.0, (y_base + wall_top) * 0.5, z_fwd), Vector3(_house_half_w(z_fwd, cap, side) * 2.0, wall_top - y_base, t), wall, true)
+		_box(parent, Vector3(0.0, (y_sink + wall_top) * 0.5, z_aft), Vector3(_house_half_w(z_aft, cap, side) * 2.0, wall_top - y_sink, t), wall, true)
+	_box(parent, Vector3(0.0, (y_sink + wall_top) * 0.5, z_fwd), Vector3(_house_half_w(z_fwd, cap, side) * 2.0, wall_top - y_sink, t), wall, true)
 	_tapered_slab(parent, z_aft - 1.0, z_fwd + 1.0, y_top, 0.3, 0.4, deck, cap, side)
 
 
@@ -851,12 +855,13 @@ static func _build_deck_details(parent: Node3D, wl: float) -> void:
 	var dark := _mat(Color(0.30, 0.31, 0.34), 0.6, 0.3)
 	var boat_y: float = wl + DECK_SUN
 
-	# Cowl ventilators in the open boat-deck spaces fore and aft of the funnel casing.
+	# Cowl ventilators on the OPEN after boat deck, abaft the sun-deck house (z < -78). The earlier
+	# rows at z=-75/-67/65 sat on what was then open boat deck but is now enclosed by the sun-house
+	# (Verandah Grill) — they were left standing indoors, so they're moved out here to the weather deck.
 	var vents: Array = [
-		[Vector3(-12.0, boat_y, -82.0), 1.0], [Vector3(12.0, boat_y, -82.0), 1.0],
-		[Vector3(-5.5, boat_y, -75.0), -1.0], [Vector3(5.5, boat_y, -75.0), -1.0],
-		[Vector3(-12.0, boat_y, -67.0), 1.0], [Vector3(12.0, boat_y, -67.0), 1.0],
-		[Vector3(-12.0, boat_y, 65.0), -1.0], [Vector3(12.0, boat_y, 65.0), -1.0],
+		[Vector3(-12.0, boat_y, -84.0), 1.0], [Vector3(12.0, boat_y, -84.0), 1.0],
+		[Vector3(-12.0, boat_y, -96.0), 1.0], [Vector3(12.0, boat_y, -96.0), 1.0],
+		[Vector3(-6.0, boat_y, -103.0), 1.0], [Vector3(6.0, boat_y, -103.0), 1.0],
 	]
 	for v in vents:
 		_cowl_vent(root, v[0], float(v[1]), white, ventred)
@@ -1107,11 +1112,27 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 			lamp.omni_range = 15.0
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
-	# Wood dado + handrail below the windows, down each side.
+	# Wood dado + handrail below the windows, FLUSH against the glazed side wall. The wall sits at
+	# _house_half_w(z) (~16.5 amidships, tapering in toward the ends) — about 1 m outboard of the
+	# PROM_HALF_W (15.5) promenade floor edge. A straight dado at PROM_HALF_W therefore stood ~1 m
+	# proud of the glass with walkable floor behind it; here the dado/handrail are lofted as short
+	# strips following the wall, and a floor-edge strip fills the matching gap from the 15.5 floor
+	# edge out to the wall so there's no channel to walk down between the wainscot and the windows.
+	var floormat := _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0)
+	var nfit: int = 30
 	for sgn2 in [-1.0, 1.0]:
-		var xw: float = sgn2 * (hw - 0.22)
-		_box(root, Vector3(xw, (y_prom + y_sill) * 0.5, zc), Vector3(0.18, y_sill - y_prom, zl), wood, false)
-		_box(root, Vector3(xw, y_sill + 0.06, zc), Vector3(0.16, 0.12, zl), wood, false)
+		for i in range(nfit):
+			var za: float = lerpf(z0, z1, float(i) / float(nfit))
+			var zb: float = lerpf(z0, z1, float(i + 1) / float(nfit))
+			var wa: float = _house_half_w(za)
+			var wb: float = _house_half_w(zb)
+			var aw: float = (wa + wb) * 0.5
+			# Floor-edge filler from the 15.5 floor edge out to the wall (closes the fall-in gap).
+			if aw > hw + 0.02:
+				_box(root, Vector3(sgn2 * (hw + aw) * 0.5, y_prom - 0.15, (za + zb) * 0.5), Vector3(aw - hw, 0.3, zb - za + 0.05), floormat, true)
+			# Dado panel + handrail cap, just inside the glass.
+			_wall_strip(root, sgn2 * (wa - 0.12), za, sgn2 * (wb - 0.12), zb, y_prom, y_sill, 0.18, wood, false)
+			_wall_strip(root, sgn2 * (wa - 0.12), za, sgn2 * (wb - 0.12), zb, y_sill, y_sill + 0.12, 0.16, wood, false)
 
 	# Sheltered-promenade gallery walls at ±10, separating the glazed galleries from the inboard
 	# public rooms, with doorways through to the rooms; benches along the windows.
@@ -1121,7 +1142,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	for sgn3 in [-1.0, 1.0]:
 		_longitudinal_door_wall(root, sgn3 * 11.0, z0, z1, y_prom, y_ceil + 0.1, 0.3, door_zs, 3.0, 2.4, white)
 		for bz in [-60.0, -36.0, -12.0, 12.0, 36.0, 56.0]:
-			_box(root, Vector3(sgn3 * (hw - 1.1), y_prom + 0.3, float(bz)), Vector3(0.7, 0.6, 2.4), bench, true)
+			_box(root, Vector3(sgn3 * (_house_half_w(float(bz)) - 0.55), y_prom + 0.3, float(bz)), Vector3(0.7, 0.6, 2.4), bench, true)
 	# (The inboard public rooms fore + aft of the lounge are built + lit by _build_promenade_rooms.)
 
 
@@ -1422,11 +1443,20 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	for cz in [44.0, 54.0, 64.0]:
 		for sx3 in [-10.0, 10.0]:
 			_cyl(root, Vector3(sx3, (deck_y + cy) * 0.5, float(cz)), 0.5, cy - deck_y, cream, true)
-	# Grand staircase down from the A-deck to the pool deck (forward end), with a balustraded well.
-	_stair_run(root, 0.0, 66.0, 78.0, deck_y, ay, 6.0, tile)
+	# Grand staircase down from the A-deck to the pool deck (forward end). _stair_run fills each tread
+	# solid to the floor, so its flanks are tall solid faces — left bare they read as a stray brown
+	# wall in the open room. Box the stair into a cream-walled stairwell (inner faces on the x=±4
+	# deck-opening edges) so those flanks become the well sides, and carry the walls 1 m above the
+	# A-deck floor as the opening's side parapets.
+	# Run the top tread right out to the A-deck opening's forward edge (z=79) so you step straight off
+	# the deck onto it — and so, seen from above, the flight reads as descending steps rather than a
+	# tall solid riser standing back from the hole.
+	_stair_run(root, 0.0, 66.0, 79.0, deck_y, ay, 7.7, tile)
 	for sx4 in [-1.0, 1.0]:
-		_box(root, Vector3(sx4 * 4.0, ay + 0.5, 72.0), Vector3(0.12, 1.0, 12.0), rail, true)
-	_box(root, Vector3(0.0, ay + 0.5, 66.0), Vector3(8.0, 1.0, 0.12), rail, true)
+		_box(root, Vector3(sx4 * 4.2, (deck_y + ay + 1.0) * 0.5, 72.5), Vector3(0.4, (ay + 1.0) - deck_y, 14.0), cream, true)
+	# Aft parapet closing the open (descending) end of the well on the A-deck side, capped with a rail.
+	_box(root, Vector3(0.0, ay + 0.5, 66.0), Vector3(8.4, 1.0, 0.4), cream, true)
+	_box(root, Vector3(0.0, ay + 1.05, 66.0), Vector3(8.8, 0.12, 0.5), rail, false)
 	# Lighting (deep in the hull).
 	for lz in [46.0, 56.0, 66.0]:
 		for lx in [-8.0, 0.0, 8.0]:

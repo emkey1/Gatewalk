@@ -6,13 +6,13 @@ extends SceneTree
 
 func _init() -> void:
 	var root := get_root()
-	root.size = Vector2i(1600, 820)
+	root.size = Vector2i(1600, 900)
 	var world := Node3D.new()
 	root.add_child(world)
 
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52.0, 38.0, 0.0)
-	sun.light_energy = 1.25
+	sun.light_energy = 0.5
 	world.add_child(sun)
 
 	var we := WorldEnvironment.new()
@@ -21,7 +21,9 @@ func _init() -> void:
 	env.background_color = Color(0.55, 0.67, 0.82)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.62, 0.68, 0.76)
-	env.ambient_light_energy = 0.65
+	env.ambient_light_energy = 0.35
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 0.85
 	we.environment = env
 	world.add_child(we)
 
@@ -39,33 +41,31 @@ func _init() -> void:
 	world.add_child(water)
 
 	var Liner := load("res://scripts/factories/LinerFactory.gd")
-	var gates: Array = Liner.build(world, 12345, wl)
-	# Mark the returned gate positions (the real gates are built by Main, not the factory) so the
-	# top-down shows whether they sit cleanly on the deck.
-	for g in gates:
-		var mk := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = Vector3(3.0, 4.0, 1.0)
-		mk.mesh = bm
-		var mm := StandardMaterial3D.new()
-		mm.albedo_color = Color(1.0, 0.1, 0.9)
-		mk.material_override = mm
-		mk.position = g + Vector3(0.0, 2.0, 0.0)
-		world.add_child(mk)
+	Liner.build(world, 12345, wl)
 
 	var cam := Camera3D.new()
-	cam.fov = 50.0
+	cam.fov = 60.0
 	world.add_child(cam)
 	cam.current = true
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		["t63_grill", Vector3(0.0, 19.7, -76.0), Vector3(0.0, 19.4, -53.0), Vector3.UP],
+		# Image 1 repro: player on A-deck (y_main 11.86, eye ~13.5) at z~81 looking aft+down into pool well
+		["i1_pool_well", Vector3(5.0, 13.5, 81.0), Vector3(-2.0, 7.5, 71.0), Vector3.UP],
+		# Pool well from inside, aft-looking, to see stair + cream well walls
+		["pool_aft2", Vector3(9.0, 8.6, 48.0), Vector3(2.0, 6.0, 72.0), Vector3.UP],
+		# Image 2 repro: player in the Verandah Grill (floor 18.04, eye ~19.7) looking aft across the floor
+		["i2_grill_eye", Vector3(8.0, 19.7, -68.0), Vector3(-2.0, 18.2, -77.0), Vector3.UP],
+		# After boat deck (open) — confirm the cowl vents landed out here, not in the grill
+		["after_deck", Vector3(0.0, 22.0, -78.0), Vector3(0.0, 18.0, -100.0), Vector3.UP],
+		# Image 3 repro: player in the promenade gallery (floor 14.7, eye ~16.35) looking fwd + aft
+		["i3_prom_fwd", Vector3(14.0, 16.35, -66.0), Vector3(14.0, 16.0, 40.0), Vector3.UP],
+		["i3_prom_aft", Vector3(14.0, 16.35, -66.0), Vector3(14.0, 16.0, -110.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
 		cam.look_at(s[2], s[3])
-		for i in range(5):
+		for i in range(6):
 			await process_frame
 		var img := root.get_texture().get_image()
 		img.save_png("/tmp/liner_%s.png" % s[0])
