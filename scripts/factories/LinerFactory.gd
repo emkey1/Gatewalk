@@ -1452,13 +1452,13 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 	var bedmat := _mat(Color(0.50, 0.28, 0.30), 0.85, 0.0)
 	var z0: float = -78.0
 	var z1: float = -38.0
-	# Corridor + doors must clear the 0.9 m-wide player capsule (radius 0.45): true 1:1 (~0.9 m
-	# alleys, ~0.9 m doors) won't fit, so widen to the practical minimum — ~1.5 m clear, 1.3 m doors.
-	var cw: float = 0.85                # corridor half-width -> ~1.5 m clear alley
-	var cd: float = 5.3                 # cabin outboard wall (~4.5 m deep cabins)
+	# With the slimmed player (0.6 m wide; Player.gd radius 0.3) the corridor + doors come back down to
+	# near true 1:1: a ~1.0 m clear alley (~3 ft) with 1.0 m cabin doors, and still walkable.
+	var cw: float = 0.6                 # corridor half-width -> ~1.0 m clear alley (near 1:1)
+	var cd: float = 5.3                 # cabin outboard wall (~4.7 m deep cabins)
 	var doors: Array = [-75.5, -70.5, -65.5, -60.5, -55.5, -50.5, -45.5, -40.5]
 	for sgn in [-1.0, 1.0]:
-		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 1.3, 2.1, white)
+		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 1.0, 2.1, white)
 		_box(root, Vector3(sgn * cd, (ya + yc) * 0.5, (z0 + z1) * 0.5), Vector3(0.2, yc - ya, z1 - z0), white, true)
 		for pz in [-38.0, -43.0, -48.0, -53.0, -58.0, -63.0, -68.0, -73.0, -78.0]:
 			_box(root, Vector3(sgn * (cw + cd) * 0.5, (ya + yc) * 0.5, float(pz)), Vector3(cd - cw, yc - ya, 0.2), white, true)
@@ -1468,7 +1468,7 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 	var porc := _mat(Color(0.93, 0.93, 0.95), 0.2, 0.0)
 	for cz in [-40.5, -45.5, -50.5, -55.5, -60.5, -65.5, -70.5, -75.5]:
 		for sgn2 in [-1.0, 1.0]:
-			_cabin_interior(root, float(cz), float(sgn2), ya, yc, white, wood, bedmat, porc)
+			_cabin_interior(root, float(cz), float(sgn2), ya, yc, cw, white, wood, bedmat, porc)
 	# Corridor lighting.
 	for lz in [-44.0, -54.0, -64.0, -74.0]:
 		var lamp := OmniLight3D.new()
@@ -1485,14 +1485,14 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 # ensuite bathroom (toilet, washbasin, shower stall; door in its aft wall) filling the forward-
 # inboard corner by the cabin door, the way a cruise stateroom's modular bathroom sits. Bathroom door
 # is 1.0 m so the 0.9 m-wide player can just get in (a true ~0.6 m bathroom door wouldn't fit).
-static func _cabin_interior(parent: Node3D, cz: float, s: float, ya: float, yc: float, white: Material, wood: Material, bedmat: Material, porc: Material) -> void:
+static func _cabin_interior(parent: Node3D, cz: float, s: float, ya: float, yc: float, cw: float, white: Material, wood: Material, bedmat: Material, porc: Material) -> void:
 	var hh: float = yc - ya
 	var hy: float = (ya + yc) * 0.5
 	_box(parent, Vector3(s * 4.45, ya + 0.3, cz - 1.45), Vector3(1.7, 0.5, 1.9), bedmat, true)            # bed
 	_box(parent, Vector3(s * 4.45, ya + 0.62, cz - 2.25), Vector3(1.7, 0.16, 0.45), white, false)        # pillow (at the aft partition)
 	_box(parent, Vector3(s * 4.7, hy, cz + 2.0), Vector3(0.8, hh, 0.7), wood, true)                       # wardrobe
 	_box(parent, Vector3(s * 2.5, hy, cz + 1.5), Vector3(0.15, hh, 1.9), white, true)                     # bathroom cabin-side wall
-	_box(parent, Vector3(s * 1.025, hy, cz + 0.55), Vector3(0.35, hh, 0.15), white, true)                 # bathroom aft wall (corridor seg)
+	_box(parent, Vector3(s * (cw + 1.2) * 0.5, hy, cz + 0.55), Vector3(1.2 - cw, hh, 0.15), white, true)   # bathroom aft wall (corridor seg)
 	_box(parent, Vector3(s * 2.35, hy, cz + 0.55), Vector3(0.3, hh, 0.15), white, true)                   # bathroom aft wall (cabin seg)
 	_box(parent, Vector3(s * 1.7, ya + 2.1 + (hh - 2.1) * 0.5, cz + 0.55), Vector3(1.0, hh - 2.1, 0.15), white, true)  # door lintel
 	_box(parent, Vector3(s * 1.2, ya + 0.3, cz + 2.0), Vector3(0.5, 0.6, 0.55), porc, false)              # toilet bowl

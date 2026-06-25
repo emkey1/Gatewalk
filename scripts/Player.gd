@@ -129,7 +129,7 @@ func _ready() -> void:
 
 	var capsule := CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
-	shape.radius = 0.45
+	shape.radius = 0.3    # ~0.6 m wide — a realistic person, not the old 0.9 m default (lets ~1:1 ship corridors be walkable)
 	shape.height = 1.8
 	capsule.shape = shape
 	add_child(capsule)
