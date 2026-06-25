@@ -1482,8 +1482,9 @@ static func _build_dining_room(parent: Node3D, wl: float) -> void:
 # The First Class indoor swimming pool: a two-storey galleried room deep in the hull (the hull is
 # carved hollow over it, see _build_hull), modelled on the real QM pool. An upper gallery balcony rings
 # the double-height pool void; you come down from the A-deck onto the gallery, then descend a grand
-# flight to the pool deck, which surrounds a recessed water-filled basin. (Art Deco finish — teal/cream
-# mosaic, stepped corner piers, coved uplit ceiling, cubicles, water-entry steps — lands in later increments.)
+# flight to the pool deck, which surrounds a recessed water-filled basin. Finish (inc 74): buff ceramic
+# tiling, a turquoise-mosaic basin, teal banding + a dark coping, stepped Deco piers. (Still to come: a
+# coved uplit ceiling, the slide, the striped pedestal, cubicles, water-entry steps.)
 static func _build_pool(parent: Node3D, wl: float) -> void:
 	var root := Node3D.new()
 	root.name = "SwimmingPool"
@@ -1499,8 +1500,13 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	var bz0: float = 42.0
 	var bz1: float = 62.0
 	var bhw: float = 6.5
-	var tile := _mat(Color(0.62, 0.40, 0.28), 0.4, 0.1)    # terracotta tile (the QM pool's colour)
-	var cream := _mat(Color(0.84, 0.80, 0.72), 0.6, 0.0)
+	# QM First Class pool finish: buff ceramic tiling (deck, walls, treads, piers), a turquoise mosaic
+	# basin, teal banding + a dark coping; gold rail caps.
+	var tile := _pool_tile_mat(0.45, Color(0.80, 0.74, 0.60), Color(0.66, 0.60, 0.47))    # buff ceramic
+	var mosaic := _pool_tile_mat(0.11, Color(0.20, 0.50, 0.50), Color(0.12, 0.34, 0.36))  # turquoise basin mosaic
+	var cream := _mat(Color(0.82, 0.77, 0.64), 0.5, 0.0)                                   # solid buff (gallery slabs, balustrades, pylon)
+	var teal := _mat(Color(0.13, 0.48, 0.46), 0.45, 0.1)                                   # teal band
+	var dark := _mat(Color(0.09, 0.16, 0.17), 0.5, 0.0)                                    # dark coping / accent
 	var rail := _mat(Color(0.72, 0.60, 0.38), 0.4, 0.1)
 	var water := StandardMaterial3D.new()
 	water.albedo_color = Color(0.20, 0.55, 0.62, 0.55)
@@ -1514,28 +1520,35 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	var bwcy: float = (basin_y + deck_y) * 0.5 - 0.06
 	var bwh: float = deck_y - basin_y + 0.12
 	for sx in [-1.0, 1.0]:
-		_box(root, Vector3(sx * bhw, bwcy, (bz0 + bz1) * 0.5), Vector3(0.2, bwh, bz1 - bz0), tile, true)
+		_box(root, Vector3(sx * bhw, bwcy, (bz0 + bz1) * 0.5), Vector3(0.2, bwh, bz1 - bz0), mosaic, true)
 	for ez in [bz0, bz1]:
-		_box(root, Vector3(0.0, bwcy, float(ez)), Vector3(bhw * 2.0, bwh, 0.2), tile, true)
-	_box(root, Vector3(0.0, basin_y - 0.1, (bz0 + bz1) * 0.5), Vector3(bhw * 2.0, 0.2, bz1 - bz0), tile, true)
+		_box(root, Vector3(0.0, bwcy, float(ez)), Vector3(bhw * 2.0, bwh, 0.2), mosaic, true)
+	_box(root, Vector3(0.0, basin_y - 0.1, (bz0 + bz1) * 0.5), Vector3(bhw * 2.0, 0.2, bz1 - bz0), mosaic, true)
 	_box(root, Vector3(0.0, water_y, (bz0 + bz1) * 0.5), Vector3(bhw * 2.0 - 0.3, 0.08, bz1 - bz0 - 0.3), water, false)
+	# Dark coping band round the basin rim (the references' near-black pool edge), proud of the deck.
+	for sx5 in [-1.0, 1.0]:
+		_box(root, Vector3(sx5 * bhw, deck_y + 0.04, (bz0 + bz1) * 0.5), Vector3(0.5, 0.1, bz1 - bz0 + 0.5), dark, false)
+	for ez5 in [bz0, bz1]:
+		_box(root, Vector3(0.0, deck_y + 0.04, float(ez5)), Vector3(bhw * 2.0 + 0.5, 0.1, 0.5), dark, false)
 	# Room side + fore/aft walls (deck to ceiling; feet sunk into the pool deck) + a luminous ceiling.
 	var rwcy: float = (deck_y + cy) * 0.5 - 0.06
 	var rwh: float = cy - deck_y + 0.12
 	for sx2 in [-1.0, 1.0]:
-		_box(root, Vector3(sx2 * hw, rwcy, (z0 + z1) * 0.5), Vector3(0.4, rwh, z1 - z0), cream, true)
+		_box(root, Vector3(sx2 * hw, rwcy, (z0 + z1) * 0.5), Vector3(0.4, rwh, z1 - z0), tile, true)
+		for by in [deck_y + 1.2, wl + 10.3]:   # teal banding (proud) low on the deck wall + above the gallery
+			_box(root, Vector3(sx2 * (hw - 0.16), float(by), (z0 + z1) * 0.5), Vector3(0.18, 0.26, z1 - z0), teal, false)
 	for ez2 in [z0, z1]:
-		_box(root, Vector3(0.0, rwcy, float(ez2)), Vector3(hw * 2.0, rwh, 0.4), cream, true)
+		_box(root, Vector3(0.0, rwcy, float(ez2)), Vector3(hw * 2.0, rwh, 0.4), tile, true)
 	var lum := StandardMaterial3D.new()
 	lum.albedo_color = Color(0.95, 0.92, 0.82)
 	lum.emission_enabled = true
 	lum.emission = Color(1.0, 0.95, 0.82)
 	lum.emission_energy_multiplier = 0.3
 	_floor_with_hole(root, z0, z1, hw, cy, 73.0, 79.5, 4.0, 0.2, lum)
-	# Columns down each side of the pool.
-	for cz in [44.0, 54.0, 64.0]:
-		for sx3 in [-10.0, 10.0]:
-			_cyl(root, Vector3(sx3, rwcy, float(cz)), 0.5, rwh, cream, true)
+	# Stepped Art Deco corner piers (buff ceramic + teal bands) flanking the pool at the gallery line.
+	for cz in [46.0, 57.0, 68.0]:
+		for sx3 in [-11.0, 11.0]:
+			_pool_pier(root, sx3, float(cz), deck_y, cy, tile, teal)
 	# --- Two-storey galleried layout (per the real First Class pool): an upper GALLERY balcony rings
 	# the double-height pool void; you come down from the A-deck onto the gallery, then descend a grand
 	# flight from the gallery to the pool deck (the photo-2 stair). Finish (teal/cream mosaic, stepped
@@ -2332,3 +2345,40 @@ static func _etched_glass_mat() -> StandardMaterial3D:
 	m.emission_energy_multiplier = 0.18
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
+
+
+# A ceramic tile grid (the QM pool's tiling): `base` tiles separated by thin `grout` lines, mapped in
+# WORLD space (triplanar) so every box face tiles uniformly at ~`tile_world` m regardless of its size
+# or orientation — one helper for both the buff deck/walls (large tiles) and the turquoise basin
+# mosaic (tiny tiles). World-mapped so adjacent boxes (deck slabs, stair treads) tile continuously.
+static func _pool_tile_mat(tile_world: float, base: Color, grout: Color) -> StandardMaterial3D:
+	var n: int = 64
+	var cells: int = 8
+	var step: int = n / cells
+	var img := Image.create(n, n, true, Image.FORMAT_RGB8)
+	for y in range(n):
+		for x in range(n):
+			img.set_pixel(x, y, grout if (x % step == 0 or y % step == 0) else base)
+	img.generate_mipmaps()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = ImageTexture.create_from_image(img)
+	mat.uv1_triplanar = true
+	mat.uv1_world_triplanar = true
+	var per: float = float(cells) * tile_world
+	mat.uv1_scale = Vector3(1.0 / per, 1.0 / per, 1.0 / per)
+	mat.roughness = 0.4
+	mat.metallic = 0.05
+	return mat
+
+
+# A massive stepped Art Deco corner pier (the QM pool's piers): a stepped base + square shaft + stepped
+# capital, full height y0..y1, with teal bands near the base + capital. Foot sunk into the deck (inc-70/71).
+static func _pool_pier(parent: Node3D, x: float, z: float, y0: float, y1: float, mat: Material, band: Material) -> void:
+	var yb: float = y0 - 0.12
+	_box(parent, Vector3(x, (yb + y0 + 0.6) * 0.5, z), Vector3(1.9, y0 + 0.6 - yb, 1.9), mat, true)        # base step 1
+	_box(parent, Vector3(x, y0 + 0.85, z), Vector3(1.6, 0.5, 1.6), mat, true)                              # base step 2
+	_box(parent, Vector3(x, (y0 + 1.1 + y1 - 1.1) * 0.5, z), Vector3(1.35, y1 - y0 - 2.2, 1.35), mat, true)  # shaft
+	_box(parent, Vector3(x, y1 - 0.85, z), Vector3(1.6, 0.5, 1.6), mat, true)                              # capital step 2
+	_box(parent, Vector3(x, y1 - 0.3, z), Vector3(1.9, 0.6, 1.9), mat, true)                               # capital step 1
+	_box(parent, Vector3(x, y0 + 1.25, z), Vector3(1.46, 0.16, 1.46), band, false)                         # lower teal band
+	_box(parent, Vector3(x, y1 - 1.25, z), Vector3(1.46, 0.16, 1.46), band, false)                         # upper teal band

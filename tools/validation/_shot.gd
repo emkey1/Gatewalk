@@ -53,12 +53,12 @@ func _init() -> void:
 		# Corrected double stair (the photo-2 view): from the pool deck looking aft — two flights, a
 		# central half-landing + centre pylon, then both flights continuing down to the deck.
 		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
-		# 3/4 angle on the double stair.
+		# Inc-74 finish: a stepped buff pier with teal bands at the gallery line.
+		["pool_pier", Vector3(2.0, 7.0, 50.0), Vector3(11.0, 8.2, 58.0), Vector3.UP],
+		# The turquoise-mosaic basin + dark coping, from the deck.
+		["pool_basin", Vector3(9.0, 7.2, 53.0), Vector3(0.0, 5.4, 53.0), Vector3.UP],
+		# 3/4 angle on the double stair (buff treads now).
 		["stair_3q", Vector3(9.0, 6.7, 53.0), Vector3(-1.0, 7.6, 68.0), Vector3.UP],
-		# Side-on: the two flights + landing profile.
-		["stair_side", Vector3(11.5, 7.2, 60.0), Vector3(-2.0, 7.2, 69.0), Vector3.UP],
-		# From the gallery, looking down at the two entrances at the top of the stair.
-		["stair_top", Vector3(0.0, 9.6, 77.0), Vector3(0.5, 7.0, 67.0), Vector3.UP],
 		# Whole galleried room down the length.
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
