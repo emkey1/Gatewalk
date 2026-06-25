@@ -975,6 +975,12 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	var hz1: float = 59.0
 	var hx: float = 4.0
 	_floor_with_hole(root, PROM_AFT, PROM_FWD, PROM_HALF_W, y_prom, hz0, hz1, hx, 0.3, _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0))
+	# Extend the Promenade floor forward and aft of the core as tapered slabs that follow the
+	# deckhouse, so the sheltered promenade runs most of the superstructure length instead of
+	# dead-ending amidships (the deckhouse glazing + boat-deck-slab ceiling already span the length).
+	var floor_mat := _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0)
+	_tapered_slab(root, PROM_FWD, 90.0, y_prom, 0.3, 0.0, floor_mat)
+	_tapered_slab(root, -115.0, PROM_AFT, y_prom, 0.3, 0.0, floor_mat)
 
 	# Grand staircase up from the entrance (A deck, 12) to the Promenade (15.5), rising aft.
 	_stair_run(root, 0.0, 58.0, 50.0, y_main, y_prom, 6.0, _mat(COL_TEAK, 0.7, 0.0))
@@ -1105,9 +1111,23 @@ static func _build_promenade_rooms(parent: Node3D, wl: float) -> void:
 	var y_ceil: float = wl + DECK_SUN - 0.45
 	var rhw: float = 11.0      # inboard room half-width (the galleries lie outboard of this)
 	var white := _mat(COL_SUPER, 0.7, 0.0)
-	# End bulkheads fore (z=62) + aft (z=-68), across the full promenade width.
+	# The core room sequence ends at z=62 (fwd) / -68 (aft): close just the inboard ROOMS there (±11,
+	# with a central doorway), so the side galleries flow on into the promenade extensions instead of
+	# hitting a full-width wall. The promenade itself is closed much further out by tapered end
+	# bulkheads at z=90 / -115, near the deckhouse ends.
 	for ez in [62.0, -68.0]:
-		_box(root, Vector3(0.0, (y_prom + y_ceil) * 0.5, float(ez)), Vector3(31.0, y_ceil - y_prom, 0.4), white, true)
+		_transverse_door_wall(root, float(ez), rhw, y_prom, y_ceil, 0.4, 0.0, 3.0, 2.3, white)
+	for ez2 in [90.0, -115.0]:
+		_box(root, Vector3(0.0, (y_prom + y_ceil) * 0.5, float(ez2)), Vector3(_house_half_w(float(ez2)) * 2.0, y_ceil - y_prom, 0.4), white, true)
+	# Warm light in the two promenade extensions.
+	for lz in [76.0, -92.0]:
+		var elamp := OmniLight3D.new()
+		elamp.position = Vector3(0.0, y_ceil - 0.5, float(lz))
+		elamp.light_color = Color(1.0, 0.92, 0.78)
+		elamp.light_energy = 2.3
+		elamp.omni_range = 22.0
+		elamp.shadow_enabled = false
+		root.add_child(elamp)
 	# Internal partitions, each with a central 3 m doorway (the Lounge's own ±18 partitions are
 	# built by _build_lounge; the Forward Hall is 48..62, around the grand staircase).
 	for pz in [48.0, 38.0, 28.0, -40.0, -54.0]:
