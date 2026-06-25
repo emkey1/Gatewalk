@@ -50,15 +50,15 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Double stair head-on (photo-2 view): upper flights + landing + pylon, lower flights now splay OUT.
+		# Double stair head-on: pier now flanks the BASIN (forward), clear of the lower-flight landings.
 		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
-		# The starboard lower flight, now turned 90° to descend out toward the side deck.
-		["stair_low", Vector3(12.5, 7.2, 58.0), Vector3(5.5, 6.4, 67.0), Vector3.UP],
-		# Close on the stair bottom — confirm the tile pixelation is gone (solid buff treads now).
-		["stair_bottom", Vector3(11.0, 6.9, 63.5), Vector3(6.5, 6.2, 67.5), Vector3.UP],
-		# 3/4 angle on the double stair (buff treads now).
+		# From the starboard lower-flight landing looking OUTBOARD — confirm no pier is in front now.
+		["stair_landing", Vector3(6.5, 7.1, 67.0), Vector3(13.0, 6.5, 67.0), Vector3.UP],
+		# Inside the women's (starboard) dressing room: the row of curtained cubicles + bench.
+		["dressing", Vector3(9.0, 9.6, 74.0), Vector3(9.0, 8.9, 79.5), Vector3.UP],
+		# 3/4 angle on the double stair.
 		["stair_3q", Vector3(9.0, 6.7, 53.0), Vector3(-1.0, 7.6, 68.0), Vector3.UP],
-		# Whole galleried room down the length.
+		# Down the length — piers flanking the basin.
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
 	for s in shots:
