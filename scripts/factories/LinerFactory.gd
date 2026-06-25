@@ -260,26 +260,29 @@ static func _build_main_deck(parent: Node3D, wl: float, hz0: float = NAN, hz1: f
 	for i in range(n):
 		var z0: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i) / float(n))
 		var z1: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i + 1) / float(n))
-		var b0: float = _half_beam(z0)
-		var b1: float = _half_beam(z1)
-		var s0: float = _sheer_y(z0, wl)
-		var s1: float = _sheer_y(z1, wl)
-		var l0 := Vector3(-b0, s0, z0)
-		var r0 := Vector3(b0, s0, z0)
-		var l1 := Vector3(-b1, s1, z1)
-		var r1 := Vector3(b1, s1, z1)
+		# Clip any stairwell opening to its EXACT z bounds within this ~6.5 m station. The opening used
+		# to snap to whole stations, so the hole spilled several metres fore/aft of the stair that fills
+		# it — you fell through the over-cut deck beside the pool stair. Lay full deck up to the hole,
+		# port+starboard strips across it, then full deck again.
+		var ha0: float = NAN
+		var ha1: float = NAN
 		var hxh: float = 0.0
 		if not is_nan(hz0) and z1 > hz0 and z0 < hz1:
+			ha0 = maxf(z0, hz0)
+			ha1 = minf(z1, hz1)
 			hxh = hx
 		elif not is_nan(hz0b) and z1 > hz0b and z0 < hz1b:
+			ha0 = maxf(z0, hz0b)
+			ha1 = minf(z1, hz1b)
 			hxh = hxb
-		if hxh > 0.0:
-			# Stairwell opening (Dining Room / swimming-pool descent): build port + starboard strips
-			# and leave the centre ±hxh open so a grand staircase can drop through into the hull.
-			_quad_flat(st, l0, Vector3(-hxh, s0, z0), Vector3(-hxh, s1, z1), l1)
-			_quad_flat(st, Vector3(hxh, s0, z0), r0, r1, Vector3(hxh, s1, z1))
+		if hxh <= 0.0:
+			_deck_seg(st, z0, z1, 0.0, wl)
 		else:
-			_quad_flat(st, l0, r0, r1, l1)
+			if ha0 > z0 + 0.01:
+				_deck_seg(st, z0, ha0, 0.0, wl)
+			_deck_seg(st, ha0, ha1, hxh, wl)
+			if ha1 < z1 - 0.01:
+				_deck_seg(st, ha1, z1, 0.0, wl)
 	st.generate_normals()
 	var mesh: ArrayMesh = st.commit()
 	var body := StaticBody3D.new()
@@ -296,6 +299,20 @@ static func _build_main_deck(parent: Node3D, wl: float, hz0: float = NAN, hz1: f
 	col.shape = mesh.create_trimesh_shape()
 	body.add_child(col)
 	parent.add_child(body)
+
+
+# One main-deck floor segment za..zb: a full-width quad, or (hxh>0) port+starboard strips leaving the
+# centre ±hxh open for a stairwell. Lets _build_main_deck clip stairwell openings to exact z bounds.
+static func _deck_seg(st: SurfaceTool, za: float, zb: float, hxh: float, wl: float) -> void:
+	var ba: float = _half_beam(za)
+	var bb: float = _half_beam(zb)
+	var sa: float = _sheer_y(za, wl)
+	var sb: float = _sheer_y(zb, wl)
+	if hxh > 0.0:
+		_quad_flat(st, Vector3(-ba, sa, za), Vector3(-hxh, sa, za), Vector3(-hxh, sb, zb), Vector3(-ba, sb, zb))
+		_quad_flat(st, Vector3(hxh, sa, za), Vector3(ba, sa, za), Vector3(bb, sb, zb), Vector3(hxh, sb, zb))
+	else:
+		_quad_flat(st, Vector3(-ba, sa, za), Vector3(ba, sa, za), Vector3(bb, sb, zb), Vector3(-ba, sb, zb))
 
 
 # Two triangles with per-vertex hull colours (a,b,c,d wound as a quad).
@@ -1451,12 +1468,15 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	# Run the top tread right out to the A-deck opening's forward edge (z=79) so you step straight off
 	# the deck onto it — and so, seen from above, the flight reads as descending steps rather than a
 	# tall solid riser standing back from the hole.
-	_stair_run(root, 0.0, 66.0, 79.0, deck_y, ay, 7.7, tile)
+	# Stair fills the x=±4 opening almost edge-to-edge (3.98) so there's no fall-through gap beside it;
+	# the cream well walls (inner faces on the x=±4 opening edges) cover the last 0.02 m and the sides.
+	_stair_run(root, 0.0, 66.0, 79.0, deck_y, ay, 7.96, tile)
 	for sx4 in [-1.0, 1.0]:
 		_box(root, Vector3(sx4 * 4.2, (deck_y + ay + 1.0) * 0.5, 72.5), Vector3(0.4, (ay + 1.0) - deck_y, 14.0), cream, true)
-	# Aft parapet closing the open (descending) end of the well on the A-deck side, capped with a rail.
-	_box(root, Vector3(0.0, ay + 0.5, 66.0), Vector3(8.4, 1.0, 0.4), cream, true)
-	_box(root, Vector3(0.0, ay + 1.05, 66.0), Vector3(8.8, 0.12, 0.5), rail, false)
+	# Parapet closing the aft edge of the deck opening (z=67) so you can't walk off A-deck into the
+	# well from astern; you descend from the forward edge where the top tread meets the deck. Rail cap.
+	_box(root, Vector3(0.0, ay + 0.5, 67.0), Vector3(8.4, 1.0, 0.4), cream, true)
+	_box(root, Vector3(0.0, ay + 1.05, 67.0), Vector3(8.8, 0.12, 0.5), rail, false)
 	# Lighting (deep in the hull).
 	for lz in [46.0, 56.0, 66.0]:
 		for lx in [-8.0, 0.0, 8.0]:

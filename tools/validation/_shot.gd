@@ -50,11 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Art Deco cabin corridor (A-deck, floor 11.86, eye ~13.5), looking forward down the alley
-		["deco_corr", Vector3(0.0, 13.3, -77.0), Vector3(0.0, 13.0, -40.0), Vector3.UP],
-		["deco_corr2", Vector3(0.0, 13.3, -60.0), Vector3(0.2, 13.05, -40.0), Vector3.UP],
-		# Look perpendicular into a starboard cabin doorway (door + furnished cabin at z=-50.5)
-		["deco_cabin", Vector3(0.0, 13.0, -50.5), Vector3(5.0, 12.4, -51.6), Vector3.UP],
+		# Pool stairwell — player POV from the reported screenshot (A-deck, fwd of the well, looking in)
+		["pool_pov", Vector3(-4.0, 12.9, 81.0), Vector3(1.0, 6.5, 72.0), Vector3.UP],
+		# From inside the pool, looking up+fwd at the stairwell (stair fills opening, walls enclose)
+		["pool_inside", Vector3(8.0, 8.0, 52.0), Vector3(0.0, 11.0, 74.0), Vector3.UP],
+		# A-deck aft edge of the well, looking fwd — confirm the aft parapet + solid floor
+		["pool_aftedge", Vector3(0.0, 12.9, 60.0), Vector3(0.0, 8.5, 73.0), Vector3.UP],
+		# Forward promenade (z~73) at eye level — find the stray green cubes
+		["prom_fwd73", Vector3(0.0, 16.0, 64.0), Vector3(6.0, 15.4, 75.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
