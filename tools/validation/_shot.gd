@@ -50,17 +50,11 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Image 1 repro: player on A-deck (y_main 11.86, eye ~13.5) at z~81 looking aft+down into pool well
-		["i1_pool_well", Vector3(5.0, 13.5, 81.0), Vector3(-2.0, 7.5, 71.0), Vector3.UP],
-		# Pool well from inside, aft-looking, to see stair + cream well walls
-		["pool_aft2", Vector3(9.0, 8.6, 48.0), Vector3(2.0, 6.0, 72.0), Vector3.UP],
-		# Image 2 repro: player in the Verandah Grill (floor 18.04, eye ~19.7) looking aft across the floor
-		["i2_grill_eye", Vector3(8.0, 19.7, -68.0), Vector3(-2.0, 18.2, -77.0), Vector3.UP],
-		# After boat deck (open) — confirm the cowl vents landed out here, not in the grill
-		["after_deck", Vector3(0.0, 22.0, -78.0), Vector3(0.0, 18.0, -100.0), Vector3.UP],
-		# Image 3 repro: player in the promenade gallery (floor 14.7, eye ~16.35) looking fwd + aft
-		["i3_prom_fwd", Vector3(14.0, 16.35, -66.0), Vector3(14.0, 16.0, 40.0), Vector3.UP],
-		["i3_prom_aft", Vector3(14.0, 16.35, -66.0), Vector3(14.0, 16.0, -110.0), Vector3.UP],
+		# Art Deco cabin corridor (A-deck, floor 11.86, eye ~13.5), looking forward down the alley
+		["deco_corr", Vector3(0.0, 13.3, -77.0), Vector3(0.0, 13.0, -40.0), Vector3.UP],
+		["deco_corr2", Vector3(0.0, 13.3, -60.0), Vector3(0.2, 13.05, -40.0), Vector3.UP],
+		# Look perpendicular into a starboard cabin doorway (door + furnished cabin at z=-50.5)
+		["deco_cabin", Vector3(0.0, 13.0, -50.5), Vector3(5.0, 12.4, -51.6), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

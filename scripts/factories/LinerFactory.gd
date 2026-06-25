@@ -1614,15 +1614,91 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 	for cz in [-40.5, -45.5, -50.5, -55.5, -60.5, -65.5, -70.5, -75.5]:
 		for sgn2 in [-1.0, 1.0]:
 			_cabin_interior(root, float(cz), float(sgn2), ya, yc, cw, white, wood, bedmat, porc)
-	# Corridor lighting.
+	# Art Deco corridor fit-out (deep-red carpet, glossy-black wainscot, burl + chrome door surrounds,
+	# globe sconces) over the plain white alley walls — matching the QM's first-class cabin corridors.
+	_deco_corridor(root, z0, z1, ya, yc, cw, doors, 1.0)
+	# Background corridor fill (the globe sconces in _deco_corridor carry the rest).
 	for lz in [-44.0, -54.0, -64.0, -74.0]:
 		var lamp := OmniLight3D.new()
 		lamp.position = Vector3(0.0, yc - 0.4, float(lz))
 		lamp.light_color = Color(1.0, 0.92, 0.78)
-		lamp.light_energy = 1.6
+		lamp.light_energy = 1.1
 		lamp.omni_range = 9.0
 		lamp.shadow_enabled = false
 		root.add_child(lamp)
+
+
+# Art Deco fit-out for a 1:1 cabin alleyway (per the QM's first-class corridors): a deep-red
+# patterned carpet runner; a tall glossy-black lacquer wainscot under a warm cream upper wall, split
+# by a burl handrail; polished-chrome strips + golden-burl surrounds framing each cabin doorway; and
+# white globe sconces high on the walls. Overlaid (facing inboard) on the plain white door-walls at
+# x=±cw. The QM Art Deco vocabulary established here — burl / black lacquer / chrome / globe — is
+# reused for the lift lobbies and stair foyers.
+static func _deco_corridor(parent: Node3D, z0: float, z1: float, ya: float, yc: float, cw: float, doors: Array, dw: float) -> void:
+	var lacquer := _mat(Color(0.05, 0.05, 0.06), 0.12, 0.45)      # glossy black lacquer wainscot
+	var burl := _mat(Color(0.60, 0.42, 0.19), 0.35, 0.1)          # golden birdseye-maple burl
+	var cream := _mat(Color(0.82, 0.76, 0.63), 0.85, 0.0)         # warm cream upper wall
+	var chrome := _mat(Color(0.82, 0.84, 0.86), 0.18, 0.95)       # polished chrome strip
+	var globe := StandardMaterial3D.new()
+	globe.albedo_color = Color(1.0, 0.96, 0.86)
+	globe.emission_enabled = true
+	globe.emission = Color(1.0, 0.94, 0.80)
+	globe.emission_energy_multiplier = 0.7
+	var wains_h: float = 1.3
+	var face: float = cw - 0.12                                    # facing plane, just inside the wall inner face
+	# Art Deco medallion carpet runner down the alley.
+	var cwid: float = (cw - 0.08) * 2.0
+	var carpet := _deco_carpet_mat(cwid, z1 - z0, 0.55)
+	_box(parent, Vector3(0.0, ya + 0.03, (z0 + z1) * 0.5), Vector3(cwid, 0.05, z1 - z0), carpet, false)
+	# Door spans -> the wall segments between them get the wainscot/cream/rail facing.
+	var d: Array = doors.duplicate()
+	d.sort()
+	var starts: Array = [z0]
+	var ends: Array = []
+	for dz in d:
+		ends.append(float(dz) - dw * 0.5)
+		starts.append(float(dz) + dw * 0.5)
+	ends.append(z1)
+	for sgn in [-1.0, 1.0]:
+		var xw: float = sgn * face
+		for i in range(starts.size()):
+			var sa: float = float(starts[i])
+			var sb: float = float(ends[i])
+			if sb - sa < 0.06:
+				continue
+			var sc: float = (sa + sb) * 0.5
+			var sl: float = sb - sa - 0.02
+			_box(parent, Vector3(xw, ya + wains_h * 0.5, sc), Vector3(0.05, wains_h, sl), lacquer, false)
+			_box(parent, Vector3(xw, (ya + wains_h + 0.07 + yc) * 0.5, sc), Vector3(0.05, yc - ya - wains_h - 0.07, sl), cream, false)
+			_box(parent, Vector3(xw, ya + wains_h + 0.04, sc), Vector3(0.08, 0.09, sl), burl, false)
+		# Burl surround + chrome strip up each side of every doorway, with a burl lintel over it.
+		for dz in d:
+			for jamb in [-1.0, 1.0]:
+				_box(parent, Vector3(xw, ya + 1.05, float(dz) + jamb * dw * 0.5), Vector3(0.08, 2.1, 0.14), burl, false)
+				_box(parent, Vector3(xw - sgn * 0.05, ya + 1.05, float(dz) + jamb * dw * 0.5), Vector3(0.03, 2.0, 0.05), chrome, false)
+			_box(parent, Vector3(xw, ya + 2.16, float(dz)), Vector3(0.08, 0.14, dw + 0.12), burl, false)
+	# White globe sconces high on the walls, staggered side to side down the alley.
+	var gi: int = 0
+	var gz: float = z0 + 3.0
+	while gz < z1 - 1.0:
+		var gs: float = 1.0 if (gi % 2 == 0) else -1.0
+		var gm := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.13
+		sm.height = 0.24
+		gm.mesh = sm
+		gm.material_override = globe
+		gm.position = Vector3(gs * (face - 0.05), yc - 0.32, gz)
+		parent.add_child(gm)
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(gs * (face - 0.25), yc - 0.34, gz)
+		lamp.light_color = Color(1.0, 0.93, 0.80)
+		lamp.light_energy = 0.9
+		lamp.omni_range = 6.0
+		lamp.shadow_enabled = false
+		parent.add_child(lamp)
+		gz += 4.0
+		gi += 1
 
 
 # One stateroom's fit-out (s = +1 starboard / -1 port): the bed against the outboard wall with its
@@ -1873,3 +1949,35 @@ static func _mat(color: Color, rough: float, metal: float) -> StandardMaterial3D
 	m.roughness = rough
 	m.metallic = metal
 	return m
+
+
+# A procedurally-painted Art Deco medallion carpet (the QM first-class corridor pattern): a circular
+# floral medallion — green/cream/red/gold concentric rings — repeated over a dark-burgundy ground.
+# Painted into one small tileable image, then UV-tiled so each medallion is ~`medallion` m across the
+# given carpet width × length (keeps the medallions circular at any carpet size). Reused for the
+# corridor + foyer carpets.
+static func _deco_carpet_mat(width: float, length: float, medallion: float) -> StandardMaterial3D:
+	var n: int = 64
+	var img := Image.create(n, n, true, Image.FORMAT_RGB8)
+	img.fill(Color(0.28, 0.13, 0.12))                       # dark burgundy ground
+	var rings: Array = [
+		[0.45, Color(0.22, 0.34, 0.22)],   # green outer
+		[0.36, Color(0.82, 0.76, 0.58)],   # cream
+		[0.27, Color(0.62, 0.16, 0.14)],   # red rose
+		[0.15, Color(0.80, 0.46, 0.18)],   # gold
+		[0.06, Color(0.40, 0.13, 0.13)],   # dark centre
+	]
+	for y in range(n):
+		for x in range(n):
+			var dx: float = (float(x) + 0.5) / float(n) - 0.5
+			var dy: float = (float(y) + 0.5) / float(n) - 0.5
+			var r: float = sqrt(dx * dx + dy * dy)
+			for ring in rings:
+				if r <= float(ring[0]):
+					img.set_pixel(x, y, ring[1])
+	img.generate_mipmaps()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = ImageTexture.create_from_image(img)
+	mat.uv1_scale = Vector3(maxf(width / medallion, 1.0), maxf(length / medallion, 1.0), 1.0)
+	mat.roughness = 0.95
+	return mat
