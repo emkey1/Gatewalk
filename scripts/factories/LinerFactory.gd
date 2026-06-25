@@ -75,7 +75,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "liner", 1))
 
 	_build_hull(root, wl, wl + 5.04, -28.0, 28.0, 36.0, 82.0)   # carve the upper hull over the Dining Room + the pool (floor at C deck)
-	_build_main_deck(root, wl, 15.0, 25.0, 4.0, 67.0, 79.0, 4.0)   # stairwell openings: Dining Room + swimming-pool descents
+	_build_main_deck(root, wl, 15.0, 25.0, 4.0, 73.0, 79.0, 4.0)   # stairwell openings: Dining Room + swimming-pool descents
 	_build_superstructure(root, wl)
 	_build_funnels(root, wl)
 	_build_masts(root, wl)
@@ -1531,7 +1531,7 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	lum.emission_enabled = true
 	lum.emission = Color(1.0, 0.95, 0.82)
 	lum.emission_energy_multiplier = 0.3
-	_floor_with_hole(root, z0, z1, hw, cy, 70.0, 80.0, 4.0, 0.2, lum)
+	_floor_with_hole(root, z0, z1, hw, cy, 73.0, 79.5, 4.0, 0.2, lum)
 	# Columns down each side of the pool.
 	for cz in [44.0, 54.0, 64.0]:
 		for sx3 in [-10.0, 10.0]:
@@ -1541,35 +1541,50 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	# flight from the gallery to the pool deck (the photo-2 stair). Finish (teal/cream mosaic, stepped
 	# corner piers, coved uplit ceiling, cubicles, water-entry steps) comes in later increments. ---
 	var gy: float = wl + 9.8              # upper gallery / balcony floor (~3.3 m above the pool deck)
-	# Aft gallery (full width, carried back to the aft wall that supports it) with the A-deck stair
-	# well cut through it; forward gallery + the two side-arm balconies complete the ring round the
-	# pool void (inner edge x=±11), so the basin below is overlooked from the balcony all the way round.
-	_floor_with_hole(root, 68.0, 80.0, 13.8, gy, 72.0, 79.0, 4.0, 0.3, cream)
+	# Aft gallery (z 72..80, against the aft wall that supports it) + forward gallery + the two side-arm
+	# balconies (z 44..72) complete the ring round the pool void (inner edge x=±11); the basin below is
+	# overlooked from the balcony. The A-deck access flight's solid wedge sits on the aft slab.
+	_box(root, Vector3(0.0, gy - 0.15, 76.0), Vector3(27.6, 0.3, 8.0), cream, true)
 	_box(root, Vector3(0.0, gy - 0.15, 41.0), Vector3(27.6, 0.3, 6.0), cream, true)
 	for sxg in [-1.0, 1.0]:
-		_box(root, Vector3(sxg * 12.4, gy - 0.15, 56.0), Vector3(2.8, 0.3, 24.0), cream, true)
-	# Deco balustrade round the gallery's inner edge, split aft-centre where the grand flight descends.
+		_box(root, Vector3(sxg * 12.4, gy - 0.15, 58.0), Vector3(2.8, 0.3, 28.0), cream, true)
+	# Deco balustrade round the void: port + starboard arms, the forward edge, and the aft edge in the
+	# gaps outboard of / between the two descending flights.
 	var balr: Array = [
-		[11.0, 56.0, 0.16, 24.0], [-11.0, 56.0, 0.16, 24.0],   # port + starboard arms
+		[11.0, 58.0, 0.16, 28.0], [-11.0, 58.0, 0.16, 28.0],   # port + starboard (z 44..72)
 		[0.0, 44.0, 22.0, 0.16],                                # forward
-		[7.25, 68.0, 7.5, 0.16], [-7.25, 68.0, 7.5, 0.16],      # aft (round the flight opening)
+		[8.6, 72.0, 4.7, 0.16], [-8.6, 72.0, 4.7, 0.16],        # aft, outboard of each side flight
+		[0.0, 72.0, 7.5, 0.16],                                 # aft, between the two side flights
 	]
 	for b in balr:
 		_box(root, Vector3(float(b[0]), gy + 0.47, float(b[1])), Vector3(float(b[2]), 0.94, float(b[3])), cream, true)
 		_box(root, Vector3(float(b[0]), gy + 1.0, float(b[1])), Vector3(float(b[2]) + 0.1, 0.1, float(b[3]) + 0.1), rail, false)
-	# A-deck -> gallery flight (down through the aft-gallery well) + the grand gallery -> pool-deck
-	# flight. Stringer walls hide the solid stair flanks (feet sunk into the slab each lands on); the
-	# flight-1 well walls carry 1 m above the A-deck as the opening's side parapets.
-	_stair_run(root, 0.0, 72.0, 79.0, gy, ay, 7.0, tile)
-	_stair_run(root, 0.0, 63.0, 68.0, deck_y, gy, 7.0, tile)
+	# A-deck -> gallery access flight, tucked aft (fills the A-deck opening), with well walls carrying up
+	# past the A-deck as side parapets + an aft parapet (you step on at the forward edge).
+	_stair_run(root, 0.0, 73.5, 79.0, gy, ay, 7.0, tile)
 	for sx4 in [-1.0, 1.0]:
-		_box(root, Vector3(sx4 * 3.85, (gy - 0.12 + ay + 1.0) * 0.5, 73.0), Vector3(0.3, (ay + 1.0) - gy + 0.12, 12.0), cream, true)
-		_box(root, Vector3(sx4 * 3.85, (deck_y - 0.12 + gy) * 0.5, 65.5), Vector3(0.3, gy - deck_y + 0.12, 5.0), cream, true)
-	# Parapet closing the aft edge of the A-deck opening (you descend from the forward edge). Rail cap.
-	_box(root, Vector3(0.0, ay + 0.5, 67.0), Vector3(8.0, 1.0, 0.4), cream, true)
-	_box(root, Vector3(0.0, ay + 1.05, 67.0), Vector3(8.4, 0.12, 0.5), rail, false)
-	# Changing-cabin doors recessed in the gallery side walls (dark panel in a frame) — the references
-	# show a row of cubicles off the balcony; modelled as doors here, fitted out as cubicles later.
+		_box(root, Vector3(sx4 * 3.85, (gy - 0.12 + ay + 1.0) * 0.5, 76.25), Vector3(0.3, (ay + 1.0) - gy + 0.12, 6.5), cream, true)
+	_box(root, Vector3(0.0, ay + 0.5, 73.0), Vector3(8.0, 1.0, 0.4), cream, true)
+	_box(root, Vector3(0.0, ay + 1.05, 73.0), Vector3(8.4, 0.12, 0.5), rail, false)
+	# --- The grand DOUBLE staircase, gallery -> pool deck (per the references): a NARROW flight on EACH
+	# side (port + starboard — TWO entrances at the top) descends to a shared central half-landing, then
+	# CONTINUES DOWN on both sides to the pool deck, with a decorative centre pylon between them. Each
+	# flight is bounded by inner + outer balustrade walls; upper-flight wedges sit on solid plinths. ---
+	var land_y: float = wl + 8.0
+	var pf: float = deck_y - 0.12          # element feet sunk into the pool deck (no coplanar z-fight)
+	for ssx in [-1.0, 1.0]:
+		_stair_run(root, ssx * 5.0, 68.0, 72.0, land_y, gy, 2.5, tile)                                              # upper flight: gallery -> landing
+		_box(root, Vector3(ssx * 5.0, (pf + land_y) * 0.5, 70.0), Vector3(2.5, land_y - pf, 4.0), cream, true)      # plinth under it
+		_stair_run(root, ssx * 5.0, 63.0, 66.0, deck_y, land_y, 2.5, tile)                                          # lower flight: landing -> pool deck
+		_box(root, Vector3(ssx * 6.35, (pf + gy) * 0.5, 67.5), Vector3(0.22, gy - pf, 9.0), cream, true)            # outer balustrade
+		_box(root, Vector3(ssx * 3.65, (pf + gy) * 0.5, 67.5), Vector3(0.22, gy - pf, 9.0), cream, true)            # inner balustrade
+	# Shared central half-landing (both flights meet here) on its plinth.
+	_box(root, Vector3(0.0, land_y - 0.1, 67.0), Vector3(13.0, 0.2, 2.0), tile, true)
+	_box(root, Vector3(0.0, (pf + land_y) * 0.5, 67.0), Vector3(13.0, land_y - pf, 2.0), cream, true)
+	# Central decorative pylon + red inlaid panel (the references' centre feature) on the landing.
+	_box(root, Vector3(0.0, (land_y - 0.12 + gy + 0.5) * 0.5, 67.0), Vector3(2.0, gy + 0.62 - land_y, 1.6), cream, true)
+	_box(root, Vector3(0.0, land_y + 1.0, 65.95), Vector3(1.3, 1.8, 0.14), _mat(Color(0.66, 0.18, 0.16), 0.5, 0.1), false)
+	# Changing-cabin doors recessed in the gallery side walls (a nod; proper cubicles come later).
 	var doormat := _mat(Color(0.20, 0.14, 0.10), 0.5, 0.0)
 	for dz in [48.0, 56.0, 64.0]:
 		for sxd in [-1.0, 1.0]:

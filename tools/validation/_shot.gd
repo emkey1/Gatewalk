@@ -50,16 +50,17 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Inc-72 galleried pool: from the side gallery looking down over the balustrade at the basin.
-		["pool_gallery", Vector3(12.6, 9.8, 55.0), Vector3(0.0, 5.2, 52.0), Vector3.UP],
-		# From the pool deck looking up at the grand flight + the gallery landing (the photo-2 view).
-		["pool_grand", Vector3(0.0, 5.9, 50.0), Vector3(0.0, 8.6, 67.0), Vector3.UP],
-		# From the pool deck by the basin, looking up at the two-storey void + side balcony.
-		["pool_void", Vector3(9.5, 5.6, 50.0), Vector3(11.0, 9.2, 60.0), Vector3.UP],
-		# Looking down the A-deck opening — the flight down to the gallery, gallery + pool below.
-		["pool_adeck", Vector3(2.5, 12.7, 75.5), Vector3(-0.5, 7.5, 70.0), Vector3.UP],
-		# Down the length from the aft gallery — the whole galleried room.
-		["pool_long", Vector3(0.0, 9.6, 71.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
+		# Corrected double stair (the photo-2 view): from the pool deck looking aft — two flights, a
+		# central half-landing + centre pylon, then both flights continuing down to the deck.
+		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
+		# 3/4 angle on the double stair.
+		["stair_3q", Vector3(9.0, 6.7, 53.0), Vector3(-1.0, 7.6, 68.0), Vector3.UP],
+		# Side-on: the two flights + landing profile.
+		["stair_side", Vector3(11.5, 7.2, 60.0), Vector3(-2.0, 7.2, 69.0), Vector3.UP],
+		# From the gallery, looking down at the two entrances at the top of the stair.
+		["stair_top", Vector3(0.0, 9.6, 77.0), Vector3(0.5, 7.0, 67.0), Vector3.UP],
+		# Whole galleried room down the length.
+		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
