@@ -50,12 +50,16 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Side ELEVATION — funnel spacing/positions (now +60/+15/-30) + masts + superstructure profile.
-		["profile", Vector3(-210.0, 34.0, 15.0), Vector3(0.0, 19.0, 15.0), Vector3.UP],
-		# 3/4 aerial showing the funnel group + sports-deck fit realigned to it.
-		["aerial", Vector3(70.0, 60.0, 120.0), Vector3(5.0, 20.0, 5.0), Vector3.UP],
-		# Sports deck eye level among the realigned funnels/casing.
-		["sports_high", Vector3(17.0, 27.0, 44.0), Vector3(-2.0, 22.5, 18.0), Vector3.UP],
+		# Side ELEVATION — taller superstructure after the deck raise.
+		["profile", Vector3(-215.0, 38.0, 15.0), Vector3(0.0, 22.0, 15.0), Vector3.UP],
+		# Cabin interior — check the new fixed ~2.85 m ceiling (not a 4.5 m gap).
+		["md_cabin", Vector3(-12.4, 13.2, 4.5), Vector3(-15.9, 13.0, 4.5), Vector3.UP],
+		# EXTERIOR promenade-deck window band (re-anchored glazing).
+		["prom_win", Vector3(-30.0, 19.5, 0.0), Vector3(-16.0, 19.0, 10.0), Vector3.UP],
+		# Sun-house gym interior (shifted up with DECK_SUN) — floor/ceiling intact.
+		["gym", Vector3(3.0, 22.5, -50.0), Vector3(0.0, 21.9, -34.0), Vector3.UP],
+		# Sports deck fit (shifted up with DECK_SPORTS).
+		["sports", Vector3(16.0, 30.0, 30.0), Vector3(-2.0, 25.0, 12.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

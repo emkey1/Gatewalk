@@ -28,9 +28,14 @@ const DRAUGHT: float = 11.8        # keel below the waterline
 # gets a ~3.3 m deckhead so a 1.8 m player isn't brushing the deck beams (the Sun/Sports decks ride
 # up with it; the lower Main/A decks keep the 2.84 m cabin spacing).
 const DECK_MAIN: float = 13.56     # Main deck: open forecastle + aft deck, base of the deckhouse
-const DECK_PROM: float = 16.40     # Promenade deck (the long enclosed promenade)
-const DECK_SUN: float = 19.74      # boat / sun deck: lifeboats + funnel casings (lifted for a taller Promenade below)
-const DECK_SPORTS: float = 22.58   # sports deck (topmost open deck)
+# Superstructure decks RAISED (rework from the 1:2000 model: the boat deck reads ~25 m above the WL).
+# The deck-to-deck gaps are now ~4.5 m (real superstructure spacing); rooms keep a fixed ROOM_H
+# ceiling with the deck structure as a void above (so cabins aren't 4.5 m tall). Stage 1 keeps the
+# hull (Main + below) put; Stage 2 will raise the freeboard to land the boat deck at ~25 m.
+const DECK_PROM: float = 18.00     # Promenade deck (the long enclosed promenade)
+const DECK_SUN: float = 22.50      # boat / sun deck: lifeboats + funnel casings
+const DECK_SPORTS: float = 25.50   # sports deck (topmost open deck)
+const ROOM_H: float = 2.85         # finished room height (floor->ceiling); deck structure void sits above
 # Funnel longitudinal centres (+z = bow), measured off a 1:2000 scale QM model: equal-height funnels
 # ~45 m apart, the group centred ~15 m FORWARD of amidships (the model's hull beam came out 36.3 m,
 # confirming the ship's 36 m beam, so its proportions are trustworthy).
@@ -597,14 +602,14 @@ static func _build_superstructure(parent: Node3D, wl: float) -> void:
 	# in the forward wall lets you walk in off the forecastle; the long sides carry the big
 	# Promenade windows as a real see-through glazed band over a waist-high dado (sill 17.4 ->
 	# head 18.8, i.e. 1 m of dado above the 16.4 m Promenade floor), matching the enclosed promenade.
-	_deckhouse_tapered(root, SS_AFT * L, SS_FWD * L, y_main, y_sun, white, deck, seaglass, -4.0, wl + 17.4, wl + 18.8)
+	_deckhouse_tapered(root, SS_AFT * L, SS_FWD * L, y_main, y_sun, white, deck, seaglass, -4.0, wl + DECK_PROM + 1.0, wl + DECK_SUN - 1.0)
 	# Centreline boat-deck house: Boat/Sun -> Sports deck, the funnel casing base. Narrow,
 	# so the boat-deck walkways (for the lifeboats) stay open along each side.
 	# Sun/boat-deck house above the Promenade: a wide tapered deckhouse with a cabin-window band —
 	# the wedding-cake second tier the funnels rise from — set inboard so the lifeboat walkways stay
 	# open outboard. (Was a narrow ±8 funnel casing, which read as a thin slab.)
 	# aft door -> the Verandah Grill; a hatch cut in the roof aft-starboard for the sports-deck stair/lift trunk
-	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + 20.5, wl + 21.6, 1.4, 4.75, 8.25, -58.2, -53.4)
+	_upper_house(root, -78.0, 78.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + DECK_SUN + 0.7, wl + DECK_SUN + 2.0, 1.4, 4.75, 8.25, -58.2, -53.4)
 	# Navigating bridge across the forward end of the boat deck, with wing platforms.
 	_build_bridge(root, wl, white, glass, deck)
 
@@ -1476,7 +1481,7 @@ static func _build_promenade_fit(parent: Node3D, wl: float) -> void:
 	var zl: float = z1 - z0
 	var hw: float = PROM_HALF_W
 	var y_prom: float = wl + DECK_PROM
-	var y_sill: float = wl + 17.4
+	var y_sill: float = y_prom + 1.0
 	var y_ceil: float = wl + DECK_SUN - 0.45
 	var lining := _mat(Color(0.78, 0.74, 0.65), 0.9, 0.0)
 	var beam := _mat(Color(0.70, 0.65, 0.55), 0.8, 0.0)
@@ -2416,8 +2421,8 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 	root.name = "SideCabins"
 	parent.add_child(root)
 	var ya: float = wl + DECK_MAIN
-	var yc: float = wl + DECK_PROM
-	var ytop: float = yc - 0.15                  # bury the wall heads up into the Promenade floor slab
+	var yc: float = ya + ROOM_H                   # cabin ceiling (~2.85 m); the deck void + Promenade floor sit above
+	var ytop: float = yc
 	var wcy: float = (ya - 0.12 + ytop) * 0.5
 	var wh: float = ytop - (ya - 0.12)
 	var white := _mat(COL_SUPER, 0.7, 0.0)
@@ -2447,6 +2452,8 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 		# Collidable OUTBOARD wall of the bay (so you can't run through the ship's side) + aft partition.
 		_box(root, Vector3(ow, wcy, zc), Vector3(0.2, wh, dz + 0.06), white, true)
 		_box(root, Vector3(sgn * (_house_halfw_mesh(za) - 0.5 - depth * 0.5), wcy, za), Vector3(depth, wh, 0.2), white, true)
+		# Ceiling over the cabin + its bit of alleyway (the deck structure void is hidden above it).
+		_box(root, Vector3(sgn * (sw - 3.65), yc, zc), Vector3(7.0, 0.16, dz + 0.06), white, false)
 		# Porthole window on the outboard wall, at eye level.
 		ports.append(Transform3D(face, Vector3(sgn * (sw - 0.62), ya + 1.6, zc)))
 		# Furnish a sample: medallion carpet + a bed against the outboard wall + a wardrobe by the door.
