@@ -62,8 +62,10 @@ const COL_WINDOW := Color(0.10, 0.13, 0.17)    # dark glazing
 # SS_AFT/SS_FWD run the deckhouse out to ~81% of the LOA (the way the real Promenade Deck does),
 # leaving a ~34 m open forecastle forward and a ~23 m open deck aft. All the fore/aft fittings are
 # positioned relative to these so they ride with the deckhouse ends.
-const SS_AFT: float = -0.85
-const SS_FWD: float = 0.78
+const SS_AFT: float = -0.676   # deckhouse aft end ~-105 m, matching the 1:2000 model (was -0.85/-132; the
+                               # empty aft shell + aft promenade now end together at -105, with the lounge fitted)
+const SS_FWD: float = 0.78     # deckhouse fwd end ~+121; the Main Hall (boarding foyer) + bridge sit here, so
+                               # the forward trim to the model's +100 is deferred (touches the player's arrival hall)
 const SS_HALF_W: float = 16.5
 const SS_SIDE_DECK: float = 1.2    # open side-deck margin kept between the deckhouse wall and the hull edge
 const BH_AFT: float = -0.40
@@ -1415,7 +1417,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# dead-ending amidships (the deckhouse glazing + boat-deck-slab ceiling already span the length).
 	var floor_mat := _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0)
 	_tapered_slab(root, PROM_FWD, 90.0, y_prom, 0.3, 0.0, floor_mat)
-	_tapered_slab(root, -115.0, PROM_AFT, y_prom, 0.3, 0.0, floor_mat)
+	_tapered_slab(root, -105.0, PROM_AFT, y_prom, 0.3, 0.0, floor_mat)   # aft promenade floor, trimmed to the -105 deckhouse end
 
 	# Art Deco lift lobby + switchback grand staircase up from A-deck to the Promenade (replaces the
 	# old straight flight + plain balustrade): two flights round a burl spine, lift bank, etched glass.
@@ -1583,7 +1585,7 @@ static func _build_promenade_rooms(parent: Node3D, wl: float) -> void:
 	var y_wtop: float = y_ceil + 0.1
 	for ez in [62.0, -68.0]:
 		_transverse_door_wall(root, float(ez), rhw, y_prom, y_wtop, 0.4, 0.0, 3.0, 2.3, white)
-	for ez2 in [90.0, -115.0]:
+	for ez2 in [90.0, -105.0]:
 		_box(root, Vector3(0.0, (y_prom - 0.12 + y_wtop) * 0.5, float(ez2)), Vector3(_house_half_w(float(ez2)) * 2.0, y_wtop - y_prom + 0.12, 0.4), white, true)
 	# Warm light in the two promenade extensions.
 	for lz in [76.0, -92.0]:
@@ -1748,7 +1750,7 @@ static func _furnish_promenade_ends(parent: Node3D, wl: float) -> void:
 	bl.shadow_enabled = false
 	root.add_child(bl)
 
-	# Aft promenade lounge (aft extension, -115..-68): settees facing across low tables.
+	# Aft promenade lounge (aft extension, -105..-68): settees facing across low tables.
 	_box(root, Vector3(0.0, yp + 0.04, -90.0), Vector3(18.0, 0.08, 30.0), rug, false)
 	for g2 in [[-7.0, -78.0], [7.0, -78.0], [-7.0, -102.0], [7.0, -102.0]]:
 		_box(root, Vector3(float(g2[0]), yp + 0.4, float(g2[1])), Vector3(1.2, 0.5, 1.2), wood, true)
