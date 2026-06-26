@@ -50,12 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# New forward Main-deck stateroom block (z 27..43, between the dining stair + the lift lobby).
-		["cabin_fwd", Vector3(0.0, 12.6, 29.0), Vector3(0.0, 12.4, 42.0), Vector3.UP],
-		# The extended aft wing corridor (now runs forward to z=12; every-other bay furnished).
-		["cabin_aft", Vector3(0.0, 12.6, -10.0), Vector3(0.0, 12.4, 11.0), Vector3.UP],
-		# FLICKER CHECK: Main Lounge floor over the extended cabins (buried tops should keep it clean).
-		["lounge_floor", Vector3(8.0, 15.5, -5.0), Vector3(-3.0, 14.55, 9.0), Vector3.UP],
+		# New Main-deck stateroom run between the lift lobby + the pool stair (z 63..72).
+		["cabin_w3", Vector3(0.0, 12.6, 64.0), Vector3(0.0, 12.4, 71.0), Vector3.UP],
+		# New Main-deck stateroom run between the pool stair + the Main Hall (z 80..92).
+		["cabin_w4", Vector3(0.0, 12.6, 81.0), Vector3(0.0, 12.4, 91.0), Vector3.UP],
+		# Forward Promenade-extension floor over the z63..72 cabins (flicker check).
+		["prom_ext_floor", Vector3(8.0, 15.5, 64.0), Vector3(-3.0, 14.55, 71.0), Vector3.UP],
 		# Overview down the pool length (sanity).
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]

@@ -1141,10 +1141,12 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_dining_room(root, wl)
 	_build_main_hall(root, wl)
 	# First Class staterooms — the Main Deck is the primary stateroom deck per the 1936 QM plan (cabins
-	# also ran on the Sun/A/B decks — not built yet). The big aft wing (furnish every other bay to stay
-	# light) + a forward block between the dining stair and the lift lobby.
-	_build_cabins(root, wl, -78.0, 12.0, 2)
-	_build_cabins(root, wl, 27.0, 43.0)
+	# also ran on the Sun/A/B decks — not built yet). Fill the clear Main-deck z-runs between the
+	# dining/pool stairwell heads, the lift lobby + the Main Hall; the big aft wing furnishes every other bay.
+	_build_cabins(root, wl, -78.0, 12.0, 2)    # aft wing (under the Smoking Room..Lounge)
+	_build_cabins(root, wl, 27.0, 43.0)        # between the dining stair + the lift lobby
+	_build_cabins(root, wl, 63.0, 72.0)        # between the lift lobby + the pool stair
+	_build_cabins(root, wl, 80.0, 92.0)        # between the pool stair + the Main Hall
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
 	_build_sports_access(root, wl)
@@ -2028,15 +2030,16 @@ static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float, furni
 	# near true 1:1: a ~1.0 m clear alley (~3 ft) with 1.0 m cabin doors, and still walkable.
 	var cw: float = 0.6                 # corridor half-width -> ~1.0 m clear alley (near 1:1)
 	var cd: float = 5.3                 # cabin outboard wall (~4.7 m deep cabins)
-	# Cabins every 5 m over the z0..z1 wing: a door (+ furnished interior) at each bay centre, a partition
-	# at each bay edge — derived so the wing length is parameterised.
-	var n: int = int(round((z1 - z0) / 5.0))
+	# ~5 m bays EVENLY spaced over z0..z1 (so any wing length fits exactly — no over/undershoot): a door
+	# (+ furnished interior) at each bay centre, a partition at each bay edge.
+	var n: int = maxi(1, int(round((z1 - z0) / 5.0)))
+	var dz: float = (z1 - z0) / float(n)
 	var doors: Array = []
 	var parts: Array = []
 	for i in range(n):
-		doors.append(z0 + 2.5 + 5.0 * float(i))
+		doors.append(z0 + dz * (float(i) + 0.5))
 	for i in range(n + 1):
-		parts.append(z0 + 5.0 * float(i))
+		parts.append(z0 + dz * float(i))
 	# Cabin outboard walls + partitions, feet sunk 0.12 m into the A-deck floor AND tops sunk 0.15 m up
 	# into the Promenade floor slab above (= the cabin ceiling). The tops used to sit exactly at yc (the
 	# Promenade floor TOP), so from the Promenade above they z-fought the floor into flicker slivers that
@@ -2061,10 +2064,10 @@ static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float, furni
 	# Art Deco corridor fit-out (deep-red carpet, glossy-black wainscot, burl + chrome door surrounds,
 	# globe sconces) over the plain white alley walls — matching the QM's first-class cabin corridors.
 	_deco_corridor(root, z0, z1, ya, yc - 0.15, cw, doors, 1.0)   # yc-0.15: corridor facings buried like the walls
-	# Background corridor fill (the globe sconces in _deco_corridor carry the rest), every ~10 m.
-	for li in range(int((z1 - z0) / 10.0) + 1):
+	# Background corridor fill (the globe sconces in _deco_corridor carry the rest) — over every other bay.
+	for li in range(0, doors.size(), 2):
 		var lamp := OmniLight3D.new()
-		lamp.position = Vector3(0.0, yc - 0.4, z0 + 6.0 + 10.0 * float(li))
+		lamp.position = Vector3(0.0, yc - 0.4, float(doors[li]))
 		lamp.light_color = Color(1.0, 0.92, 0.78)
 		lamp.light_energy = 1.1
 		lamp.omni_range = 9.0
