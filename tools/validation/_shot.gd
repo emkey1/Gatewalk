@@ -50,13 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Port alleyway on the Main deck — should look along a row of cabin doors (outboard) with lit
-		# portholes beyond them, the centreline open to the right.
-		["md_alley", Vector3(-11.0, 13.4, -8.0), Vector3(-11.3, 13.0, 28.0), Vector3.UP],
-		# Into a port stateroom (bay centre z4.5): bed against the ship's side + the porthole window.
-		["md_cabin", Vector3(-12.4, 13.3, 4.5), Vector3(-16.5, 13.1, 4.5), Vector3.UP],
-		# From the centreline looking out to port: cabins line the side, the centre is clear.
-		["md_center", Vector3(3.0, 14.4, 0.0), Vector3(-15.0, 12.6, 8.0), Vector3.UP],
+		# EXTERIOR bow, A/B level — the deck portholes should no longer poke through the hull.
+		["ext_bow", Vector3(-24.0, 9.5, 98.0), Vector3(-9.0, 7.5, 112.0), Vector3.UP],
+		# EXTERIOR port side at the cabin level — no cabin geometry poking out of the deckhouse shell.
+		["ext_side", Vector3(-30.0, 14.5, -6.0), Vector3(-16.0, 12.8, 8.0), Vector3.UP],
+		# Cabin interior: porthole should now be at eye level, with a solid outboard wall.
+		["md_cabin", Vector3(-12.4, 13.5, 4.5), Vector3(-15.9, 13.46, 4.5), Vector3.UP],
+		# Port alleyway: cabin doors + outboard wall + portholes behind.
+		["md_alley", Vector3(-10.5, 13.5, -8.0), Vector3(-10.8, 13.2, 26.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

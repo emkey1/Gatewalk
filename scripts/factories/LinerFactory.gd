@@ -158,14 +158,41 @@ static func _sheer_y(z: float, wl: float) -> float:
 	return deck
 
 
-# Hull half-width at world-y `y` and longitudinal z: the side tapers from _half_beam at the sheer to
-# 0.72*_half_beam at the keel, so a tween-deck floor inset to this width meets the hull side instead
-# of poking out through the painted topside.
+# Hull half-width at world-y `y` and longitudinal z: the side tapers from the beam at the sheer to
+# 0.72*beam at the keel, so a tween-deck floor inset to this width meets the hull side instead of
+# poking out. CRUCIAL: use the beam of the faceted hull MESH (a straight loft between HULL_STATIONS),
+# NOT the smooth _half_beam curve — at the curving bow/stern the convex curve bulges OUTBOARD of the
+# chord, so geometry placed against the curve pokes out through the flat-lofted hull plating.
 static func _hull_halfw_at(z: float, y: float, wl: float) -> float:
 	var ky: float = _keel_y(z, wl)
 	var sy: float = _sheer_y(z, wl)
 	var f: float = clampf((y - ky) / maxf(sy - ky, 0.01), 0.0, 1.0)
-	return _half_beam(z) * lerpf(0.72, 1.0, f)
+	return _beam_mesh(z) * lerpf(0.72, 1.0, f)
+
+
+# Half-beam of the faceted hull mesh at z (straight loft between the HULL_STATIONS the hull is built
+# over), so insets from it stay inside the actual plating at the curving ends. See _hull_halfw_at.
+static func _beam_mesh(z: float) -> float:
+	var n: int = HULL_STATIONS
+	var u: float = clampf((z + HULL_HALF_LEN) / (2.0 * HULL_HALF_LEN), 0.0, 1.0) * float(n)
+	var i0: int = clampi(int(floor(u)), 0, n - 1)
+	var z0: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i0) / float(n))
+	var z1: float = lerpf(-HULL_HALF_LEN, HULL_HALF_LEN, float(i0 + 1) / float(n))
+	return lerpf(_half_beam(z0), _half_beam(z1), clampf((z - z0) / (z1 - z0), 0.0, 1.0))
+
+
+# Deckhouse half-width of the faceted deckhouse MESH at z (straight loft between the 22 stations
+# _deckhouse_tapered builds over), so cabins/walls placed against it don't poke out through the
+# flat-lofted shell at the tapering ends. Mirror of _beam_mesh for the superstructure.
+static func _house_halfw_mesh(z: float) -> float:
+	var za: float = SS_AFT * HULL_HALF_LEN
+	var zf: float = SS_FWD * HULL_HALF_LEN
+	var n: int = 22
+	var u: float = clampf((z - za) / (zf - za), 0.0, 1.0) * float(n)
+	var i0: int = clampi(int(floor(u)), 0, n - 1)
+	var z0: float = lerpf(za, zf, float(i0) / float(n))
+	var z1: float = lerpf(za, zf, float(i0 + 1) / float(n))
+	return lerpf(_house_half_w(z0), _house_half_w(z1), clampf((z - z0) / (z1 - z0), 0.0, 1.0))
 
 
 static func _hull_color(y: float, wl: float) -> Color:
@@ -451,7 +478,7 @@ static func _deck_portholes(parent: Node3D, wl: float, z0: float, z1: float, ys:
 	while z < z1 - 1.0:
 		for yy in ys:
 			for side in [-1.0, 1.0]:
-				var bw: float = _hull_halfw_at(z, float(yy), wl) - 0.05
+				var bw: float = _hull_halfw_at(z, float(yy), wl) - 0.15
 				tf.append(Transform3D(face, Vector3(side * bw, float(yy), z)))
 		z += 3.2
 	MultiMeshScatter.build(parent, "DeckPortholes", disc, glass, tf)
@@ -2259,7 +2286,7 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var wood := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
 	var bedmat := _mat(Color(0.50, 0.28, 0.30), 0.85, 0.0)
-	var depth: float = 4.6                        # cabin depth (alleyway sits this far inboard of the side)
+	var depth: float = 4.2                        # cabin depth (alleyway sits this far inboard of the outboard wall)
 	var dw: float = 1.0
 	var n: int = maxi(1, int(round((z1 - z0) / 5.0)))
 	var dz: float = (z1 - z0) / float(n)
@@ -2269,9 +2296,9 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 		var za: float = z0 + dz * float(i)
 		var zb: float = z0 + dz * float(i + 1)
 		var zc: float = (za + zb) * 0.5
-		var sw: float = _house_half_w(zc)
-		var ow: float = sgn * sw                              # ship's-side (outboard) plane
-		var aw: float = sgn * (sw - depth)                    # alleyway (inboard) wall x
+		var sw: float = _house_halfw_mesh(zc)                 # deckhouse-shell half-width (MESH, not the curve)
+		var ow: float = sgn * (sw - 0.5)                      # cabin OUTBOARD wall, just inside the shell
+		var aw: float = sgn * (sw - 0.5 - depth)              # alleyway (inboard) wall x
 		# Alleyway / cabin-door wall: two segments leaving a 1.0 m door gap at the bay centre + a lintel.
 		var la: float = (zc - dw * 0.5) - za
 		var lb: float = zb - (zc + dw * 0.5)
@@ -2280,19 +2307,19 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 		if lb > 0.05:
 			_box(root, Vector3(aw, wcy, (zc + dw * 0.5 + zb) * 0.5), Vector3(0.2, wh, lb), white, true)
 		_box(root, Vector3(aw, ya + 2.1 + (ytop - ya - 2.1) * 0.5, zc), Vector3(0.2, ytop - ya - 2.1, dw), white, true)   # lintel
-		# Aft partition of this bay (alleyway wall -> ship's side), and a porthole on the ship's side.
-		var sw0: float = _house_half_w(za)
-		_box(root, Vector3(sgn * (sw0 - depth * 0.5), wcy, za), Vector3(depth, wh, 0.2), white, true)
-		ports.append(Transform3D(face, Vector3(sgn * (sw - 0.26), ya + 1.35, zc)))   # just inboard of the 0.4 m-thick shell wall
-		# Furnish a sample: medallion carpet + a bed against the ship's side + a wardrobe by the door.
+		# Collidable OUTBOARD wall of the bay (so you can't run through the ship's side) + aft partition.
+		_box(root, Vector3(ow, wcy, zc), Vector3(0.2, wh, dz + 0.06), white, true)
+		_box(root, Vector3(sgn * (_house_halfw_mesh(za) - 0.5 - depth * 0.5), wcy, za), Vector3(depth, wh, 0.2), white, true)
+		# Porthole window on the outboard wall, at eye level.
+		ports.append(Transform3D(face, Vector3(sgn * (sw - 0.62), ya + 1.6, zc)))
+		# Furnish a sample: medallion carpet + a bed against the outboard wall + a wardrobe by the door.
 		if i % furnish_step == 0:
-			_box(root, Vector3(sgn * (sw - depth * 0.5), ya + 0.03, zc), Vector3(depth - 0.5, 0.05, dz - 0.5), _deco_carpet_mat(depth - 0.5, dz - 0.5, 0.5), false)
+			_box(root, Vector3(sgn * (sw - 0.5 - depth * 0.5), ya + 0.03, zc), Vector3(depth - 0.5, 0.05, dz - 0.5), _deco_carpet_mat(depth - 0.5, dz - 0.5, 0.5), false)
 			_box(root, Vector3(ow - sgn * 1.05, ya + 0.3, zc), Vector3(1.9, 0.5, 2.0), bedmat, true)
 			_box(root, Vector3(ow - sgn * 1.05, ya + 0.62, zc + dz * 0.3), Vector3(1.9, 0.16, 0.4), white, false)
 			_box(root, Vector3(aw + sgn * 0.55, ya + 0.9, zc + dz * 0.32), Vector3(0.8, 1.8, 0.8), wood, true)
 	# Closing partition at the forward end of the run.
-	var swf: float = _house_half_w(z1)
-	_box(root, Vector3(sgn * (swf - depth * 0.5), wcy, z1), Vector3(depth, wh, 0.2), white, true)
+	_box(root, Vector3(sgn * (_house_halfw_mesh(z1) - 0.5 - depth * 0.5), wcy, z1), Vector3(depth, wh, 0.2), white, true)
 	# Emissive porthole glazing on the ship's side (reads as lit windows from inside the cabins).
 	var glass := StandardMaterial3D.new()
 	glass.albedo_color = Color(0.70, 0.82, 0.95)
