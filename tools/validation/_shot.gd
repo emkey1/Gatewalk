@@ -50,15 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Double stair head-on: pier now flanks the BASIN (forward), clear of the lower-flight landings.
-		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
-		# Inc-79 multi-deck lift: the A-deck lobby lift bank (port wall).
-		["lift_lobby", Vector3(4.0, 12.9, 56.0), Vector3(-7.0, 13.0, 50.0), Vector3.UP],
-		# The SAME lifts opening on the Promenade (Forward Hall) one deck up — they span both floors.
-		["lift_prom", Vector3(4.0, 16.0, 56.0), Vector3(-7.0, 16.0, 50.0), Vector3.UP],
-		# The extended First Class cabin corridor (now runs forward to z=-18).
+		# FLICKER CHECK: grazing the Promenade floor over the cabins (cabin wall TOPS now buried) — the
+		# white slivers tracing the cabin layout should be gone.
+		["prom_floor", Vector3(8.0, 15.55, -55.0), Vector3(-3.0, 14.55, -71.0), Vector3.UP],
+		# Forward Hall floor over the lift-lobby walls (their tops buried too).
+		["forward_hall", Vector3(0.0, 15.55, 47.0), Vector3(7.5, 14.6, 56.0), Vector3.UP],
+		# The extended First Class cabin corridor (now runs forward to z=-8).
 		["cabin_corr", Vector3(0.0, 12.6, -22.0), Vector3(0.0, 12.4, -48.0), Vector3.UP],
-		# Overview down the pool length (unchanged — sanity).
+		# Overview down the pool length (sanity).
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
 	for s in shots:

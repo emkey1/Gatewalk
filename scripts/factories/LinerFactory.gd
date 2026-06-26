@@ -1140,7 +1140,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_furnish_promenade_ends(root, wl)
 	_build_dining_room(root, wl)
 	_build_main_hall(root, wl)
-	_build_cabins(root, wl, -78.0, -18.0)   # First Class stateroom wing, aft A-deck (extended fwd under the Ballroom/Lounge)
+	_build_cabins(root, wl, -78.0, -8.0)   # First Class stateroom wing, aft A-deck (extended fwd under the Ballroom/Lounge)
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
 	_build_sports_access(root, wl)
@@ -1972,9 +1972,9 @@ static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float,
 	# open toward the entrance / Main Hall.
 	for sx in [-1.0, 1.0]:
 		_box(root, Vector3(sx * 7.0, ya + 0.54, 53.0), Vector3(0.3, 1.32, 18.0), dado, true)   # foot sunk into the floor
-		_box(root, Vector3(sx * 7.0, (ya + 1.2 + yp) * 0.5, 53.0), Vector3(0.3, yp - ya - 1.2, 18.0), burl, true)
+		_box(root, Vector3(sx * 7.0, (ya + 1.2 + yp - 0.15) * 0.5, 53.0), Vector3(0.3, yp - ya - 1.35, 18.0), burl, true)   # top sunk into the Promenade floor
 	_box(root, Vector3(0.0, ya + 0.54, 44.0), Vector3(14.0, 1.32, 0.3), dado, true)             # foot sunk into the floor
-	_box(root, Vector3(0.0, (ya + 1.2 + yp) * 0.5, 44.0), Vector3(14.0, yp - ya - 1.2, 0.3), burl, true)
+	_box(root, Vector3(0.0, (ya + 1.2 + yp - 0.15) * 0.5, 44.0), Vector3(14.0, yp - ya - 1.35, 0.3), burl, true)   # top sunk into the Promenade floor
 	# Bank of two passenger lifts on the port wall — each a SHAFT spanning the A-deck lobby up to the
 	# Promenade (doors opening onto both decks: into the lobby here + the Forward Hall above), so they
 	# read as real multi-deck lifts instead of single-floor boxes.
@@ -2033,11 +2033,14 @@ static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float) -> vo
 		doors.append(z0 + 2.5 + 5.0 * float(i))
 	for i in range(n + 1):
 		parts.append(z0 + 5.0 * float(i))
-	# Cabin outboard walls + partitions, feet sunk 0.12 m into the A-deck floor (not coplanar with it).
-	var cwcy: float = (ya + yc) * 0.5 - 0.06
-	var cwh: float = yc - ya + 0.12
+	# Cabin outboard walls + partitions, feet sunk 0.12 m into the A-deck floor AND tops sunk 0.15 m up
+	# into the Promenade floor slab above (= the cabin ceiling). The tops used to sit exactly at yc (the
+	# Promenade floor TOP), so from the Promenade above they z-fought the floor into flicker slivers that
+	# traced the cabin layout — bury BOTH ends so no end face is coplanar with a walkable deck surface.
+	var cwcy: float = (ya - 0.12 + yc - 0.15) * 0.5
+	var cwh: float = (yc - 0.15) - (ya - 0.12)
 	for sgn in [-1.0, 1.0]:
-		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 1.0, 2.1, white)
+		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc - 0.15, 0.2, doors, 1.0, 2.1, white)
 		_box(root, Vector3(sgn * cd, cwcy, (z0 + z1) * 0.5), Vector3(0.2, cwh, z1 - z0), white, true)
 		for pz in parts:
 			_box(root, Vector3(sgn * (cw + cd) * 0.5, cwcy, float(pz)), Vector3(cd - cw, cwh, 0.2), white, true)
@@ -2050,7 +2053,7 @@ static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float) -> vo
 			_cabin_interior(root, float(cz), float(sgn2), ya, yc, cw, white, wood, bedmat, porc)
 	# Art Deco corridor fit-out (deep-red carpet, glossy-black wainscot, burl + chrome door surrounds,
 	# globe sconces) over the plain white alley walls — matching the QM's first-class cabin corridors.
-	_deco_corridor(root, z0, z1, ya, yc, cw, doors, 1.0)
+	_deco_corridor(root, z0, z1, ya, yc - 0.15, cw, doors, 1.0)   # yc-0.15: corridor facings buried like the walls
 	# Background corridor fill (the globe sconces in _deco_corridor carry the rest), every ~10 m.
 	for li in range(int((z1 - z0) / 10.0) + 1):
 		var lamp := OmniLight3D.new()
