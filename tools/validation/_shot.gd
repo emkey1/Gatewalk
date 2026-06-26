@@ -52,13 +52,13 @@ func _init() -> void:
 	var shots := [
 		# Double stair head-on: pier now flanks the BASIN (forward), clear of the lower-flight landings.
 		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
-		# Inc-78 coved ceiling: steep look up at the recessed warm-glowing crown + cove from the deck.
-		["ceiling", Vector3(5.0, 6.2, 48.0), Vector3(-3.0, 12.6, 60.0), Vector3.UP],
-		# Looking up/forward along the ceiling — perimeter frame, cove, crown.
-		["ceiling_low", Vector3(0.0, 6.6, 66.0), Vector3(0.0, 12.2, 52.0), Vector3.UP],
-		# The basin with the warm-lit coved ceiling above it.
-		["pool_basin", Vector3(9.0, 7.2, 53.0), Vector3(0.0, 6.6, 53.0), Vector3.UP],
-		# Down the length — piers flanking the basin, coved ceiling overhead.
+		# Inc-79 multi-deck lift: the A-deck lobby lift bank (port wall).
+		["lift_lobby", Vector3(4.0, 12.9, 56.0), Vector3(-7.0, 13.0, 50.0), Vector3.UP],
+		# The SAME lifts opening on the Promenade (Forward Hall) one deck up — they span both floors.
+		["lift_prom", Vector3(4.0, 16.0, 56.0), Vector3(-7.0, 16.0, 50.0), Vector3.UP],
+		# The extended First Class cabin corridor (now runs forward to z=-18).
+		["cabin_corr", Vector3(0.0, 12.6, -22.0), Vector3(0.0, 12.4, -48.0), Vector3.UP],
+		# Overview down the pool length (unchanged — sanity).
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
 	for s in shots:

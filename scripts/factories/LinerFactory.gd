@@ -1140,7 +1140,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_furnish_promenade_ends(root, wl)
 	_build_dining_room(root, wl)
 	_build_main_hall(root, wl)
-	_build_cabins(root, wl)
+	_build_cabins(root, wl, -78.0, -18.0)   # First Class stateroom wing, aft A-deck (extended fwd under the Ballroom/Lounge)
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
 	_build_sports_access(root, wl)
@@ -1922,6 +1922,17 @@ static func _elevator(parent: Node3D, center: Vector3, faces_x: float, burl: Mat
 	_box(parent, center + Vector3(faces_x * 0.06, 0.35, dw * 0.5 + 0.16), Vector3(0.05, 0.32, 0.12), chrome, false)   # call plaque
 
 
+# A passenger-lift SHAFT spanning several decks: a solid burl trunk (the shaft itself, which also backs
+# each door) from below the lowest floor up to top_y, with an _elevator door assembly opening onto every
+# floor in floor_ys. So a lift reads as one continuous shaft serving each deck it reaches, not a
+# single-floor box. floor_ys are the door CENTRE heights; faces_x is the door facing (see _elevator).
+static func _elevator_shaft(parent: Node3D, x: float, z: float, faces_x: float, floor_ys: Array, top_y: float, burl: Material, steel: Material, chrome: Material) -> void:
+	var y0: float = float(floor_ys[0]) - 1.3
+	_box(parent, Vector3(x - faces_x * 0.45, (y0 + top_y) * 0.5, z), Vector3(0.5, top_y - y0, 2.0), burl, true)   # shaft trunk (backs every door)
+	for fy2 in floor_ys:
+		_elevator(parent, Vector3(x, float(fy2), z), faces_x, burl, steel, chrome)
+
+
 # First Class lift lobby + grand SWITCHBACK staircase, in the forward stairwell (the straight flight
 # was replaced). Two short flights with a green/cream checkerboard mid-landing climb A-deck -> the
 # Promenade around a burl central spine; a bank of two Art Deco lifts faces the lobby off the port
@@ -1964,9 +1975,11 @@ static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float,
 		_box(root, Vector3(sx * 7.0, (ya + 1.2 + yp) * 0.5, 53.0), Vector3(0.3, yp - ya - 1.2, 18.0), burl, true)
 	_box(root, Vector3(0.0, ya + 0.54, 44.0), Vector3(14.0, 1.32, 0.3), dado, true)             # foot sunk into the floor
 	_box(root, Vector3(0.0, (ya + 1.2 + yp) * 0.5, 44.0), Vector3(14.0, yp - ya - 1.2, 0.3), burl, true)
-	# Bank of two lifts on the port wall, facing the lobby.
+	# Bank of two passenger lifts on the port wall — each a SHAFT spanning the A-deck lobby up to the
+	# Promenade (doors opening onto both decks: into the lobby here + the Forward Hall above), so they
+	# read as real multi-deck lifts instead of single-floor boxes.
 	for ez in [49.5, 56.5]:
-		_elevator(root, Vector3(-6.83, ya + 1.2, float(ez)), 1.0, burl, steel, chrome)
+		_elevator_shaft(root, -6.83, float(ez), 1.0, [ya + 1.2, yp + 1.2], yp + 2.6, burl, steel, chrome)
 	# Etched-glass balustrade + chrome handrail ringing the well on the Promenade, except the
 	# starboard step-off where the upper flight lands.
 	var gy: float = yp + 0.5
@@ -1998,7 +2011,7 @@ static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float,
 # real cabin alleyways were ~3 ft) lined with cabin doors, the cabins behind them divided by
 # partitions and closed by an outboard wall (the structural columns at x=±6.5 fall in the void
 # behind it). A sample of cabins is furnished (bed, pillow, wardrobe); the rest read as doors.
-static func _build_cabins(parent: Node3D, wl: float) -> void:
+static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float) -> void:
 	var root := Node3D.new()
 	root.name = "Cabins"
 	parent.add_child(root)
@@ -2007,35 +2020,41 @@ static func _build_cabins(parent: Node3D, wl: float) -> void:
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var wood := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
 	var bedmat := _mat(Color(0.50, 0.28, 0.30), 0.85, 0.0)
-	var z0: float = -78.0
-	var z1: float = -38.0
 	# With the slimmed player (0.6 m wide; Player.gd radius 0.3) the corridor + doors come back down to
 	# near true 1:1: a ~1.0 m clear alley (~3 ft) with 1.0 m cabin doors, and still walkable.
 	var cw: float = 0.6                 # corridor half-width -> ~1.0 m clear alley (near 1:1)
 	var cd: float = 5.3                 # cabin outboard wall (~4.7 m deep cabins)
-	var doors: Array = [-75.5, -70.5, -65.5, -60.5, -55.5, -50.5, -45.5, -40.5]
+	# Cabins every 5 m over the z0..z1 wing: a door (+ furnished interior) at each bay centre, a partition
+	# at each bay edge — derived so the wing length is parameterised.
+	var n: int = int(round((z1 - z0) / 5.0))
+	var doors: Array = []
+	var parts: Array = []
+	for i in range(n):
+		doors.append(z0 + 2.5 + 5.0 * float(i))
+	for i in range(n + 1):
+		parts.append(z0 + 5.0 * float(i))
 	# Cabin outboard walls + partitions, feet sunk 0.12 m into the A-deck floor (not coplanar with it).
 	var cwcy: float = (ya + yc) * 0.5 - 0.06
 	var cwh: float = yc - ya + 0.12
 	for sgn in [-1.0, 1.0]:
 		_longitudinal_door_wall(root, sgn * cw, z0, z1, ya, yc, 0.2, doors, 1.0, 2.1, white)
 		_box(root, Vector3(sgn * cd, cwcy, (z0 + z1) * 0.5), Vector3(0.2, cwh, z1 - z0), white, true)
-		for pz in [-38.0, -43.0, -48.0, -53.0, -58.0, -63.0, -68.0, -73.0, -78.0]:
+		for pz in parts:
 			_box(root, Vector3(sgn * (cw + cd) * 0.5, cwcy, float(pz)), Vector3(cd - cw, cwh, 0.2), white, true)
 	# Furnish every cabin: bed (pillow end against the aft partition), a wardrobe, and a compact
 	# ensuite bathroom — toilet, washbasin, shower — tucked in the corner by the door, the way a real
 	# cruise stateroom is laid out (~25-30 sq ft modular unit). See _cabin_interior.
 	var porc := _mat(Color(0.93, 0.93, 0.95), 0.2, 0.0)
-	for cz in [-40.5, -45.5, -50.5, -55.5, -60.5, -65.5, -70.5, -75.5]:
+	for cz in doors:
 		for sgn2 in [-1.0, 1.0]:
 			_cabin_interior(root, float(cz), float(sgn2), ya, yc, cw, white, wood, bedmat, porc)
 	# Art Deco corridor fit-out (deep-red carpet, glossy-black wainscot, burl + chrome door surrounds,
 	# globe sconces) over the plain white alley walls — matching the QM's first-class cabin corridors.
 	_deco_corridor(root, z0, z1, ya, yc, cw, doors, 1.0)
-	# Background corridor fill (the globe sconces in _deco_corridor carry the rest).
-	for lz in [-44.0, -54.0, -64.0, -74.0]:
+	# Background corridor fill (the globe sconces in _deco_corridor carry the rest), every ~10 m.
+	for li in range(int((z1 - z0) / 10.0) + 1):
 		var lamp := OmniLight3D.new()
-		lamp.position = Vector3(0.0, yc - 0.4, float(lz))
+		lamp.position = Vector3(0.0, yc - 0.4, z0 + 6.0 + 10.0 * float(li))
 		lamp.light_color = Color(1.0, 0.92, 0.78)
 		lamp.light_energy = 1.1
 		lamp.omni_range = 9.0
