@@ -1645,44 +1645,45 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	_build_pool_changing(root, wl)
 
 
-# Men's (port) + women's (starboard) dressing rooms filling the aft area behind the entry stair, on the
-# gallery level — the real QM First Class pool flow: arrive from the A-deck, change here, then descend
-# the grand stair to the pool. Each side (split by the central A-deck flight): a row of curtained
-# changing cubicles backed to the aft wall, a long bench, a coloured entrance header (teal for men's,
-# coral for women's), open forward to the gallery.
+# Men's (port) + women's (starboard) dressing rooms filling the aft area behind the entry stair, at the
+# POOL-DECK level under the aft gallery (3.3 m headroom — you walk in standing; the gallery-level version
+# was too low to enter). You change here, then step round to the pool. Each side (split by the central
+# A-deck flight): a row of curtained changing cubicles backed to the aft wall, a long bench, a coloured
+# entrance header (teal men's / coral women's) ~2 m up, open forward to the pool deck.
 static func _build_pool_changing(parent: Node3D, wl: float) -> void:
 	var root := Node3D.new()
 	root.name = "PoolChanging"
 	parent.add_child(root)
-	var gy: float = wl + 9.8
-	var cy: float = wl + 12.0
-	var wtop: float = cy - 0.2
-	var pf: float = gy - 0.12
+	var fy: float = wl + 6.5            # pool DECK level
+	var ceil_y: float = wl + 9.8        # the aft-gallery slab above = the ceiling
+	var pf: float = fy - 0.12
+	var ph: float = fy + 2.4            # cubicle-partition top, under the gallery slab
 	var wall := _mat(Color(0.82, 0.77, 0.64), 0.5, 0.0)
 	var bench_m := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
-	for r in [[-1.0, Color(0.16, 0.46, 0.52)], [1.0, Color(0.66, 0.30, 0.32)]]:   # [side, curtain/header colour]
+	for r in [[-1.0, Color(0.16, 0.46, 0.52)], [1.0, Color(0.66, 0.30, 0.32)]]:   # [side, accent: teal men's / coral women's]
 		var s: float = float(r[0])
 		var accent := _mat(Color(float(r[1].r), float(r[1].g), float(r[1].b)), 0.8, 0.0)
-		var xin: float = s * 4.2
-		var xout: float = s * 13.8
+		var xin: float = s * 3.9
+		var xout: float = s * 13.6
 		var xmid: float = (xin + xout) * 0.5
 		var w: float = absf(xout - xin)
-		# Solid inner divider (off the central A-deck flight) + a coloured header beam over the entrance.
-		_box(root, Vector3(xin, (pf + wtop) * 0.5, 76.5), Vector3(0.2, wtop - pf, 7.0), wall, true)
-		_box(root, Vector3(xmid, wtop - 0.3, 73.2), Vector3(w, 0.6, 0.3), accent, true)
+		# Full-height inner divider (to the gallery slab) separating men's/women's, under the A-deck well.
+		_box(root, Vector3(xin, (pf + ceil_y) * 0.5, 76.0), Vector3(0.2, ceil_y - pf, 8.0), wall, true)
+		# Coloured entrance header over the forward opening (~2 m clear below, so you walk in standing).
+		_box(root, Vector3(xmid, fy + 2.3, 72.6), Vector3(w, 0.5, 0.3), accent, true)
 		# A row of curtained changing cubicles along the aft wall (backs to z=80, fronts facing forward).
 		var n: int = 6
 		for i in range(n + 1):
-			_box(root, Vector3(lerpf(xin, xout, float(i) / float(n)), (pf + gy + 1.9) * 0.5, 79.0), Vector3(0.1, gy + 1.9 - pf, 2.0), wall, true)
+			_box(root, Vector3(lerpf(xin, xout, float(i) / float(n)), (pf + ph) * 0.5, 79.2), Vector3(0.1, ph - pf, 1.6), wall, true)
 		for i in range(n):
-			_box(root, Vector3(lerpf(xin, xout, (float(i) + 0.5) / float(n)), gy + 1.0, 78.05), Vector3(w / float(n) - 0.16, 1.8, 0.06), accent, false)
+			_box(root, Vector3(lerpf(xin, xout, (float(i) + 0.5) / float(n)), fy + 1.1, 78.45), Vector3(w / float(n) - 0.16, 2.0, 0.06), accent, false)
 		# A bench down the middle.
-		_box(root, Vector3(xmid, gy + 0.25, 75.5), Vector3(w - 1.2, 0.5, 0.5), bench_m, true)
+		_box(root, Vector3(xmid, fy + 0.3, 75.0), Vector3(w - 1.2, 0.6, 0.5), bench_m, true)
 		var lamp := OmniLight3D.new()
-		lamp.position = Vector3(s * 9.0, cy - 0.6, 76.0)
+		lamp.position = Vector3(s * 9.0, ceil_y - 0.5, 76.0)
 		lamp.light_color = Color(1.0, 0.93, 0.80)
-		lamp.light_energy = 1.4
-		lamp.omni_range = 11.0
+		lamp.light_energy = 1.5
+		lamp.omni_range = 12.0
 		lamp.shadow_enabled = false
 		root.add_child(lamp)
 

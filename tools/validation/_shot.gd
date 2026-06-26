@@ -54,10 +54,10 @@ func _init() -> void:
 		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
 		# From the starboard lower-flight landing looking OUTBOARD — confirm no pier is in front now.
 		["stair_landing", Vector3(6.5, 7.1, 67.0), Vector3(13.0, 6.5, 67.0), Vector3.UP],
-		# Inside the women's (starboard) dressing room: the row of curtained cubicles + bench.
-		["dressing", Vector3(9.0, 9.6, 74.0), Vector3(9.0, 8.9, 79.5), Vector3.UP],
-		# 3/4 angle on the double stair.
-		["stair_3q", Vector3(9.0, 6.7, 53.0), Vector3(-1.0, 7.6, 68.0), Vector3.UP],
+		# Women's dressing room at the POOL-DECK level now: cubicles + bench, walk-in height.
+		["dressing", Vector3(9.0, 6.0, 71.5), Vector3(9.0, 5.4, 79.5), Vector3.UP],
+		# Approaching a dressing-room entrance from the pool deck (header ~2 m up — walk in standing).
+		["dressing_app", Vector3(6.0, 6.2, 66.0), Vector3(9.0, 5.6, 74.0), Vector3.UP],
 		# Down the length — piers flanking the basin.
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
