@@ -31,6 +31,10 @@ const DECK_MAIN: float = 13.56     # Main deck: open forecastle + aft deck, base
 const DECK_PROM: float = 16.40     # Promenade deck (the long enclosed promenade)
 const DECK_SUN: float = 19.74      # boat / sun deck: lifeboats + funnel casings (lifted for a taller Promenade below)
 const DECK_SPORTS: float = 22.58   # sports deck (topmost open deck)
+# Funnel longitudinal centres (+z = bow), measured off a 1:2000 scale QM model: equal-height funnels
+# ~45 m apart, the group centred ~15 m FORWARD of amidships (the model's hull beam came out 36.3 m,
+# confirming the ship's 36 m beam, so its proportions are trustworthy).
+const FUNNEL_Z := [60.0, 15.0, -30.0]
 
 const HULL_HALF_LEN: float = LOA * 0.5
 const HULL_HALF_BEAM: float = BEAM * 0.5
@@ -935,12 +939,11 @@ static func _build_funnels(parent: Node3D, wl: float) -> void:
 	parent.add_child(root)
 	var red := _mat(Color(0.80, 0.27, 0.10), 0.55, 0.0)   # Cunard red
 	var black := _mat(Color(0.06, 0.06, 0.07), 0.6, 0.0)
-	# Heights re-anchored so the forward funnel still tops out ~43 m above the water now that the
-	# sports deck sits at 22.08 m (43.5 - 22.08 ≈ 21.4).
+	# The QM's three funnels were EQUAL height (per the scale model + the real ship), topping out ~43 m
+	# above the water; positions from FUNNEL_Z.
 	var base_y: float = wl + DECK_SPORTS
-	_funnel(root, 40.0, base_y, 21.0, red, black)
-	_funnel(root, 0.0, base_y, 20.0, red, black)
-	_funnel(root, -40.0, base_y, 19.0, red, black)
+	for fz in FUNNEL_Z:
+		_funnel(root, float(fz), base_y, 20.5, red, black)
 
 
 static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red: Material, black: Material) -> void:
@@ -970,8 +973,8 @@ static func _build_masts(parent: Node3D, wl: float) -> void:
 	root.name = "Masts"
 	parent.add_child(root)
 	var buff := _mat(Color(0.80, 0.68, 0.45), 0.5, 0.2)
-	_mast(root, Vector3(0.0, wl + DECK_SPORTS, 50.0), 30.0, buff)
-	_mast(root, Vector3(0.0, wl + DECK_SPORTS, -55.0), 26.0, buff)
+	_mast(root, Vector3(0.0, wl + DECK_SPORTS, 84.0), 30.0, buff)    # foremast, forward of the fwd funnel (z60)
+	_mast(root, Vector3(0.0, wl + DECK_SPORTS, -52.0), 26.0, buff)   # mainmast, aft of the aft funnel (z-30)
 
 
 static func _mast(parent: Node3D, base: Vector3, height: float, mat: Material) -> void:
@@ -1261,35 +1264,35 @@ static func _build_sports_deck_fit(parent: Node3D, wl: float) -> void:
 	var wire := _mat(Color(0.08, 0.08, 0.10), 0.5, 0.1)
 	var louvre := _mat(Color(0.45, 0.30, 0.17), 0.5, 0.25)       # copper fiddley louvres
 	var brass := _mat(Color(0.52, 0.46, 0.30), 0.4, 0.5)
-	var funnels: Array = [40.0, 0.0, -40.0]
-	var heights: Array = [21.0, 20.0, 19.0]
+	var fz_mid: float = (FUNNEL_Z[0] + FUNNEL_Z[2]) * 0.5          # centre of the funnel group (~+15)
+	var gaps := [(FUNNEL_Z[1] + FUNNEL_Z[2]) * 0.5, (FUNNEL_Z[0] + FUNNEL_Z[1]) * 0.5]   # the two inter-funnel gaps
 	# Green painted sports deck over the funnel run (sits a hair above the roof slab).
-	_box(root, Vector3(0.0, sy + 0.04, -2.0), Vector3(25.4, 0.08, 116.0), green, false)
-	# Central white engine casing the funnels rise from (z -52..52), low and wide.
-	_box(root, Vector3(0.0, sy + 1.5, 0.0), Vector3(11.0, 3.0, 104.0), white, true)
+	_box(root, Vector3(0.0, sy + 0.04, fz_mid), Vector3(25.4, 0.08, 122.0), green, false)
+	# Central white engine casing the funnels rise from, low and wide, spanning the funnel group.
+	_box(root, Vector3(0.0, sy + 1.5, fz_mid), Vector3(11.0, 3.0, 116.0), white, true)
 	# Louvered fiddley vents + portholes down each casing side, and fairing fins in the funnel gaps.
 	for sgn in [-1.0, 1.0]:
-		for pz in range(-48, 49, 8):
-			_cyl(root, Vector3(sgn * 5.55, sy + 1.7, float(pz)), 0.24, 0.06, brass, false)   # porthole
-		for lz in [-20.0, 20.0]:
+		for pi in range(-5, 12):
+			_cyl(root, Vector3(sgn * 5.55, sy + 1.7, fz_mid + float(pi) * 8.0), 0.24, 0.06, brass, false)   # porthole
+		for lz in gaps:
 			_box(root, Vector3(sgn * 5.54, sy + 1.5, float(lz)), Vector3(0.12, 2.2, 5.0), louvre, false)   # louvre panel
 			for sl in range(-4, 5):
 				_box(root, Vector3(sgn * 5.6, sy + 1.5 + float(sl) * 0.24, float(lz)), Vector3(0.1, 0.06, 4.8), white, false)   # slats
-		for fz in [-32.0, -24.0, -16.0, -8.0, 8.0, 16.0, 24.0, 32.0]:
-			_casing_fin(root, sgn * 7.2, float(fz) + 2.0, sy, 2.0, 2.2, 3.2, white, brass)
+		for g in gaps:
+			for d in [-7.0, 0.0, 7.0]:
+				_casing_fin(root, sgn * 7.2, float(g) + d + 1.6, sy, 2.0, 2.2, 3.2, white, brass)
 	# Funnel guy-stays: eight wires fanning down from each funnel near its top to deck anchors.
-	for i in range(funnels.size()):
-		var fz: float = funnels[i]
-		var ty: float = sy + float(heights[i]) * 0.72
+	for fz in FUNNEL_Z:
+		var ty: float = sy + 20.5 * 0.72
 		for a in range(8):
 			var ang: float = deg_to_rad(22.5 + float(a) * 45.0)
 			var dx: float = cos(ang)
 			var dz: float = sin(ang)
-			var attach := Vector3(dx * 4.7, ty, fz + dz * 6.6)
-			var anchor := Vector3(dx * 11.0, sy + 0.2, fz + dz * 9.0)
+			var attach := Vector3(dx * 4.7, ty, float(fz) + dz * 6.6)
+			var anchor := Vector3(dx * 11.0, sy + 0.2, float(fz) + dz * 9.0)
 			_strut(root, attach, anchor, 0.05, wire)
-	# Cowl ventilators out near the deck edges, between the funnels.
-	for cz in [-20.0, 20.0]:
+	# Cowl ventilators out near the deck edges, in the funnel gaps.
+	for cz in gaps:
 		for sgn in [-1.0, 1.0]:
 			_cowl_vent(root, Vector3(sgn * 9.5, sy, float(cz)), 1.0, white, _mat(Color(0.5, 0.12, 0.1), 0.6, 0.0))
 

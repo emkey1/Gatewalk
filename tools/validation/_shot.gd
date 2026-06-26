@@ -50,14 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Sports deck between funnels 2 & 3 (z -40..0), eye level — green deck, casing, fins, funnels.
-		["sports_eye", Vector3(8.5, 22.5, -27.0), Vector3(-1.0, 23.0, -6.0), Vector3.UP],
-		# Close-up of a fairing fin (the sloped white casing buttress) on the starboard casing side.
-		["sports_fins", Vector3(10.5, 22.2, -19.0), Vector3(7.0, 21.6, -27.0), Vector3.UP],
-		# Looking up at funnel 3 with its guy-stays fanning down to the deck.
-		["sports_stays", Vector3(11.0, 22.6, -22.0), Vector3(0.0, 31.0, -40.0), Vector3.UP],
-		# Wide overview of the between-funnels section.
-		["sports_high", Vector3(17.0, 27.0, -28.0), Vector3(-2.0, 22.5, -2.0), Vector3.UP],
+		# Side ELEVATION — funnel spacing/positions (now +60/+15/-30) + masts + superstructure profile.
+		["profile", Vector3(-210.0, 34.0, 15.0), Vector3(0.0, 19.0, 15.0), Vector3.UP],
+		# 3/4 aerial showing the funnel group + sports-deck fit realigned to it.
+		["aerial", Vector3(70.0, 60.0, 120.0), Vector3(5.0, 20.0, 5.0), Vector3.UP],
+		# Sports deck eye level among the realigned funnels/casing.
+		["sports_high", Vector3(17.0, 27.0, 44.0), Vector3(-2.0, 22.5, 18.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
