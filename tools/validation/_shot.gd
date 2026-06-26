@@ -50,14 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Inside the forward A deck, port side — should now have a cream inboard lining (collidable wall).
-		["ab_side_in", Vector3(2.0, 10.7, 95.0), Vector3(-13.0, 9.8, 100.0), Vector3.UP],
-		# EXTERIOR bow, A/B level — confirm the lining didn't introduce new poke-through.
-		["ext_bow", Vector3(-24.0, 9.5, 98.0), Vector3(-9.0, 7.5, 112.0), Vector3.UP],
-		# Close-up of the pool poke-out (white grid triangle) on the port side near the pool's fwd end.
-		["pool_tri", Vector3(-23.0, 6.5, 70.0), Vector3(-13.0, 5.0, 76.0), Vector3.UP],
-		# Aft A deck, port lining (regression of the aft block).
-		["ab_aft_lin", Vector3(2.0, 10.7, -50.0), Vector3(-13.0, 9.8, -58.0), Vector3.UP],
+		# Sports deck between funnels 2 & 3 (z -40..0), eye level — green deck, casing, fins, funnels.
+		["sports_eye", Vector3(8.5, 22.5, -27.0), Vector3(-1.0, 23.0, -6.0), Vector3.UP],
+		# Close-up of a fairing fin (the sloped white casing buttress) on the starboard casing side.
+		["sports_fins", Vector3(10.5, 22.2, -19.0), Vector3(7.0, 21.6, -27.0), Vector3.UP],
+		# Looking up at funnel 3 with its guy-stays fanning down to the deck.
+		["sports_stays", Vector3(11.0, 22.6, -22.0), Vector3(0.0, 31.0, -40.0), Vector3.UP],
+		# Wide overview of the between-funnels section.
+		["sports_high", Vector3(17.0, 27.0, -28.0), Vector3(-2.0, 22.5, -2.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

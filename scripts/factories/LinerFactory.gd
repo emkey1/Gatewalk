@@ -87,6 +87,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_forecastle(root, wl)
 	_build_deck_details(root, wl)
 	_build_deck_structures(root, wl)
+	_build_sports_deck_fit(root, wl)
 	_build_portholes(root, wl)
 	_build_flags(root, wl)
 	_build_anchors(root, wl)
@@ -1187,16 +1188,110 @@ static func _build_deck_structures(parent: Node3D, wl: float) -> void:
 	parent.add_child(root)
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var glaze := _mat(Color(0.10, 0.16, 0.22), 0.3, 0.1)
-	var sports_y: float = wl + DECK_SPORTS
-	for dz in [52.0, 16.0, -20.0]:
-		_box(root, Vector3(0.0, sports_y + 1.0, float(dz)), Vector3(6.0, 2.0, 5.0), white, true)
-		# Window face kept below the roofline so its top edge isn't coplanar with the roof.
-		_box(root, Vector3(0.0, sports_y + 1.35, float(dz) + 2.56), Vector3(5.0, 0.8, 0.14), glaze, false)
+	# (The inter-funnel engine casing + fairings now come from _build_sports_deck_fit, modelled on the
+	# QM's between-funnels sports deck; this keeps only the boat-deck skylights here.)
 	var boat_y: float = wl + DECK_SUN
 	for sz in [-90.0, 86.0]:
 		# Coaming seated on the deck (bottom at boat_y), with the glazing penetrating its top.
 		_box(root, Vector3(0.0, boat_y + 0.25, float(sz)), Vector3(6.0, 0.5, 4.0), white, true)
 		_box(root, Vector3(0.0, boat_y + 0.62, float(sz)), Vector3(5.2, 0.25, 3.2), glaze, false)
+
+
+# A thin strut/wire (rigging) between two world points — a cylinder oriented along b-a. Used for the
+# funnel guy-stays that fan down from each funnel to the sports deck.
+static func _strut(parent: Node3D, a: Vector3, b: Vector3, r: float, mat: Material) -> void:
+	var d: Vector3 = b - a
+	var ln: float = d.length()
+	if ln < 0.01:
+		return
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = r
+	cm.bottom_radius = r
+	cm.height = ln
+	cm.radial_segments = 6
+	mi.mesh = cm
+	mi.material_override = mat
+	mi.transform = Transform3D(Basis(Quaternion(Vector3.UP, d / ln)), (a + b) * 0.5)
+	parent.add_child(mi)
+
+
+# A faired buttress fin (the QM's distinctive sloped white casing fairings): a vertical aft face at cz
+# rising h, sloping down forward over length l to the deck, w wide in x, with a porthole. Built as a
+# little wedge mesh + box collider.
+static func _casing_fin(parent: Node3D, cx: float, cz: float, sy: float, w: float, h: float, l: float, mat: Material, brass: Material) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var x0: float = cx - w * 0.5
+	var x1: float = cx + w * 0.5
+	var pa := Vector3(x0, sy, cz);       var pb := Vector3(x1, sy, cz)
+	var pc := Vector3(x1, sy + h, cz);   var pd := Vector3(x0, sy + h, cz)      # vertical aft face
+	var pe := Vector3(x0, sy, cz - l);   var pf := Vector3(x1, sy, cz - l)      # forward foot
+	_quad_flat(st, pa, pb, pc, pd)          # aft face
+	_quad_flat(st, pd, pc, pf, pe)          # sloped top
+	st.add_vertex(pa); st.add_vertex(pd); st.add_vertex(pe)   # port side triangle (uncoloured, like _quad_flat)
+	st.add_vertex(pb); st.add_vertex(pf); st.add_vertex(pc)   # starboard side triangle
+	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var finmat: StandardMaterial3D = mat.duplicate()
+	finmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var body := StaticBody3D.new()
+	body.name = "CasingFin"
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = finmat
+	body.add_child(mi)
+	var col := CollisionShape3D.new()
+	col.shape = mesh.create_trimesh_shape()
+	body.add_child(col)
+	parent.add_child(body)
+	_cyl(parent, Vector3(cx, sy + h * 0.55, cz + 0.04), 0.26, 0.1, brass, false)   # porthole on the aft face
+
+
+# The Sports deck between the funnels, modelled on the QM reference: a green painted deck, the white
+# engine casing the funnels rise from (with louvered fiddley vents + portholes), a row of sloped
+# fairing fins along each side, funnel guy-stays fanning down to the deck, and cowl ventilators.
+static func _build_sports_deck_fit(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "SportsDeckFit"
+	parent.add_child(root)
+	var sy: float = wl + DECK_SPORTS
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var green := _mat(Color(0.29, 0.40, 0.36), 0.92, 0.0)        # QM green deck paint
+	var wire := _mat(Color(0.08, 0.08, 0.10), 0.5, 0.1)
+	var louvre := _mat(Color(0.45, 0.30, 0.17), 0.5, 0.25)       # copper fiddley louvres
+	var brass := _mat(Color(0.52, 0.46, 0.30), 0.4, 0.5)
+	var funnels: Array = [40.0, 0.0, -40.0]
+	var heights: Array = [21.0, 20.0, 19.0]
+	# Green painted sports deck over the funnel run (sits a hair above the roof slab).
+	_box(root, Vector3(0.0, sy + 0.04, -2.0), Vector3(25.4, 0.08, 116.0), green, false)
+	# Central white engine casing the funnels rise from (z -52..52), low and wide.
+	_box(root, Vector3(0.0, sy + 1.5, 0.0), Vector3(11.0, 3.0, 104.0), white, true)
+	# Louvered fiddley vents + portholes down each casing side, and fairing fins in the funnel gaps.
+	for sgn in [-1.0, 1.0]:
+		for pz in range(-48, 49, 8):
+			_cyl(root, Vector3(sgn * 5.55, sy + 1.7, float(pz)), 0.24, 0.06, brass, false)   # porthole
+		for lz in [-20.0, 20.0]:
+			_box(root, Vector3(sgn * 5.54, sy + 1.5, float(lz)), Vector3(0.12, 2.2, 5.0), louvre, false)   # louvre panel
+			for sl in range(-4, 5):
+				_box(root, Vector3(sgn * 5.6, sy + 1.5 + float(sl) * 0.24, float(lz)), Vector3(0.1, 0.06, 4.8), white, false)   # slats
+		for fz in [-32.0, -24.0, -16.0, -8.0, 8.0, 16.0, 24.0, 32.0]:
+			_casing_fin(root, sgn * 7.2, float(fz) + 2.0, sy, 2.0, 2.2, 3.2, white, brass)
+	# Funnel guy-stays: eight wires fanning down from each funnel near its top to deck anchors.
+	for i in range(funnels.size()):
+		var fz: float = funnels[i]
+		var ty: float = sy + float(heights[i]) * 0.72
+		for a in range(8):
+			var ang: float = deg_to_rad(22.5 + float(a) * 45.0)
+			var dx: float = cos(ang)
+			var dz: float = sin(ang)
+			var attach := Vector3(dx * 4.7, ty, fz + dz * 6.6)
+			var anchor := Vector3(dx * 11.0, sy + 0.2, fz + dz * 9.0)
+			_strut(root, attach, anchor, 0.05, wire)
+	# Cowl ventilators out near the deck edges, between the funnels.
+	for cz in [-20.0, 20.0]:
+		for sgn in [-1.0, 1.0]:
+			_cowl_vent(root, Vector3(sgn * 9.5, sy, float(cz)), 1.0, white, _mat(Color(0.5, 0.12, 0.1), 0.6, 0.0))
 
 
 # A cowl ventilator: a vertical trunk with a bell mouth bent to face fore or aft.
