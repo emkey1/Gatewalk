@@ -27,14 +27,15 @@ const DRAUGHT: float = 11.8        # keel below the waterline
 # (Promenade and up) stand taller than the cabin decks the way the real ship's did — the Promenade
 # gets a ~3.3 m deckhead so a 1.8 m player isn't brushing the deck beams (the Sun/Sports decks ride
 # up with it; the lower Main/A decks keep the 2.84 m cabin spacing).
-const DECK_MAIN: float = 13.56     # Main deck: open forecastle + aft deck, base of the deckhouse
-# Superstructure decks RAISED (rework from the 1:2000 model: the boat deck reads ~25 m above the WL).
-# The deck-to-deck gaps are now ~4.5 m (real superstructure spacing); rooms keep a fixed ROOM_H
-# ceiling with the deck structure as a void above (so cabins aren't 4.5 m tall). Stage 1 keeps the
-# hull (Main + below) put; Stage 2 will raise the freeboard to land the boat deck at ~25 m.
-const DECK_PROM: float = 18.00     # Promenade deck (the long enclosed promenade)
-const DECK_SUN: float = 22.50      # boat / sun deck: lifeboats + funnel casings
-const DECK_SPORTS: float = 25.50   # sports deck (topmost open deck)
+# Decks RAISED to the 1:2000 model (full rework). Freeboard ~16 m (was 13.56) so there's a tall topside
+# above the waterline, and a taller superstructure so the BOAT DECK lands ~25 m up (the model's reading).
+# Deck-to-deck gaps ~4.5 m (real superstructure spacing); rooms keep a fixed ROOM_H ceiling with a
+# deck-structure VOID above (so cabins aren't 4.5 m tall). The hull rooms (pool/dining) stay near the
+# keel; the added freeboard is absorbed by the (empty) A-deck headroom below the Main deck.
+const DECK_MAIN: float = 16.00     # Main deck: open forecastle + aft deck, base of the deckhouse (freeboard ~16 m)
+const DECK_PROM: float = 20.44     # Promenade deck (the long enclosed promenade)
+const DECK_SUN: float = 24.94      # boat / sun deck: lifeboats + funnel casings (~25 m, the model's boat deck)
+const DECK_SPORTS: float = 27.94   # sports deck (topmost open deck)
 const ROOM_H: float = 2.85         # finished room height (floor->ceiling); deck structure void sits above
 # Funnel longitudinal centres (+z = bow), measured off a 1:2000 scale QM model: equal-height funnels
 # ~45 m apart, the group centred ~15 m FORWARD of amidships (the model's hull beam came out 36.3 m,
@@ -944,11 +945,12 @@ static func _build_funnels(parent: Node3D, wl: float) -> void:
 	parent.add_child(root)
 	var red := _mat(Color(0.80, 0.27, 0.10), 0.55, 0.0)   # Cunard red
 	var black := _mat(Color(0.06, 0.06, 0.07), 0.6, 0.0)
-	# The QM's three funnels were EQUAL height (per the scale model + the real ship), topping out ~43 m
-	# above the water; positions from FUNNEL_Z.
+	# The QM's three funnels were EQUAL height (per the scale model + the real ship), topping out ~45 m
+	# above the water; positions from FUNNEL_Z. With the sports deck now ~28 m up, the funnels are
+	# shorter (17.4 m) so the tops still land at the model's ~45 m, not ~48.
 	var base_y: float = wl + DECK_SPORTS
 	for fz in FUNNEL_Z:
-		_funnel(root, float(fz), base_y, 20.5, red, black)
+		_funnel(root, float(fz), base_y, 17.4, red, black)
 
 
 static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red: Material, black: Material) -> void:
@@ -1288,7 +1290,7 @@ static func _build_sports_deck_fit(parent: Node3D, wl: float) -> void:
 				_casing_fin(root, sgn * 7.2, float(g) + d + 1.6, sy, 2.0, 2.2, 3.2, white, brass)
 	# Funnel guy-stays: eight wires fanning down from each funnel near its top to deck anchors.
 	for fz in FUNNEL_Z:
-		var ty: float = sy + 20.5 * 0.72
+		var ty: float = sy + 17.4 * 0.72   # 72% up the (now shorter) funnel
 		for a in range(8):
 			var ang: float = deg_to_rad(22.5 + float(a) * 45.0)
 			var dx: float = cos(ang)
@@ -1337,7 +1339,7 @@ static func _build_portholes(parent: Node3D, wl: float) -> void:
 		var k: float = _keel_y(z, wl)
 		var s: float = _sheer_y(z, wl)
 		var b: float = _half_beam(z)
-		for yy in [4.5, 7.4, 10.2]:   # C / B / A deck window rows
+		for yy in [4.5, 7.4, 10.2, 13.0]:   # C / B / A / Main-deck window rows (4th row fills the raised freeboard)
 			var frac: float = clampf((float(yy) - k) / (s - k), 0.0, 1.0)
 			var bw: float = b * (0.72 + 0.28 * frac) + 0.06
 			for side in [-1.0, 1.0]:

@@ -50,16 +50,16 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Side ELEVATION — taller superstructure after the deck raise.
-		["profile", Vector3(-215.0, 38.0, 15.0), Vector3(0.0, 22.0, 15.0), Vector3.UP],
-		# Cabin interior — check the new fixed ~2.85 m ceiling (not a 4.5 m gap).
-		["md_cabin", Vector3(-12.4, 13.2, 4.5), Vector3(-15.9, 13.0, 4.5), Vector3.UP],
-		# EXTERIOR promenade-deck window band (re-anchored glazing).
-		["prom_win", Vector3(-30.0, 19.5, 0.0), Vector3(-16.0, 19.0, 10.0), Vector3.UP],
-		# Sun-house gym interior (shifted up with DECK_SUN) — floor/ceiling intact.
-		["gym", Vector3(3.0, 22.5, -50.0), Vector3(0.0, 21.9, -34.0), Vector3.UP],
-		# Sports deck fit (shifted up with DECK_SPORTS).
-		["sports", Vector3(16.0, 30.0, 30.0), Vector3(-2.0, 25.0, 12.0), Vector3.UP],
+		# Side ELEVATION — taller freeboard (Main ~16 m) + boat deck ~25 m + shorter funnels.
+		["profile", Vector3(-235.0, 42.0, 15.0), Vector3(0.0, 24.0, 15.0), Vector3.UP],
+		# HULL SIDE midships — check the raised freeboard (tall black topside) + 4 porthole rows.
+		["hull_side", Vector3(-78.0, 7.0, 8.0), Vector3(-18.0, 8.0, 8.0), Vector3.UP],
+		# Cabin interior at the new Main level (floor ~14.3 world) — fixed ~2.85 m ceiling.
+		["md_cabin", Vector3(-12.4, 15.6, 4.5), Vector3(-15.9, 15.4, 4.5), Vector3.UP],
+		# Inside the now-tall aft A deck (Main->A->B stair + cream hull lining) — no run-through.
+		["aft_adeck", Vector3(6.0, 10.3, -58.0), Vector3(-2.0, 10.0, -42.0), Vector3.UP],
+		# Sports deck fit + shorter funnels (shifted up with DECK_SPORTS ~28 m).
+		["sports", Vector3(16.0, 33.0, 30.0), Vector3(-2.0, 28.0, 12.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
