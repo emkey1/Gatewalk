@@ -50,13 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Pool-stair top (z79): from the stair head looking FWD into the cabin wing, which should now
-		# start right at the stair entry (no bare-deck gap). This is the user's reported view.
-		["stairtop_fwd", Vector3(0.0, 13.3, 79.5), Vector3(0.0, 12.5, 86.0), Vector3.UP],
-		# Junction from within the stairwell, looking fwd-up at the stair top meeting the cabin wall.
-		["stairtop_junc", Vector3(2.6, 12.6, 76.0), Vector3(0.5, 12.8, 81.0), Vector3.UP],
-		# Looking down the stair from just forward of its top (sanity: stair + parapets intact).
-		["stairtop_down", Vector3(0.0, 13.6, 80.0), Vector3(0.0, 9.5, 74.0), Vector3.UP],
+		# The user's port-deck view (pos -9,77): the fwd cabin block beside the pool stairwell. Should
+		# now be free of the brown bed/parapet z-fight (no cabin bay overlaps the well).
+		["usr_port", Vector3(-9.0, 13.3, 77.0), Vector3(-3.0, 12.9, 81.0), Vector3.UP],
+		# Pool-stair top (z79): from the stair head looking FWD up the alley, which should reach the
+		# stair via the doorless link stub (no bare-deck gap, no furniture in the well).
+		["stairtop_fwd", Vector3(0.0, 13.3, 79.3), Vector3(0.0, 12.5, 86.0), Vector3.UP],
+		# Close-up of the first port cabin by the stair: confirm the bed sits clear of the stairwell.
+		["firstcabin", Vector3(-6.0, 13.0, 76.5), Vector3(-4.0, 12.0, 81.5), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

@@ -1146,7 +1146,11 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_cabins(root, wl, -78.0, 12.0, 2)    # aft wing (under the Smoking Room..Lounge)
 	_build_cabins(root, wl, 27.0, 43.0)        # between the dining stair + the lift lobby
 	_build_cabins(root, wl, 63.0, 72.0)        # between the lift lobby + the pool stair
-	_build_cabins(root, wl, 79.0, 92.0)        # pool stair (its top is at z79) -> the Main Hall; abuts the stair entry
+	_build_cabins(root, wl, 80.0, 92.0)        # between the pool stair + the Main Hall
+	# Bridge the forward cabin alley (z80) to the pool-stair top (z79) with a short doorless corridor
+	# stub, so the alley wall meets the stair with no bare-deck gap — WITHOUT a furnished cabin bay
+	# over the stairwell (a bay there put the bed/pillow aft through the partition into the well).
+	_corridor_link(root, wl, 79.0, 80.0)
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
 	_build_gymnasium(root, wl)
@@ -2158,6 +2162,21 @@ static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float, furni
 		lamp.omni_range = 9.0
 		lamp.shadow_enabled = false
 		root.add_child(lamp)
+
+
+# A short doorless run of cabin alley (just the two corridor walls + the Deco fit-out, no cabins),
+# used to bridge a cabin wing to a stair head so the alley wall meets the stair with no bare-deck gap
+# — without a furnished cabin bay whose bed/wardrobe would poke through the partition into the well.
+static func _corridor_link(parent: Node3D, wl: float, z0: float, z1: float) -> void:
+	var ya: float = wl + DECK_MAIN
+	var ztop: float = wl + DECK_PROM - 0.15      # bury the wall top into the Promenade floor (as the cabin walls do)
+	var cw: float = 0.6
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var wy: float = (ya - 0.12 + ztop) * 0.5
+	var wh: float = ztop - (ya - 0.12)
+	for sgn in [-1.0, 1.0]:
+		_box(parent, Vector3(sgn * cw, wy, (z0 + z1) * 0.5), Vector3(0.2, wh, z1 - z0), white, true)
+	_deco_corridor(parent, z0, z1, ya, ztop, cw, [], 1.0)
 
 
 # Art Deco fit-out for a 1:1 cabin alleyway (per the QM's first-class corridors): a deep-red
