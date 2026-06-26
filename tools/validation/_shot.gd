@@ -50,13 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# FLICKER CHECK: grazing the Promenade floor over the cabins (cabin wall TOPS now buried) — the
-		# white slivers tracing the cabin layout should be gone.
-		["prom_floor", Vector3(8.0, 15.55, -55.0), Vector3(-3.0, 14.55, -71.0), Vector3.UP],
-		# Forward Hall floor over the lift-lobby walls (their tops buried too).
-		["forward_hall", Vector3(0.0, 15.55, 47.0), Vector3(7.5, 14.6, 56.0), Vector3.UP],
-		# The extended First Class cabin corridor (now runs forward to z=-8).
-		["cabin_corr", Vector3(0.0, 12.6, -22.0), Vector3(0.0, 12.4, -48.0), Vector3.UP],
+		# New forward Main-deck stateroom block (z 27..43, between the dining stair + the lift lobby).
+		["cabin_fwd", Vector3(0.0, 12.6, 29.0), Vector3(0.0, 12.4, 42.0), Vector3.UP],
+		# The extended aft wing corridor (now runs forward to z=12; every-other bay furnished).
+		["cabin_aft", Vector3(0.0, 12.6, -10.0), Vector3(0.0, 12.4, 11.0), Vector3.UP],
+		# FLICKER CHECK: Main Lounge floor over the extended cabins (buried tops should keep it clean).
+		["lounge_floor", Vector3(8.0, 15.5, -5.0), Vector3(-3.0, 14.55, 9.0), Vector3.UP],
 		# Overview down the pool length (sanity).
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]

@@ -1140,7 +1140,11 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_furnish_promenade_ends(root, wl)
 	_build_dining_room(root, wl)
 	_build_main_hall(root, wl)
-	_build_cabins(root, wl, -78.0, -8.0)   # First Class stateroom wing, aft A-deck (extended fwd under the Ballroom/Lounge)
+	# First Class staterooms — the Main Deck is the primary stateroom deck per the 1936 QM plan (cabins
+	# also ran on the Sun/A/B decks — not built yet). The big aft wing (furnish every other bay to stay
+	# light) + a forward block between the dining stair and the lift lobby.
+	_build_cabins(root, wl, -78.0, 12.0, 2)
+	_build_cabins(root, wl, 27.0, 43.0)
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
 	_build_sports_access(root, wl)
@@ -2011,7 +2015,7 @@ static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float,
 # real cabin alleyways were ~3 ft) lined with cabin doors, the cabins behind them divided by
 # partitions and closed by an outboard wall (the structural columns at x=±6.5 fall in the void
 # behind it). A sample of cabins is furnished (bed, pillow, wardrobe); the rest read as doors.
-static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float) -> void:
+static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float, furnish_step: int = 1) -> void:
 	var root := Node3D.new()
 	root.name = "Cabins"
 	parent.add_child(root)
@@ -2044,13 +2048,16 @@ static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float) -> vo
 		_box(root, Vector3(sgn * cd, cwcy, (z0 + z1) * 0.5), Vector3(0.2, cwh, z1 - z0), white, true)
 		for pz in parts:
 			_box(root, Vector3(sgn * (cw + cd) * 0.5, cwcy, float(pz)), Vector3(cd - cw, cwh, 0.2), white, true)
-	# Furnish every cabin: bed (pillow end against the aft partition), a wardrobe, and a compact
-	# ensuite bathroom — toilet, washbasin, shower — tucked in the corner by the door, the way a real
-	# cruise stateroom is laid out (~25-30 sq ft modular unit). See _cabin_interior.
+	# Furnish a SAMPLE of cabins (every furnish_step-th bay) — bed (pillow end against the aft partition),
+	# a wardrobe, and a compact ensuite (toilet, washbasin, shower) by the door, the way a real cruise
+	# stateroom is laid out. Sampling keeps long wings light on body count; the rest read as doors (the
+	# corridor fit-out + closed cabin doors still sell the wing). See _cabin_interior.
 	var porc := _mat(Color(0.93, 0.93, 0.95), 0.2, 0.0)
-	for cz in doors:
+	for ci in range(doors.size()):
+		if ci % furnish_step != 0:
+			continue
 		for sgn2 in [-1.0, 1.0]:
-			_cabin_interior(root, float(cz), float(sgn2), ya, yc, cw, white, wood, bedmat, porc)
+			_cabin_interior(root, float(doors[ci]), float(sgn2), ya, yc, cw, white, wood, bedmat, porc)
 	# Art Deco corridor fit-out (deep-red carpet, glossy-black wainscot, burl + chrome door surrounds,
 	# globe sconces) over the plain white alley walls — matching the QM's first-class cabin corridors.
 	_deco_corridor(root, z0, z1, ya, yc - 0.15, cw, doors, 1.0)   # yc-0.15: corridor facings buried like the walls
