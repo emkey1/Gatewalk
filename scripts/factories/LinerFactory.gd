@@ -415,7 +415,9 @@ static func _build_aft_lower_decks(parent: Node3D, wl: float) -> void:
 	for sx in [-1.0, 1.0]:
 		_box(root, Vector3(sx * 4.1, (by - 0.12 + my) * 0.5, (sz0 + sz1) * 0.5), Vector3(0.2, my - by + 0.12, sz1 - sz0), wallmat, true)
 	_box(root, Vector3(0.0, ay + 0.5, sz1 + 0.1), Vector3(8.4, 1.0, 0.2), wallmat, true)   # fwd balustrade on A (z -34)
-	# Lighting: a couple of omnis per deck down the centreline.
+	# Porthole windows along the hull sides at the A + B window heights (expose the ship's-side glazing
+	# from inside, per a real first-class deck), and a couple of omnis per deck down the centreline.
+	_deck_portholes(root, wl, z0, z1, [by + 1.22, ay + 1.18])
 	for dz in [-66.0, -54.0, -38.0]:
 		for dy in [ay, by]:
 			var lamp := OmniLight3D.new()
@@ -425,6 +427,34 @@ static func _build_aft_lower_decks(parent: Node3D, wl: float) -> void:
 			lamp.omni_range = 24.0
 			lamp.shadow_enabled = false
 			root.add_child(lamp)
+
+
+# Interior porthole windows for an enclosed deck: a glowing glazed disc just inside the hull at each
+# exterior-porthole position (so a room abutting the hull side exposes a lit window instead of blank
+# plating), at the given window heights `ys`, every 3.2 m along z0..z1, both sides. Pairs 1:1 with the
+# exterior brass rims from _build_portholes (which has matching rows at these heights).
+static func _deck_portholes(parent: Node3D, wl: float, z0: float, z1: float, ys: Array) -> void:
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(0.70, 0.82, 0.95)
+	glass.emission_enabled = true
+	glass.emission = Color(0.80, 0.90, 1.0)
+	glass.emission_energy_multiplier = 1.5
+	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.26
+	disc.bottom_radius = 0.26
+	disc.height = 0.04
+	disc.radial_segments = 12
+	var face := Basis(Vector3(0.0, 0.0, 1.0), deg_to_rad(90.0))   # disc axis -> X (faces the ship's side)
+	var tf: Array = []
+	var z: float = z0 + 1.6
+	while z < z1 - 1.0:
+		for yy in ys:
+			for side in [-1.0, 1.0]:
+				var bw: float = _hull_halfw_at(z, float(yy), wl) - 0.05
+				tf.append(Transform3D(face, Vector3(side * bw, float(yy), z)))
+		z += 3.2
+	MultiMeshScatter.build(parent, "DeckPortholes", disc, glass, tf)
 
 
 # Two triangles with per-vertex hull colours (a,b,c,d wound as a quad).
@@ -1138,7 +1168,7 @@ static func _build_portholes(parent: Node3D, wl: float) -> void:
 		var k: float = _keel_y(z, wl)
 		var s: float = _sheer_y(z, wl)
 		var b: float = _half_beam(z)
-		for yy in [4.5, 7.4]:
+		for yy in [4.5, 7.4, 10.2]:   # C / B / A deck window rows
 			var frac: float = clampf((float(yy) - k) / (s - k), 0.0, 1.0)
 			var bw: float = b * (0.72 + 0.28 * frac) + 0.06
 			for side in [-1.0, 1.0]:

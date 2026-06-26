@@ -50,14 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# From the Main deck, down the new aft stair opening (z -42..-34) toward A/B.
-		["aft_main_down", Vector3(0.0, 13.6, -32.5), Vector3(0.0, 9.5, -40.0), Vector3.UP],
-		# On A deck, looking forward at the switchback shaft (Main->A above, A->B dropping below).
-		["aft_shaft", Vector3(0.0, 10.9, -52.0), Vector3(0.0, 8.6, -37.0), Vector3.UP],
-		# Along the empty A deck, aft from the shaft.
-		["aft_a_deck", Vector3(0.0, 10.6, -45.0), Vector3(0.0, 9.9, -72.0), Vector3.UP],
-		# Along the empty B deck, aft from under the shaft.
-		["aft_b_deck", Vector3(0.0, 7.8, -45.0), Vector3(0.0, 7.1, -72.0), Vector3.UP],
+		# A deck, looking aft along the port hull side — should show a row of lit porthole windows.
+		["aft_portholes_a", Vector3(-9.0, 10.8, -46.0), Vector3(-16.5, 10.2, -64.0), Vector3.UP],
+		# B deck, port hull side — the B-row portholes.
+		["aft_portholes_b", Vector3(-9.0, 7.9, -46.0), Vector3(-16.5, 7.4, -64.0), Vector3.UP],
+		# A deck wide, showing the side glazing in context of the empty deck.
+		["aft_a_wide", Vector3(2.0, 10.9, -44.0), Vector3(-13.0, 9.9, -64.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
