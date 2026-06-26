@@ -50,11 +50,13 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# A deck, looking aft along the port hull side — should show a row of lit porthole windows.
-		["aft_portholes_a", Vector3(-9.0, 10.8, -46.0), Vector3(-16.5, 10.2, -64.0), Vector3.UP],
-		# B deck, port hull side — the B-row portholes.
-		["aft_portholes_b", Vector3(-9.0, 7.9, -46.0), Vector3(-16.5, 7.4, -64.0), Vector3.UP],
-		# A deck wide, showing the side glazing in context of the empty deck.
+		# Forward block: from the Main Hall, down the new forward stair opening (z 99..107).
+		["fwd_main_down", Vector3(0.0, 14.6, 110.5), Vector3(0.0, 10.3, 102.0), Vector3.UP],
+		# Forward A deck, looking forward at the switchback shaft + the portholes on the narrowing hull.
+		["fwd_shaft", Vector3(0.0, 10.9, 90.0), Vector3(0.0, 9.0, 104.0), Vector3.UP],
+		# Forward A deck wide, port side — porthole windows on the forward (narrower) hull.
+		["fwd_a_wide", Vector3(5.0, 10.9, 88.0), Vector3(-10.0, 9.9, 98.0), Vector3.UP],
+		# Aft block regression: A deck still has its portholes + floor after the generalisation.
 		["aft_a_wide", Vector3(2.0, 10.9, -44.0), Vector3(-13.0, 9.9, -64.0), Vector3.UP],
 	]
 	for s in shots:

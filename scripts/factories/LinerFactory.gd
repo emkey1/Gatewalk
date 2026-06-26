@@ -77,8 +77,8 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	# Hull carves (each [z0, z1, floor_y]) + Main-deck stairwell openings (each [z0, z1, half_width]).
 	# Dining Room + pool drop to C deck; the aft block is hollowed for the empty A & B accommodation
 	# decks (floor at the B-deck level, with the A deck as a slab above).
-	_build_hull(root, wl, [[-28.0, 28.0, wl + 5.04], [36.0, 82.0, wl + 5.04], [-74.0, -30.0, wl + 7.88]])
-	_build_main_deck(root, wl, [[15.0, 25.0, 4.0], [73.0, 79.0, 4.0], [-42.0, -34.0, 4.0]])
+	_build_hull(root, wl, [[-28.0, 28.0, wl + 5.04], [36.0, 82.0, wl + 5.04], [-74.0, -30.0, wl + 7.88], [84.0, 112.0, wl + 7.88]])
+	_build_main_deck(root, wl, [[15.0, 25.0, 4.0], [73.0, 79.0, 4.0], [-42.0, -34.0, 4.0], [99.0, 107.0, 4.0]])
 	_build_superstructure(root, wl)
 	_build_funnels(root, wl)
 	_build_masts(root, wl)
@@ -387,38 +387,38 @@ static func _flat_seg(st: SurfaceTool, za: float, zb: float, hxh: float, y: floa
 # connecting Main -> A -> B in a central shaft (z -42..-34, ±4 m). The decks start EMPTY (bare lit
 # floors) other than the stair; cabins/fit-out come later. The Main-deck opening over the shaft is cut
 # by the _build_main_deck holes array, and the aft Main-deck cabin wing is split around it.
-static func _build_aft_lower_decks(parent: Node3D, wl: float) -> void:
+# An empty A & B accommodation block: two lofted tween-deck floors over the carved hull (z0..z1) + a
+# central switchback stair trunk (sz0 = the A-landing hole edge, sz1 = the Main-head hole edge, with
+# sz0 < sz1) connecting Main -> A -> B, + ship's-side porthole windows. The Main-deck opening over the
+# shaft is cut by the _build_main_deck holes array; callers split/clear the Main-deck rooms around it.
+static func _build_lower_decks(parent: Node3D, wl: float, z0: float, z1: float, sz0: float, sz1: float, body_name: String) -> void:
 	var root := Node3D.new()
-	root.name = "AftLowerDecks"
+	root.name = body_name
 	parent.add_child(root)
 	var ay: float = wl + 10.72             # A deck
 	var by: float = wl + 7.88              # B deck
-	var my: float = wl + DECK_MAIN         # Main deck (stair head)
-	var z0: float = -74.0
-	var z1: float = -30.0
-	var sz0: float = -42.0                 # shaft (stairwell) aft edge / A landing
-	var sz1: float = -34.0                 # shaft forward edge
+	var my: float = _sheer_y((sz0 + sz1) * 0.5, wl)   # Main-deck head (follows the sheer; flat amidships)
 	var floormat := _mat(Color(0.55, 0.52, 0.47), 0.9, 0.0)
 	floormat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var tread := _mat(COL_TEAK, 0.7, 0.0)
 	var wallmat := _mat(COL_SUPER, 0.85, 0.0)
 	# Tween-deck floors: A holed over the shaft (the A->B flight drops through; you walk around it on A),
 	# B solid (the bottom of the carved volume).
-	_flat_deck(root, wl, ay, z0, z1, sz0, sz1, 4.0, floormat, "ADeck")
-	_flat_deck(root, wl, by, z0, z1, NAN, NAN, 0.0, floormat, "BDeck")
-	# Switchback stair: Main->A descends aft (z -34 head -> -42 foot at A), then A->B descends forward
-	# (z -42 head at A -> -34 foot at B) directly below it, turning 180 deg on the A landing at z -42.
+	_flat_deck(root, wl, ay, z0, z1, sz0, sz1, 4.0, floormat, body_name + "_A")
+	_flat_deck(root, wl, by, z0, z1, NAN, NAN, 0.0, floormat, body_name + "_B")
+	# Switchback stair: Main->A descends from the Main-head edge (sz1) to the A landing (sz0), then A->B
+	# descends back the other way directly below it, turning 180 deg on the A landing.
 	_stair_run(root, 0.0, sz0, sz1, ay, my, 6.0, tread)    # Main -> A
 	_stair_run(root, 0.0, sz1, sz0, by, ay, 6.0, tread)    # A -> B (below the Main->A flight)
-	# Shaft side walls (enclose both flights) + a balustrade across the forward + aft hole edges on A so
-	# you don't step off into the well (the stair is reached over the z -42 landing edge between them).
+	# Shaft side walls (enclose both flights) + a balustrade across the Main-head hole edge on A so you
+	# don't step off into the well (the stair is reached over the sz0 landing edge).
 	for sx in [-1.0, 1.0]:
-		_box(root, Vector3(sx * 4.1, (by - 0.12 + my) * 0.5, (sz0 + sz1) * 0.5), Vector3(0.2, my - by + 0.12, sz1 - sz0), wallmat, true)
-	_box(root, Vector3(0.0, ay + 0.5, sz1 + 0.1), Vector3(8.4, 1.0, 0.2), wallmat, true)   # fwd balustrade on A (z -34)
+		_box(root, Vector3(sx * 4.1, (by - 0.12 + my) * 0.5, (sz0 + sz1) * 0.5), Vector3(0.2, my - by + 0.12, absf(sz1 - sz0)), wallmat, true)
+	_box(root, Vector3(0.0, ay + 0.5, sz1 + 0.1), Vector3(8.4, 1.0, 0.2), wallmat, true)   # balustrade at the Main-head edge
 	# Porthole windows along the hull sides at the A + B window heights (expose the ship's-side glazing
 	# from inside, per a real first-class deck), and a couple of omnis per deck down the centreline.
 	_deck_portholes(root, wl, z0, z1, [by + 1.22, ay + 1.18])
-	for dz in [-66.0, -54.0, -38.0]:
+	for dz in [lerpf(z0, z1, 0.22), lerpf(z0, z1, 0.5), lerpf(z0, z1, 0.78)]:
 		for dy in [ay, by]:
 			var lamp := OmniLight3D.new()
 			lamp.position = Vector3(0.0, float(dy) + 2.2, float(dz))
@@ -1298,7 +1298,8 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_verandah_grill(root, wl)
 	_build_gymnasium(root, wl)
 	_build_sports_access(root, wl)
-	_build_aft_lower_decks(root, wl)
+	_build_lower_decks(root, wl, -74.0, -30.0, -42.0, -34.0, "AftLowerDecks")   # aft of the Dining Room
+	_build_lower_decks(root, wl, 84.0, 112.0, 99.0, 107.0, "FwdLowerDecks")     # fwd of the pool, under the Main Hall
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with
