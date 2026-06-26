@@ -74,8 +74,11 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	parent.add_child(root)
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "liner", 1))
 
-	_build_hull(root, wl, wl + 5.04, -28.0, 28.0, 36.0, 82.0)   # carve the upper hull over the Dining Room + the pool (floor at C deck)
-	_build_main_deck(root, wl, 15.0, 25.0, 4.0, 73.0, 79.0, 4.0)   # stairwell openings: Dining Room + swimming-pool descents
+	# Hull carves (each [z0, z1, floor_y]) + Main-deck stairwell openings (each [z0, z1, half_width]).
+	# Dining Room + pool drop to C deck; the aft block is hollowed for the empty A & B accommodation
+	# decks (floor at the B-deck level, with the A deck as a slab above).
+	_build_hull(root, wl, [[-28.0, 28.0, wl + 5.04], [36.0, 82.0, wl + 5.04], [-74.0, -30.0, wl + 7.88]])
+	_build_main_deck(root, wl, [[15.0, 25.0, 4.0], [73.0, 79.0, 4.0], [-42.0, -34.0, 4.0]])
 	_build_superstructure(root, wl)
 	_build_funnels(root, wl)
 	_build_masts(root, wl)
@@ -155,6 +158,16 @@ static func _sheer_y(z: float, wl: float) -> float:
 	return deck
 
 
+# Hull half-width at world-y `y` and longitudinal z: the side tapers from _half_beam at the sheer to
+# 0.72*_half_beam at the keel, so a tween-deck floor inset to this width meets the hull side instead
+# of poking out through the painted topside.
+static func _hull_halfw_at(z: float, y: float, wl: float) -> float:
+	var ky: float = _keel_y(z, wl)
+	var sy: float = _sheer_y(z, wl)
+	var f: float = clampf((y - ky) / maxf(sy - ky, 0.01), 0.0, 1.0)
+	return _half_beam(z) * lerpf(0.72, 1.0, f)
+
+
 static func _hull_color(y: float, wl: float) -> Color:
 	if y >= wl + 0.7:
 		return COL_TOPSIDE
@@ -166,7 +179,10 @@ static func _hull_color(y: float, wl: float) -> Color:
 # Loft the hull as a single vertex-coloured mesh: a slightly tumblehome side (deck edge
 # out over a narrower keel) plus a flat bottom, swept over the station profiles, with
 # end caps fanned at bow and stern.
-static func _build_hull(parent: Node3D, wl: float, carve_y: float = NAN, carve_z0: float = NAN, carve_z1: float = NAN, carve2_z0: float = NAN, carve2_z1: float = NAN) -> void:
+# `carves` is an Array of [z0, z1, carve_y]: over each z-range the collision slice is kept solid only
+# up to carve_y (the room/deck floor) so the player can stand in the hollowed volume; where ranges
+# overlap a station the DEEPEST (lowest) carve_y wins, so stacked decks expose the full shaft.
+static func _build_hull(parent: Node3D, wl: float, carves: Array = []) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var body := StaticBody3D.new()
@@ -200,9 +216,13 @@ static func _build_hull(parent: Node3D, wl: float, carve_y: float = NAN, carve_z
 		# ConcavePolygonShape3D docs); convex slices are reliably solid from every side, and
 		# each slice's top face is the deck.
 		var cvx := ConvexPolygonShape3D.new()
-		if not is_nan(carve_y) and ((z1 > carve_z0 and z0 < carve_z1) or (not is_nan(carve2_z0) and z1 > carve2_z0 and z0 < carve2_z1)):
-			# Carve the UPPER hull hollow over the Dining Room: keep the slice solid only up to
-			# carve_y (the room floor) so the player can stand in the room instead of inside solid
+		var carve_y: float = NAN
+		for c in carves:
+			if z1 > float(c[0]) and z0 < float(c[1]):
+				carve_y = float(c[2]) if is_nan(carve_y) else minf(carve_y, float(c[2]))
+		if not is_nan(carve_y):
+			# Carve the UPPER hull hollow over a sub-deck room/deck: keep the slice solid only up to
+			# carve_y (the floor) so the player can stand in the hollowed volume instead of inside solid
 			# hull. The lower hull stays solid (nothing falls through to the sea); the room's own
 			# floor/walls/ceiling enclose the open volume above.
 			cvx.points = PackedVector3Array([Vector3(-b0, carve_y, z0), Vector3(b0, carve_y, z0), Vector3(-b1, carve_y, z1), Vector3(b1, carve_y, z1), bL0, bR0, bL1, bR1])
@@ -252,7 +272,9 @@ static func _tri_out(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, wl: fl
 # The walkable teak weather deck: a flat surface across the beam at the sheer line, run
 # right out to the hull edge so there's no lip to fall through into the hull. Lofted as one
 # mesh with a trimesh collider so the player stands exactly on it.
-static func _build_main_deck(parent: Node3D, wl: float, hz0: float = NAN, hz1: float = NAN, hx: float = 0.0, hz0b: float = NAN, hz1b: float = NAN, hxb: float = 0.0) -> void:
+# `holes` is an Array of [hz0, hz1, hx]: a centre stairwell opening of half-width hx over each z-range
+# (stations far enough apart that at most one hole falls in any one ~6.5 m station).
+static func _build_main_deck(parent: Node3D, wl: float, holes: Array = []) -> void:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_color(COL_TEAK)
@@ -267,14 +289,12 @@ static func _build_main_deck(parent: Node3D, wl: float, hz0: float = NAN, hz1: f
 		var ha0: float = NAN
 		var ha1: float = NAN
 		var hxh: float = 0.0
-		if not is_nan(hz0) and z1 > hz0 and z0 < hz1:
-			ha0 = maxf(z0, hz0)
-			ha1 = minf(z1, hz1)
-			hxh = hx
-		elif not is_nan(hz0b) and z1 > hz0b and z0 < hz1b:
-			ha0 = maxf(z0, hz0b)
-			ha1 = minf(z1, hz1b)
-			hxh = hxb
+		for h in holes:
+			if z1 > float(h[0]) and z0 < float(h[1]):
+				ha0 = maxf(z0, float(h[0]))
+				ha1 = minf(z1, float(h[1]))
+				hxh = float(h[2])
+				break
 		if hxh <= 0.0:
 			_deck_seg(st, z0, z1, 0.0, wl)
 		else:
@@ -313,6 +333,98 @@ static func _deck_seg(st: SurfaceTool, za: float, zb: float, hxh: float, wl: flo
 		_quad_flat(st, Vector3(hxh, sa, za), Vector3(ba, sa, za), Vector3(bb, sb, zb), Vector3(hxh, sb, zb))
 	else:
 		_quad_flat(st, Vector3(-ba, sa, za), Vector3(ba, sa, za), Vector3(bb, sb, zb), Vector3(-ba, sb, zb))
+
+
+# A flat enclosed tween-deck floor lofted across the hull at world-y `y`, z0..z1, inset to the hull
+# side at that height (so it tucks against the topside), with an optional central stairwell hole
+# (±hxh over hz0..hz1; pass hz0=NAN for a solid floor). Trimesh collider so the player stands on it.
+static func _flat_deck(parent: Node3D, wl: float, y: float, z0: float, z1: float, hz0: float, hz1: float, hxh: float, mat: Material, body_name: String) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n: int = 28
+	for i in range(n):
+		var za: float = lerpf(z0, z1, float(i) / float(n))
+		var zb: float = lerpf(z0, z1, float(i + 1) / float(n))
+		var ha0: float = NAN
+		var ha1: float = NAN
+		if not is_nan(hz0) and zb > hz0 and za < hz1:
+			ha0 = maxf(za, hz0)
+			ha1 = minf(zb, hz1)
+		if is_nan(ha0):
+			_flat_seg(st, za, zb, 0.0, y, wl)
+		else:
+			if ha0 > za + 0.01:
+				_flat_seg(st, za, ha0, 0.0, y, wl)
+			_flat_seg(st, ha0, ha1, hxh, y, wl)
+			if ha1 < zb - 0.01:
+				_flat_seg(st, ha1, zb, 0.0, y, wl)
+	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var body := StaticBody3D.new()
+	body.name = body_name
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	body.add_child(mi)
+	var col := CollisionShape3D.new()
+	col.shape = mesh.create_trimesh_shape()
+	body.add_child(col)
+	parent.add_child(body)
+
+
+static func _flat_seg(st: SurfaceTool, za: float, zb: float, hxh: float, y: float, wl: float) -> void:
+	var ba: float = _hull_halfw_at(za, y, wl) - 0.15
+	var bb: float = _hull_halfw_at(zb, y, wl) - 0.15
+	if hxh > 0.0:
+		_quad_flat(st, Vector3(-ba, y, za), Vector3(-hxh, y, za), Vector3(-hxh, y, zb), Vector3(-bb, y, zb))
+		_quad_flat(st, Vector3(hxh, y, za), Vector3(ba, y, za), Vector3(bb, y, zb), Vector3(hxh, y, zb))
+	else:
+		_quad_flat(st, Vector3(-ba, y, za), Vector3(ba, y, za), Vector3(bb, y, zb), Vector3(-bb, y, zb))
+
+
+# The aft empty A & B accommodation decks: the hull is carved hollow to the B floor over z -74..-30
+# (see the _build_hull carves), and this lays the two tween-deck floors + a switchback stair trunk
+# connecting Main -> A -> B in a central shaft (z -42..-34, ±4 m). The decks start EMPTY (bare lit
+# floors) other than the stair; cabins/fit-out come later. The Main-deck opening over the shaft is cut
+# by the _build_main_deck holes array, and the aft Main-deck cabin wing is split around it.
+static func _build_aft_lower_decks(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "AftLowerDecks"
+	parent.add_child(root)
+	var ay: float = wl + 10.72             # A deck
+	var by: float = wl + 7.88              # B deck
+	var my: float = wl + DECK_MAIN         # Main deck (stair head)
+	var z0: float = -74.0
+	var z1: float = -30.0
+	var sz0: float = -42.0                 # shaft (stairwell) aft edge / A landing
+	var sz1: float = -34.0                 # shaft forward edge
+	var floormat := _mat(Color(0.55, 0.52, 0.47), 0.9, 0.0)
+	floormat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var tread := _mat(COL_TEAK, 0.7, 0.0)
+	var wallmat := _mat(COL_SUPER, 0.85, 0.0)
+	# Tween-deck floors: A holed over the shaft (the A->B flight drops through; you walk around it on A),
+	# B solid (the bottom of the carved volume).
+	_flat_deck(root, wl, ay, z0, z1, sz0, sz1, 4.0, floormat, "ADeck")
+	_flat_deck(root, wl, by, z0, z1, NAN, NAN, 0.0, floormat, "BDeck")
+	# Switchback stair: Main->A descends aft (z -34 head -> -42 foot at A), then A->B descends forward
+	# (z -42 head at A -> -34 foot at B) directly below it, turning 180 deg on the A landing at z -42.
+	_stair_run(root, 0.0, sz0, sz1, ay, my, 6.0, tread)    # Main -> A
+	_stair_run(root, 0.0, sz1, sz0, by, ay, 6.0, tread)    # A -> B (below the Main->A flight)
+	# Shaft side walls (enclose both flights) + a balustrade across the forward + aft hole edges on A so
+	# you don't step off into the well (the stair is reached over the z -42 landing edge between them).
+	for sx in [-1.0, 1.0]:
+		_box(root, Vector3(sx * 4.1, (by - 0.12 + my) * 0.5, (sz0 + sz1) * 0.5), Vector3(0.2, my - by + 0.12, sz1 - sz0), wallmat, true)
+	_box(root, Vector3(0.0, ay + 0.5, sz1 + 0.1), Vector3(8.4, 1.0, 0.2), wallmat, true)   # fwd balustrade on A (z -34)
+	# Lighting: a couple of omnis per deck down the centreline.
+	for dz in [-66.0, -54.0, -38.0]:
+		for dy in [ay, by]:
+			var lamp := OmniLight3D.new()
+			lamp.position = Vector3(0.0, float(dy) + 2.2, float(dz))
+			lamp.light_color = Color(1.0, 0.95, 0.85)
+			lamp.light_energy = 1.7
+			lamp.omni_range = 24.0
+			lamp.shadow_enabled = false
+			root.add_child(lamp)
 
 
 # Two triangles with per-vertex hull colours (a,b,c,d wound as a quad).
@@ -1143,7 +1255,8 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# First Class staterooms — the Main Deck is the primary stateroom deck per the 1936 QM plan (cabins
 	# also ran on the Sun/A/B decks — not built yet). Fill the clear Main-deck z-runs between the
 	# dining/pool stairwell heads, the lift lobby + the Main Hall; the big aft wing furnishes every other bay.
-	_build_cabins(root, wl, -78.0, 12.0, 2)    # aft wing (under the Smoking Room..Lounge)
+	_build_cabins(root, wl, -78.0, -44.0, 2)   # aft wing (split around the new aft stair trunk z -42..-34)
+	_build_cabins(root, wl, -32.0, 12.0, 2)    # aft wing, forward of the stair trunk
 	_build_cabins(root, wl, 27.0, 43.0)        # between the dining stair + the lift lobby
 	_build_cabins(root, wl, 63.0, 72.0)        # between the lift lobby + the pool stair
 	_build_cabins(root, wl, 80.0, 92.0)        # between the pool stair + the Main Hall
@@ -1155,6 +1268,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_verandah_grill(root, wl)
 	_build_gymnasium(root, wl)
 	_build_sports_access(root, wl)
+	_build_aft_lower_decks(root, wl)
 
 
 # Promenade Deck fit-out matching the real enclosed promenade: a bright white deckhead with

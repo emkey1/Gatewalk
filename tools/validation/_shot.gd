@@ -50,13 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Inside a TIGHT-bay cabin (z63..72 wing, dz=4.5): diagonal showing the bed against the aft
-		# partition — should sit fully within the bay (no poke-through after the bay-aware fix).
-		["cabin_tight_aft", Vector3(-1.0, 13.2, 67.0), Vector3(-4.8, 12.2, 63.2), Vector3.UP],
-		# Same cabin, forward half: wardrobe + ensuite against the fwd partition, shifted to fit.
-		["cabin_tight_fwd", Vector3(-1.0, 13.2, 63.5), Vector3(-4.8, 12.2, 67.3), Vector3.UP],
-		# A roomy-bay cabin (aft wing, dz=5) for regression: layout should be ~unchanged.
-		["cabin_roomy", Vector3(-1.0, 13.2, -34.0), Vector3(-4.8, 12.2, -37.5), Vector3.UP],
+		# From the Main deck, down the new aft stair opening (z -42..-34) toward A/B.
+		["aft_main_down", Vector3(0.0, 13.6, -32.5), Vector3(0.0, 9.5, -40.0), Vector3.UP],
+		# On A deck, looking forward at the switchback shaft (Main->A above, A->B dropping below).
+		["aft_shaft", Vector3(0.0, 10.9, -52.0), Vector3(0.0, 8.6, -37.0), Vector3.UP],
+		# Along the empty A deck, aft from the shaft.
+		["aft_a_deck", Vector3(0.0, 10.6, -45.0), Vector3(0.0, 9.9, -72.0), Vector3.UP],
+		# Along the empty B deck, aft from under the shaft.
+		["aft_b_deck", Vector3(0.0, 7.8, -45.0), Vector3(0.0, 7.1, -72.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
