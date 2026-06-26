@@ -50,14 +50,13 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# The user's port-deck view (pos -9,77): the fwd cabin block beside the pool stairwell. Should
-		# now be free of the brown bed/parapet z-fight (no cabin bay overlaps the well).
-		["usr_port", Vector3(-9.0, 13.3, 77.0), Vector3(-3.0, 12.9, 81.0), Vector3.UP],
-		# Pool-stair top (z79): from the stair head looking FWD up the alley, which should reach the
-		# stair via the doorless link stub (no bare-deck gap, no furniture in the well).
-		["stairtop_fwd", Vector3(0.0, 13.3, 79.3), Vector3(0.0, 12.5, 86.0), Vector3.UP],
-		# Close-up of the first port cabin by the stair: confirm the bed sits clear of the stairwell.
-		["firstcabin", Vector3(-6.0, 13.0, 76.5), Vector3(-4.0, 12.0, 81.5), Vector3.UP],
+		# Inside a TIGHT-bay cabin (z63..72 wing, dz=4.5): diagonal showing the bed against the aft
+		# partition — should sit fully within the bay (no poke-through after the bay-aware fix).
+		["cabin_tight_aft", Vector3(-1.0, 13.2, 67.0), Vector3(-4.8, 12.2, 63.2), Vector3.UP],
+		# Same cabin, forward half: wardrobe + ensuite against the fwd partition, shifted to fit.
+		["cabin_tight_fwd", Vector3(-1.0, 13.2, 63.5), Vector3(-4.8, 12.2, 67.3), Vector3.UP],
+		# A roomy-bay cabin (aft wing, dz=5) for regression: layout should be ~unchanged.
+		["cabin_roomy", Vector3(-1.0, 13.2, -34.0), Vector3(-4.8, 12.2, -37.5), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

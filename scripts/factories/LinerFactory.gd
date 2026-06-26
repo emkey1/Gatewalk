@@ -2149,7 +2149,7 @@ static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float, furni
 		if ci % furnish_step != 0:
 			continue
 		for sgn2 in [-1.0, 1.0]:
-			_cabin_interior(root, float(doors[ci]), float(sgn2), ya, yc, cw, white, wood, bedmat, porc)
+			_cabin_interior(root, float(doors[ci]), float(sgn2), ya, yc, cw, dz * 0.5, white, wood, bedmat, porc)
 	# Art Deco corridor fit-out (deep-red carpet, glossy-black wainscot, burl + chrome door surrounds,
 	# globe sconces) over the plain white alley walls — matching the QM's first-class cabin corridors.
 	_deco_corridor(root, z0, z1, ya, yc - 0.15, cw, doors, 1.0)   # yc-0.15: corridor facings buried like the walls
@@ -2257,21 +2257,29 @@ static func _deco_corridor(parent: Node3D, z0: float, z1: float, ya: float, yc: 
 # ensuite bathroom (toilet, washbasin, shower stall; door in its aft wall) filling the forward-
 # inboard corner by the cabin door, the way a cruise stateroom's modular bathroom sits. Bathroom door
 # is 1.0 m so the 0.9 m-wide player can just get in (a true ~0.6 m bathroom door wouldn't fit).
-static func _cabin_interior(parent: Node3D, cz: float, s: float, ya: float, yc: float, cw: float, white: Material, wood: Material, bedmat: Material, porc: Material) -> void:
+static func _cabin_interior(parent: Node3D, cz: float, s: float, ya: float, yc: float, cw: float, half_bay: float, white: Material, wood: Material, bedmat: Material, porc: Material) -> void:
 	var hh: float = yc - ya
 	var hy: float = (ya + yc) * 0.5
-	_box(parent, Vector3(s * 4.45, ya + 0.3, cz - 1.45), Vector3(1.7, 0.5, 1.9), bedmat, true)            # bed
-	_box(parent, Vector3(s * 4.45, ya + 0.62, cz - 2.25), Vector3(1.7, 0.16, 0.45), white, false)        # pillow (at the aft partition)
-	_box(parent, Vector3(s * 4.7, hy, cz + 2.0), Vector3(0.8, hh, 0.7), wood, true)                       # wardrobe
-	_box(parent, Vector3(s * 2.5, hy, cz + 1.5), Vector3(0.15, hh, 1.9), white, true)                     # bathroom cabin-side wall
-	_box(parent, Vector3(s * (cw + 1.2) * 0.5, hy, cz + 0.55), Vector3(1.2 - cw, hh, 0.15), white, true)   # bathroom aft wall (corridor seg)
-	_box(parent, Vector3(s * 2.35, hy, cz + 0.55), Vector3(0.3, hh, 0.15), white, true)                   # bathroom aft wall (cabin seg)
-	_box(parent, Vector3(s * 1.7, ya + 2.1 + (hh - 2.1) * 0.5, cz + 0.55), Vector3(1.0, hh - 2.1, 0.15), white, true)  # door lintel
-	_box(parent, Vector3(s * 1.2, ya + 0.3, cz + 2.0), Vector3(0.5, 0.6, 0.55), porc, false)              # toilet bowl
-	_box(parent, Vector3(s * 1.2, ya + 0.75, cz + 2.25), Vector3(0.45, 0.45, 0.18), porc, false)          # cistern
-	_box(parent, Vector3(s * 1.05, ya + 0.55, cz + 1.05), Vector3(0.4, 0.16, 0.4), porc, false)           # washbasin
-	_box(parent, Vector3(s * 2.1, ya + 0.06, cz + 1.6), Vector3(0.7, 0.12, 0.9), porc, false)             # shower tray
-	_box(parent, Vector3(s * 2.1, ya + 1.6, cz + 1.6), Vector3(0.12, 0.12, 0.12), porc, false)            # shower head
+	# Bay-aware placement: anchor the aft cluster (bed/pillow) to the REAL aft partition (cz - half_bay)
+	# and shift the forward cluster (wardrobe + ensuite) aft if a tight forward half-bay would push it
+	# past the forward partition (cz + half_bay). This keeps furniture inside its own bay for any bay
+	# down to ~4.3 m, so nothing pokes through a partition into the next cabin or a stairwell (the
+	# furniture is otherwise sized for ~5 m bays — the inc-85 lesson, now generalised).
+	var pa: float = cz - half_bay                                  # aft partition centre (inner face at pa + 0.1)
+	var bed_d: float = minf(1.9, half_bay - 0.3)                   # clamp bed depth to the aft half-bay
+	_box(parent, Vector3(s * 4.45, ya + 0.3, pa + 0.2 + bed_d * 0.5), Vector3(1.7, 0.5, bed_d), bedmat, true)  # bed (aft face 0.1 clear of the partition)
+	_box(parent, Vector3(s * 4.45, ya + 0.62, pa + 0.4), Vector3(1.7, 0.16, 0.4), white, false)          # pillow at the aft partition
+	var fz: float = cz - maxf(0.0, 2.6 - half_bay)                 # forward-cluster origin, pulled aft to clear the fwd partition
+	_box(parent, Vector3(s * 4.7, hy, fz + 2.0), Vector3(0.8, hh, 0.7), wood, true)                       # wardrobe
+	_box(parent, Vector3(s * 2.5, hy, fz + 1.5), Vector3(0.15, hh, 1.9), white, true)                     # bathroom cabin-side wall
+	_box(parent, Vector3(s * (cw + 1.2) * 0.5, hy, fz + 0.55), Vector3(1.2 - cw, hh, 0.15), white, true)   # bathroom aft wall (corridor seg)
+	_box(parent, Vector3(s * 2.35, hy, fz + 0.55), Vector3(0.3, hh, 0.15), white, true)                   # bathroom aft wall (cabin seg)
+	_box(parent, Vector3(s * 1.7, ya + 2.1 + (hh - 2.1) * 0.5, fz + 0.55), Vector3(1.0, hh - 2.1, 0.15), white, true)  # door lintel
+	_box(parent, Vector3(s * 1.2, ya + 0.3, fz + 2.0), Vector3(0.5, 0.6, 0.55), porc, false)              # toilet bowl
+	_box(parent, Vector3(s * 1.2, ya + 0.75, fz + 2.25), Vector3(0.45, 0.45, 0.18), porc, false)          # cistern
+	_box(parent, Vector3(s * 1.05, ya + 0.55, fz + 1.05), Vector3(0.4, 0.16, 0.4), porc, false)           # washbasin
+	_box(parent, Vector3(s * 2.1, ya + 0.06, fz + 1.6), Vector3(0.7, 0.12, 0.9), porc, false)             # shower tray
+	_box(parent, Vector3(s * 2.1, ya + 1.6, fz + 1.6), Vector3(0.12, 0.12, 0.12), porc, false)            # shower head
 	var lamp := OmniLight3D.new()
 	lamp.position = Vector3(s * 3.0, yc - 0.4, cz)
 	lamp.light_color = Color(1.0, 0.93, 0.80)
