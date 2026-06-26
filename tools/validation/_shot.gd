@@ -50,14 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# New Main-deck stateroom run between the lift lobby + the pool stair (z 63..72).
-		["cabin_w3", Vector3(0.0, 12.6, 64.0), Vector3(0.0, 12.4, 71.0), Vector3.UP],
-		# New Main-deck stateroom run between the pool stair + the Main Hall (z 80..92).
-		["cabin_w4", Vector3(0.0, 12.6, 81.0), Vector3(0.0, 12.4, 91.0), Vector3.UP],
-		# Forward Promenade-extension floor over the z63..72 cabins (flicker check).
-		["prom_ext_floor", Vector3(8.0, 15.5, 64.0), Vector3(-3.0, 14.55, 71.0), Vector3.UP],
-		# Overview down the pool length (sanity).
-		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
+		# Down the gymnasium length (aft, just inside the door) toward the wall-bars (fwd).
+		["gym_main", Vector3(3.0, 19.6, -50.5), Vector3(0.0, 19.0, -34.0), Vector3.UP],
+		# Angled view of the riding machines (two "horses" flanking the centre "camel").
+		["gym_horses", Vector3(7.5, 19.4, -49.5), Vector3(-1.0, 18.9, -44.0), Vector3.UP],
+		# From inside the gym, aft toward the new starboard doorway back into the Verandah Grill.
+		["gym_door", Vector3(5.0, 19.6, -44.0), Vector3(5.0, 19.1, -52.5), Vector3.UP],
+		# Port side: rowing machine + weighing chair by the windows.
+		["gym_port", Vector3(-10.5, 19.5, -41.0), Vector3(-9.0, 18.9, -48.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

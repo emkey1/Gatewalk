@@ -1149,6 +1149,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_cabins(root, wl, 80.0, 92.0)        # between the pool stair + the Main Hall
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
+	_build_gymnasium(root, wl)
 	_build_sports_access(root, wl)
 
 
@@ -1741,8 +1742,10 @@ static func _build_verandah_grill(parent: Node3D, wl: float) -> void:
 	var cloth := _mat(Color(0.90, 0.88, 0.83), 0.7, 0.0)
 	var chair := _mat(Color(0.40, 0.26, 0.16), 0.6, 0.0)
 	var parquet := _mat(Color(0.62, 0.46, 0.28), 0.4, 0.0)
-	# Forward partition closing the grill off from the rest of the sun-house (foot sunk into the floor).
-	_box(root, Vector3(0.0, (fy + cy) * 0.5 - 0.06, -52.0), Vector3(hw * 2.0, cy - fy + 0.12, 0.3), white, true)
+	# Forward partition between the grill and the gymnasium beyond, with a doorway through to it
+	# (offset to starboard so it clears the centreline bandstand panel; foot sunk into the floor;
+	# the gym is built forward of here by _build_gymnasium).
+	_transverse_door_wall(root, -52.0, hw, fy, cy, 0.3, 5.0, 1.6, 2.1, white)
 	# Parquet dance floor + a bandstand with a gilded back panel against the partition.
 	_box(root, Vector3(0.0, fy + 0.05, -63.0), Vector3(8.0, 0.06, 9.0), parquet, false)
 	_box(root, Vector3(0.0, fy + 0.3, -55.0), Vector3(6.0, 0.5, 2.2), wood, true)
@@ -1758,6 +1761,88 @@ static func _build_verandah_grill(parent: Node3D, wl: float) -> void:
 		lamp.light_color = Color(1.0, 0.92, 0.80)
 		lamp.light_energy = 2.0
 		lamp.omni_range = 16.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
+
+
+# First Class Gymnasium: the famous Sun-deck gym, forward of the Verandah Grill and entered through
+# the doorway in the grill's forward partition. A sprung light-maple floor under white walls + the
+# sun-house window band, fitted with the Queen Mary's signature apparatus — Swedish wall-bars, the
+# electric riding "horse" and "camel", rowing machines, exercise cycles, a punching bag, and the
+# weighing chairs. All boat-deck level (the house floor is the boat deck; the ceiling is the
+# sun-house roof / sports deck above), so no hull carve — it fills the existing empty house shell.
+static func _build_gymnasium(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "Gymnasium"
+	parent.add_child(root)
+	var fy: float = wl + DECK_SUN                 # boat-deck floor (shared with the grill)
+	var cy: float = wl + DECK_SPORTS - 0.35       # sun-house roof underside (sports deck above)
+	var z_aft: float = -52.0                      # the grill's forward door-wall partition
+	var z_fwd: float = -33.0                      # the gym's own forward wall
+	var hw: float = 13.0
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var maple := _mat(Color(0.80, 0.67, 0.44), 0.45, 0.0)
+	var leather := _mat(Color(0.46, 0.28, 0.16), 0.5, 0.0)
+	var frame := _mat(Color(0.30, 0.20, 0.12), 0.5, 0.0)
+	var steel := _mat(Color(0.72, 0.74, 0.77), 0.3, 0.85)
+	var canvas := _mat(Color(0.58, 0.45, 0.30), 0.7, 0.0)
+	# Sprung maple floor laid over the boat-deck slab (visual veneer; player stands on the slab).
+	_box(root, Vector3(0.0, fy + 0.04, (z_aft + z_fwd) * 0.5), Vector3(hw * 2.0 - 0.6, 0.08, (z_fwd - z_aft) - 1.0), maple, false)
+	# Forward wall closing the gym off from the (unbuilt) rest of the house; foot buried, top at ceiling.
+	_box(root, Vector3(0.0, (fy + cy) * 0.5 - 0.06, z_fwd), Vector3(hw * 2.0, cy - fy + 0.12, 0.3), white, true)
+	# --- Swedish wall-bars against the forward wall (a port + a starboard unit) ---
+	for sx in [-1.0, 1.0]:
+		var bx: float = sx * 7.5
+		for px in [-1.2, 1.2]:
+			_box(root, Vector3(bx + px, fy + 1.05, z_fwd - 0.35), Vector3(0.12, 2.1, 0.12), frame, false)   # posts
+		for r in range(9):
+			_box(root, Vector3(bx, fy + 0.35 + float(r) * 0.2, z_fwd - 0.35), Vector3(2.4, 0.06, 0.08), maple, false)  # rungs
+	# --- electric riding machines: two "horses" flanking a centre "camel" (the camel gets a hump) ---
+	for m in [[-4.5, false], [4.5, false], [0.0, true]]:
+		var mx: float = m[0]
+		var camel: bool = m[1]
+		var mz: float = -44.0
+		_box(root, Vector3(mx, fy + 0.35, mz), Vector3(0.9, 0.7, 1.0), frame, true)            # motor pedestal
+		_box(root, Vector3(mx, fy + 1.0, mz), Vector3(0.7, 0.45, 1.8), leather, true)          # body/torso
+		if camel:
+			_box(root, Vector3(mx, fy + 1.42, mz + 0.1), Vector3(0.6, 0.4, 0.7), leather, false)   # hump
+		_box(root, Vector3(mx, fy + 1.18, mz + 1.05), Vector3(0.35, 0.5, 0.4), leather, false)     # neck/head
+		_box(root, Vector3(mx, fy + 1.35, mz - 0.5), Vector3(0.5, 0.12, 0.5), frame, false)        # saddle cantle
+		_box(root, Vector3(mx, fy + 1.5, mz + 0.95), Vector3(0.5, 0.1, 0.08), steel, false)        # rein handle
+	# --- rowing machines (aft, by the windows) ---
+	for sx in [-1.0, 1.0]:
+		var rx: float = sx * 9.0
+		var rz: float = -49.0
+		_box(root, Vector3(rx, fy + 0.12, rz), Vector3(0.4, 0.12, 2.2), frame, true)           # slide rail
+		_box(root, Vector3(rx, fy + 0.4, rz - 0.3), Vector3(0.5, 0.1, 0.4), leather, false)    # sliding seat
+		_box(root, Vector3(rx, fy + 0.35, rz + 1.0), Vector3(0.7, 0.1, 0.2), frame, false)     # foot stretcher
+		for hx2 in [-0.25, 0.25]:
+			_box(root, Vector3(rx + hx2, fy + 0.6, rz + 0.4), Vector3(0.08, 0.08, 1.4), steel, false)  # oar arms
+	# --- exercise cycles (forward, by the windows) ---
+	for sx in [-1.0, 1.0]:
+		var cxb: float = sx * 9.0
+		var cz: float = -37.0
+		_box(root, Vector3(cxb, fy + 0.3, cz), Vector3(0.3, 0.6, 0.8), frame, true)            # flywheel housing
+		_box(root, Vector3(cxb, fy + 0.95, cz - 0.35), Vector3(0.4, 0.1, 0.3), leather, false) # saddle
+		_box(root, Vector3(cxb, fy + 1.0, cz + 0.4), Vector3(0.5, 0.1, 0.1), steel, false)     # handlebar
+		_box(root, Vector3(cxb, fy + 1.0, cz + 0.4), Vector3(0.08, 0.5, 0.08), steel, false)   # bar post
+	# --- punching bag on a ceiling bracket (centre forward) ---
+	_box(root, Vector3(0.0, cy - 0.2, -38.0), Vector3(1.2, 0.15, 1.2), frame, false)          # platform bracket
+	_cyl(root, Vector3(0.0, fy + 1.5, -38.0), 0.28, 1.0, canvas, true)                         # bag
+	# --- weighing chairs against the side walls ---
+	for sx in [-1.0, 1.0]:
+		var wx: float = sx * 11.0
+		var wz: float = -47.0
+		_box(root, Vector3(wx, fy + 0.08, wz), Vector3(1.0, 0.16, 1.0), frame, true)           # scale platform
+		_box(root, Vector3(wx, fy + 0.5, wz), Vector3(0.7, 0.1, 0.7), leather, false)          # seat
+		_box(root, Vector3(wx, fy + 0.95, wz - 0.35), Vector3(0.7, 0.8, 0.1), leather, false)  # back
+	# --- lighting down the centreline ---
+	for lz in [-48.0, -42.0, -36.0]:
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(0.0, cy - 0.4, float(lz))
+		lamp.light_color = Color(1.0, 0.95, 0.86)
+		lamp.light_energy = 2.0
+		lamp.omni_range = 15.0
 		lamp.shadow_enabled = false
 		root.add_child(lamp)
 
