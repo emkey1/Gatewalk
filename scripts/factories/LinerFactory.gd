@@ -1551,12 +1551,43 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 			_box(root, Vector3(sx2 * (hw - 0.16), float(by), (z0 + z1) * 0.5), Vector3(0.18, 0.26, z1 - z0), teal, false)
 	for ez2 in [z0, z1]:
 		_box(root, Vector3(0.0, rwcy, float(ez2)), Vector3(hw * 2.0, rwh, 0.4), tile, true)
-	var lum := StandardMaterial3D.new()
-	lum.albedo_color = Color(0.95, 0.92, 0.82)
-	lum.emission_enabled = true
-	lum.emission = Color(1.0, 0.95, 0.82)
-	lum.emission_energy_multiplier = 0.3
-	_floor_with_hole(root, z0, z1, hw, cy, 73.0, 79.5, 4.0, 0.2, lum)
+	# Coved/tray ceiling with concealed warm uplighting (the references' barrel-vaulted, mother-of-pearl
+	# ceiling): a flat buff perimeter frame at cy with the central bay recessed up to a warm-glowing crown
+	# 1 m higher, hidden uplights in the cove washing it orange. The A-deck stair well (z 73..79.5) stays
+	# cut through the aft frame.
+	var crown := StandardMaterial3D.new()
+	crown.albedo_color = Color(0.96, 0.90, 0.78)
+	crown.emission_enabled = true
+	crown.emission = Color(1.0, 0.82, 0.55)
+	crown.emission_energy_multiplier = 0.5
+	var clg := _mat(Color(0.82, 0.77, 0.64), 0.6, 0.0)
+	var rcx: float = 9.0           # recessed central-bay half-width
+	var rz0: float = 42.0
+	var rz1: float = 70.0
+	# Perimeter frame at cy (port/starboard runs + fore + aft, the aft split round the A-deck well).
+	for sxf in [-1.0, 1.0]:
+		_box(root, Vector3(sxf * (rcx + hw) * 0.5, cy - 0.1, (z0 + z1) * 0.5), Vector3(hw - rcx, 0.2, z1 - z0), clg, false)
+	_box(root, Vector3(0.0, cy - 0.1, (z0 + rz0) * 0.5), Vector3(rcx * 2.0, 0.2, rz0 - z0), clg, false)
+	_box(root, Vector3(0.0, cy - 0.1, (rz1 + 73.0) * 0.5), Vector3(rcx * 2.0, 0.2, 73.0 - rz1), clg, false)
+	_box(root, Vector3(0.0, cy - 0.1, 79.75), Vector3(rcx * 2.0, 0.2, 0.5), clg, false)
+	for sxh in [-1.0, 1.0]:
+		_box(root, Vector3(sxh * (4.0 + rcx) * 0.5, cy - 0.1, 76.25), Vector3(rcx - 4.0, 0.2, 6.5), clg, false)
+	# Cove walls round the recess + the raised glowing crown above it.
+	for sxc in [-1.0, 1.0]:
+		_box(root, Vector3(sxc * rcx, cy + 0.5, (rz0 + rz1) * 0.5), Vector3(0.2, 1.0, rz1 - rz0), clg, false)
+	for zc2 in [rz0, rz1]:
+		_box(root, Vector3(0.0, cy + 0.5, float(zc2)), Vector3(rcx * 2.0, 1.0, 0.2), clg, false)
+	_box(root, Vector3(0.0, cy + 1.1, (rz0 + rz1) * 0.5), Vector3(rcx * 2.0, 0.2, rz1 - rz0), crown, false)
+	# Concealed warm uplights in the cove, washing the crown orange.
+	for ulz in [48.0, 56.0, 64.0]:
+		for ulx in [-7.5, 7.5]:
+			var ul := OmniLight3D.new()
+			ul.position = Vector3(float(ulx), cy + 0.45, float(ulz))
+			ul.light_color = Color(1.0, 0.66, 0.36)
+			ul.light_energy = 1.7
+			ul.omni_range = 9.0
+			ul.shadow_enabled = false
+			root.add_child(ul)
 	# Stepped Art Deco corner piers (buff ceramic + teal bands) flanking the BASIN at the gallery line —
 	# kept forward of the stair (z<=60) so the lower flights don't land with a pier right in front.
 	for cz in [44.0, 52.0, 60.0]:

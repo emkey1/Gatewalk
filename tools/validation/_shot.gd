@@ -52,13 +52,13 @@ func _init() -> void:
 	var shots := [
 		# Double stair head-on: pier now flanks the BASIN (forward), clear of the lower-flight landings.
 		["stair_front", Vector3(0.0, 6.2, 51.0), Vector3(0.0, 8.0, 69.0), Vector3.UP],
-		# From the starboard lower-flight landing looking OUTBOARD — confirm no pier is in front now.
-		["stair_landing", Vector3(6.5, 7.1, 67.0), Vector3(13.0, 6.5, 67.0), Vector3.UP],
-		# Women's dressing room at the POOL-DECK level now: cubicles + bench, walk-in height.
-		["dressing", Vector3(9.0, 6.0, 71.5), Vector3(9.0, 5.4, 79.5), Vector3.UP],
-		# Approaching a dressing-room entrance from the pool deck (header ~2 m up — walk in standing).
-		["dressing_app", Vector3(6.0, 6.2, 66.0), Vector3(9.0, 5.6, 74.0), Vector3.UP],
-		# Down the length — piers flanking the basin.
+		# Inc-78 coved ceiling: steep look up at the recessed warm-glowing crown + cove from the deck.
+		["ceiling", Vector3(5.0, 6.2, 48.0), Vector3(-3.0, 12.6, 60.0), Vector3.UP],
+		# Looking up/forward along the ceiling — perimeter frame, cove, crown.
+		["ceiling_low", Vector3(0.0, 6.6, 66.0), Vector3(0.0, 12.2, 52.0), Vector3.UP],
+		# The basin with the warm-lit coved ceiling above it.
+		["pool_basin", Vector3(9.0, 7.2, 53.0), Vector3(0.0, 6.6, 53.0), Vector3.UP],
+		# Down the length — piers flanking the basin, coved ceiling overhead.
 		["pool_long", Vector3(0.0, 9.6, 75.0), Vector3(0.0, 6.0, 45.0), Vector3.UP],
 	]
 	for s in shots:
