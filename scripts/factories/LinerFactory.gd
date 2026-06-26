@@ -1282,18 +1282,13 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_furnish_promenade_ends(root, wl)
 	_build_dining_room(root, wl)
 	_build_main_hall(root, wl)
-	# First Class staterooms — the Main Deck is the primary stateroom deck per the 1936 QM plan (cabins
-	# also ran on the Sun/A/B decks — not built yet). Fill the clear Main-deck z-runs between the
-	# dining/pool stairwell heads, the lift lobby + the Main Hall; the big aft wing furnishes every other bay.
-	_build_cabins(root, wl, -78.0, -44.0, 2)   # aft wing (split around the new aft stair trunk z -42..-34)
-	_build_cabins(root, wl, -32.0, 12.0, 2)    # aft wing, forward of the stair trunk
-	_build_cabins(root, wl, 27.0, 43.0)        # between the dining stair + the lift lobby
-	_build_cabins(root, wl, 63.0, 72.0)        # between the lift lobby + the pool stair
-	_build_cabins(root, wl, 80.0, 92.0)        # between the pool stair + the Main Hall
-	# Bridge the forward cabin alley (z80) to the pool-stair top (z79) with a short doorless corridor
-	# stub, so the alley wall meets the stair with no bare-deck gap — WITHOUT a furnished cabin bay
-	# over the stairwell (a bay there put the bed/pillow aft through the partition into the well).
-	_corridor_link(root, wl, 79.0, 80.0)
+	# First Class staterooms — per the QM deck plans these run OUTBOARD along both sides of the ship
+	# (against the shell, with porthole windows), opening inboard onto fore-and-aft alleyways; the
+	# centreline is kept clear for the circulation spine (stairs, lifts) + the Main Hall. A sample of
+	# cabins is furnished (every other bay). Runs aft (z -78..12) and forward (z 27..92) of the dining
+	# stairwell head, both port + starboard.
+	for sgn in [-1.0, 1.0]:
+		_build_side_cabins(root, wl, -78.0, 92.0, sgn, 2)   # the length of the deckhouse, up to the Main Hall
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
 	_build_gymnasium(root, wl)
@@ -2247,10 +2242,87 @@ static func _build_lift_lobby(parent: Node3D, wl: float, hz0: float, hz1: float,
 		root.add_child(lamp)
 
 
+# First-class staterooms along ONE side (sgn = -1 port / +1 starboard) of the Main Deck, per the QM
+# deck plans: an OUTBOARD row of cabins against the ship's side (the deckhouse shell, already built by
+# _deckhouse_tapered), each with a porthole window, opening inboard through doors onto a fore-and-aft
+# alleyway; the cabin depth follows the deckhouse taper. Bays ~5 m over z0..z1; a sample (every
+# furnish_step-th) is furnished. The centreline is left clear for the circulation spine + public rooms.
+static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, sgn: float, furnish_step: int = 1) -> void:
+	var root := Node3D.new()
+	root.name = "SideCabins"
+	parent.add_child(root)
+	var ya: float = wl + DECK_MAIN
+	var yc: float = wl + DECK_PROM
+	var ytop: float = yc - 0.15                  # bury the wall heads up into the Promenade floor slab
+	var wcy: float = (ya - 0.12 + ytop) * 0.5
+	var wh: float = ytop - (ya - 0.12)
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var wood := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
+	var bedmat := _mat(Color(0.50, 0.28, 0.30), 0.85, 0.0)
+	var depth: float = 4.6                        # cabin depth (alleyway sits this far inboard of the side)
+	var dw: float = 1.0
+	var n: int = maxi(1, int(round((z1 - z0) / 5.0)))
+	var dz: float = (z1 - z0) / float(n)
+	var ports: Array = []
+	var face := Basis(Vector3(0.0, 0.0, 1.0), deg_to_rad(90.0))   # porthole disc axis -> X (ship's side)
+	for i in range(n):
+		var za: float = z0 + dz * float(i)
+		var zb: float = z0 + dz * float(i + 1)
+		var zc: float = (za + zb) * 0.5
+		var sw: float = _house_half_w(zc)
+		var ow: float = sgn * sw                              # ship's-side (outboard) plane
+		var aw: float = sgn * (sw - depth)                    # alleyway (inboard) wall x
+		# Alleyway / cabin-door wall: two segments leaving a 1.0 m door gap at the bay centre + a lintel.
+		var la: float = (zc - dw * 0.5) - za
+		var lb: float = zb - (zc + dw * 0.5)
+		if la > 0.05:
+			_box(root, Vector3(aw, wcy, (za + zc - dw * 0.5) * 0.5), Vector3(0.2, wh, la), white, true)
+		if lb > 0.05:
+			_box(root, Vector3(aw, wcy, (zc + dw * 0.5 + zb) * 0.5), Vector3(0.2, wh, lb), white, true)
+		_box(root, Vector3(aw, ya + 2.1 + (ytop - ya - 2.1) * 0.5, zc), Vector3(0.2, ytop - ya - 2.1, dw), white, true)   # lintel
+		# Aft partition of this bay (alleyway wall -> ship's side), and a porthole on the ship's side.
+		var sw0: float = _house_half_w(za)
+		_box(root, Vector3(sgn * (sw0 - depth * 0.5), wcy, za), Vector3(depth, wh, 0.2), white, true)
+		ports.append(Transform3D(face, Vector3(sgn * (sw - 0.26), ya + 1.35, zc)))   # just inboard of the 0.4 m-thick shell wall
+		# Furnish a sample: medallion carpet + a bed against the ship's side + a wardrobe by the door.
+		if i % furnish_step == 0:
+			_box(root, Vector3(sgn * (sw - depth * 0.5), ya + 0.03, zc), Vector3(depth - 0.5, 0.05, dz - 0.5), _deco_carpet_mat(depth - 0.5, dz - 0.5, 0.5), false)
+			_box(root, Vector3(ow - sgn * 1.05, ya + 0.3, zc), Vector3(1.9, 0.5, 2.0), bedmat, true)
+			_box(root, Vector3(ow - sgn * 1.05, ya + 0.62, zc + dz * 0.3), Vector3(1.9, 0.16, 0.4), white, false)
+			_box(root, Vector3(aw + sgn * 0.55, ya + 0.9, zc + dz * 0.32), Vector3(0.8, 1.8, 0.8), wood, true)
+	# Closing partition at the forward end of the run.
+	var swf: float = _house_half_w(z1)
+	_box(root, Vector3(sgn * (swf - depth * 0.5), wcy, z1), Vector3(depth, wh, 0.2), white, true)
+	# Emissive porthole glazing on the ship's side (reads as lit windows from inside the cabins).
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(0.70, 0.82, 0.95)
+	glass.emission_enabled = true
+	glass.emission = Color(0.80, 0.90, 1.0)
+	glass.emission_energy_multiplier = 1.4
+	glass.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.30
+	disc.bottom_radius = 0.30
+	disc.height = 0.05
+	disc.radial_segments = 12
+	MultiMeshScatter.build(root, "CabinPortholes", disc, glass, ports)
+	# Lighting down the alleyway (just inboard of the cabin doors).
+	for li in range(0, n, 2):
+		var lz: float = z0 + dz * (float(li) + 0.5)
+		var lamp := OmniLight3D.new()
+		lamp.position = Vector3(sgn * (_house_half_w(lz) - depth - 0.6), yc - 0.5, lz)
+		lamp.light_color = Color(1.0, 0.92, 0.80)
+		lamp.light_energy = 1.3
+		lamp.omni_range = 9.0
+		lamp.shadow_enabled = false
+		root.add_child(lamp)
+
+
 # A wing of First Class staterooms on the aft A-deck: a near-1:1 central corridor (1.0 m wide — the
 # real cabin alleyways were ~3 ft) lined with cabin doors, the cabins behind them divided by
 # partitions and closed by an outboard wall (the structural columns at x=±6.5 fall in the void
 # behind it). A sample of cabins is furnished (bed, pillow, wardrobe); the rest read as doors.
+# NOTE: superseded by _build_side_cabins (outboard, per the deck plans); kept for reference, unused.
 static func _build_cabins(parent: Node3D, wl: float, z0: float, z1: float, furnish_step: int = 1) -> void:
 	var root := Node3D.new()
 	root.name = "Cabins"

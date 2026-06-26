@@ -50,14 +50,13 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Forward block: from the Main Hall, down the new forward stair opening (z 99..107).
-		["fwd_main_down", Vector3(0.0, 14.6, 110.5), Vector3(0.0, 10.3, 102.0), Vector3.UP],
-		# Forward A deck, looking forward at the switchback shaft + the portholes on the narrowing hull.
-		["fwd_shaft", Vector3(0.0, 10.9, 90.0), Vector3(0.0, 9.0, 104.0), Vector3.UP],
-		# Forward A deck wide, port side — porthole windows on the forward (narrower) hull.
-		["fwd_a_wide", Vector3(5.0, 10.9, 88.0), Vector3(-10.0, 9.9, 98.0), Vector3.UP],
-		# Aft block regression: A deck still has its portholes + floor after the generalisation.
-		["aft_a_wide", Vector3(2.0, 10.9, -44.0), Vector3(-13.0, 9.9, -64.0), Vector3.UP],
+		# Port alleyway on the Main deck — should look along a row of cabin doors (outboard) with lit
+		# portholes beyond them, the centreline open to the right.
+		["md_alley", Vector3(-11.0, 13.4, -8.0), Vector3(-11.3, 13.0, 28.0), Vector3.UP],
+		# Into a port stateroom (bay centre z4.5): bed against the ship's side + the porthole window.
+		["md_cabin", Vector3(-12.4, 13.3, 4.5), Vector3(-16.5, 13.1, 4.5), Vector3.UP],
+		# From the centreline looking out to port: cabins line the side, the centre is clear.
+		["md_center", Vector3(3.0, 14.4, 0.0), Vector3(-15.0, 12.6, 8.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
