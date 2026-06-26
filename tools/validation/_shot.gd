@@ -50,14 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# EXTERIOR bow, A/B level — the deck portholes should no longer poke through the hull.
+		# Inside the forward A deck, port side — should now have a cream inboard lining (collidable wall).
+		["ab_side_in", Vector3(2.0, 10.7, 95.0), Vector3(-13.0, 9.8, 100.0), Vector3.UP],
+		# EXTERIOR bow, A/B level — confirm the lining didn't introduce new poke-through.
 		["ext_bow", Vector3(-24.0, 9.5, 98.0), Vector3(-9.0, 7.5, 112.0), Vector3.UP],
-		# EXTERIOR port side at the cabin level — no cabin geometry poking out of the deckhouse shell.
-		["ext_side", Vector3(-30.0, 14.5, -6.0), Vector3(-16.0, 12.8, 8.0), Vector3.UP],
-		# Cabin interior: porthole should now be at eye level, with a solid outboard wall.
-		["md_cabin", Vector3(-12.4, 13.5, 4.5), Vector3(-15.9, 13.46, 4.5), Vector3.UP],
-		# Port alleyway: cabin doors + outboard wall + portholes behind.
-		["md_alley", Vector3(-10.5, 13.5, -8.0), Vector3(-10.8, 13.2, 26.0), Vector3.UP],
+		# Close-up of the pool poke-out (white grid triangle) on the port side near the pool's fwd end.
+		["pool_tri", Vector3(-23.0, 6.5, 70.0), Vector3(-13.0, 5.0, 76.0), Vector3.UP],
+		# Aft A deck, port lining (regression of the aft block).
+		["ab_aft_lin", Vector3(2.0, 10.7, -50.0), Vector3(-13.0, 9.8, -58.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

@@ -409,6 +409,37 @@ static func _flat_seg(st: SurfaceTool, za: float, zb: float, hxh: float, y: floa
 		_quad_flat(st, Vector3(-ba, y, za), Vector3(ba, y, za), Vector3(bb, y, zb), Vector3(-bb, y, zb))
 
 
+# An inboard hull lining on ONE side (sgn): a thin lofted wall just inside the hull, following its
+# tumblehome (so it meets floor + ceiling with no red-hull sliver), from y0 to y1 over z0..z1, with a
+# trimesh collider. This is what stops the player walking off a carved deck's edge straight through
+# the collision-less carved hull, and gives the deck a finished interior surface. inset = how far
+# inside the hull plating it sits.
+static func _hull_lining(parent: Node3D, wl: float, z0: float, z1: float, y0: float, y1: float, sgn: float, inset: float, mat: Material, body_name: String) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n: int = 24
+	for i in range(n):
+		var za: float = lerpf(z0, z1, float(i) / float(n))
+		var zb: float = lerpf(z0, z1, float(i + 1) / float(n))
+		var xa0: float = sgn * (_hull_halfw_at(za, y0, wl) - inset)
+		var xa1: float = sgn * (_hull_halfw_at(za, y1, wl) - inset)
+		var xb0: float = sgn * (_hull_halfw_at(zb, y0, wl) - inset)
+		var xb1: float = sgn * (_hull_halfw_at(zb, y1, wl) - inset)
+		_quad_flat(st, Vector3(xa0, y0, za), Vector3(xa1, y1, za), Vector3(xb1, y1, zb), Vector3(xb0, y0, zb))
+	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var body := StaticBody3D.new()
+	body.name = body_name
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	body.add_child(mi)
+	var col := CollisionShape3D.new()
+	col.shape = mesh.create_trimesh_shape()
+	body.add_child(col)
+	parent.add_child(body)
+
+
 # The aft empty A & B accommodation decks: the hull is carved hollow to the B floor over z -74..-30
 # (see the _build_hull carves), and this lays the two tween-deck floors + a switchback stair trunk
 # connecting Main -> A -> B in a central shaft (z -42..-34, ±4 m). The decks start EMPTY (bare lit
@@ -433,6 +464,14 @@ static func _build_lower_decks(parent: Node3D, wl: float, z0: float, z1: float, 
 	# B solid (the bottom of the carved volume).
 	_flat_deck(root, wl, ay, z0, z1, sz0, sz1, 4.0, floormat, body_name + "_A")
 	_flat_deck(root, wl, by, z0, z1, NAN, NAN, 0.0, floormat, body_name + "_B")
+	# Inboard hull lining (both sides, B + A levels): a COLLIDABLE finished wall just inside the carved
+	# hull, so you can't walk off the deck edge through the collision-less carved plating, and the raw
+	# red hull is hidden behind a cream surface (the portholes sit just inboard of it).
+	var lin := _mat(Color(0.82, 0.80, 0.74), 0.85, 0.0)
+	lin.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for sx in [-1.0, 1.0]:
+		_hull_lining(root, wl, z0, z1, by, ay, sx, 0.1, lin, body_name + "_Blin")
+		_hull_lining(root, wl, z0, z1, ay, my + 0.4, sx, 0.1, lin, body_name + "_Alin")
 	# Switchback stair: Main->A descends from the Main-head edge (sz1) to the A landing (sz0), then A->B
 	# descends back the other way directly below it, turning 180 deg on the A landing.
 	_stair_run(root, 0.0, sz0, sz1, ay, my, 6.0, tread)    # Main -> A
@@ -478,7 +517,7 @@ static func _deck_portholes(parent: Node3D, wl: float, z0: float, z1: float, ys:
 	while z < z1 - 1.0:
 		for yy in ys:
 			for side in [-1.0, 1.0]:
-				var bw: float = _hull_halfw_at(z, float(yy), wl) - 0.15
+				var bw: float = _hull_halfw_at(z, float(yy), wl) - 0.22   # just inboard of the 0.1-inset hull lining
 				tf.append(Transform3D(face, Vector3(side * bw, float(yy), z)))
 		z += 3.2
 	MultiMeshScatter.build(parent, "DeckPortholes", disc, glass, tf)
@@ -1686,7 +1725,7 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	var cy: float = wl + 12.0             # ceiling (world ~10.3)
 	var z0: float = 38.0
 	var z1: float = 80.0
-	var hw: float = 14.0
+	var hw: float = 13.3   # pool room half-width — inside the hull even at the fwd end (z80, ~13.76 at deck level)
 	var bz0: float = 42.0
 	var bz1: float = 62.0
 	var bhw: float = 6.5
