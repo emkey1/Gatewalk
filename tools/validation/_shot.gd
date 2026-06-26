@@ -50,14 +50,13 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Down the gymnasium length (aft, just inside the door) toward the wall-bars (fwd).
-		["gym_main", Vector3(3.0, 19.6, -50.5), Vector3(0.0, 19.0, -34.0), Vector3.UP],
-		# Angled view of the riding machines (two "horses" flanking the centre "camel").
-		["gym_horses", Vector3(7.5, 19.4, -49.5), Vector3(-1.0, 18.9, -44.0), Vector3.UP],
-		# From inside the gym, aft toward the new starboard doorway back into the Verandah Grill.
-		["gym_door", Vector3(5.0, 19.6, -44.0), Vector3(5.0, 19.1, -52.5), Vector3.UP],
-		# Port side: rowing machine + weighing chair by the windows.
-		["gym_port", Vector3(-10.5, 19.5, -41.0), Vector3(-9.0, 18.9, -48.0), Vector3.UP],
+		# Pool-stair top (z79): from the stair head looking FWD into the cabin wing, which should now
+		# start right at the stair entry (no bare-deck gap). This is the user's reported view.
+		["stairtop_fwd", Vector3(0.0, 13.3, 79.5), Vector3(0.0, 12.5, 86.0), Vector3.UP],
+		# Junction from within the stairwell, looking fwd-up at the stair top meeting the cabin wall.
+		["stairtop_junc", Vector3(2.6, 12.6, 76.0), Vector3(0.5, 12.8, 81.0), Vector3.UP],
+		# Looking down the stair from just forward of its top (sanity: stair + parapets intact).
+		["stairtop_down", Vector3(0.0, 13.6, 80.0), Vector3(0.0, 9.5, 74.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

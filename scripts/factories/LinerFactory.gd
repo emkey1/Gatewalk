@@ -1146,7 +1146,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	_build_cabins(root, wl, -78.0, 12.0, 2)    # aft wing (under the Smoking Room..Lounge)
 	_build_cabins(root, wl, 27.0, 43.0)        # between the dining stair + the lift lobby
 	_build_cabins(root, wl, 63.0, 72.0)        # between the lift lobby + the pool stair
-	_build_cabins(root, wl, 80.0, 92.0)        # between the pool stair + the Main Hall
+	_build_cabins(root, wl, 79.0, 92.0)        # pool stair (its top is at z79) -> the Main Hall; abuts the stair entry
 	_build_pool(root, wl)
 	_build_verandah_grill(root, wl)
 	_build_gymnasium(root, wl)
