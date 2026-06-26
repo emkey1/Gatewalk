@@ -949,8 +949,8 @@ static func _build_funnels(parent: Node3D, wl: float) -> void:
 static func _funnel(parent: Node3D, cz: float, base_y: float, height: float, red: Material, black: Material) -> void:
 	var top_y: float = base_y + height
 	var cy: float = base_y + height * 0.5
-	var ax: float = 4.5    # half-width athwartships (X) — 9 m (the QM funnels were ~30 ft across)
-	var az: float = 6.4    # half-length fore-and-aft (Z) — 12.8 m, elliptical (longer than wide)
+	var ax: float = 3.4    # half-width athwartships (X) — 6.8 m (measured off the 1:2000 model)
+	var az: float = 5.9    # half-length fore-and-aft (Z) — 11.8 m, elliptical (longer than wide)
 	var cap: float = 2.8
 	# Red body, its top stopped half-way up inside the black cap. The body's top disc and the cap's
 	# top disc both used to sit at top_y (coplanar) and z-fought into a spinning pinwheel on the funnel
@@ -1288,7 +1288,7 @@ static func _build_sports_deck_fit(parent: Node3D, wl: float) -> void:
 			var ang: float = deg_to_rad(22.5 + float(a) * 45.0)
 			var dx: float = cos(ang)
 			var dz: float = sin(ang)
-			var attach := Vector3(dx * 4.7, ty, float(fz) + dz * 6.6)
+			var attach := Vector3(dx * 3.5, ty, float(fz) + dz * 6.1)
 			var anchor := Vector3(dx * 11.0, sy + 0.2, float(fz) + dz * 9.0)
 			_strut(root, attach, anchor, 0.05, wire)
 	# Cowl ventilators out near the deck edges, in the funnel gaps.
