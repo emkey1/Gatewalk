@@ -79,9 +79,12 @@ def mat_of(a, b, c):
     nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
     ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
     nyl = abs(ny) / ln
-    # The enclosed-promenade window band runs along the ship's SIDES in the ~20-24 m height range; make
-    # those near-vertical side faces transparent GLASS so the promenade (and rooms behind it) see the sea.
-    if 20.0 <= h <= 24.5 and abs(gx) > 12.0 and nyl < 0.35:
+    # Window bands -> transparent GLASS (near-vertical side faces, so the spaces behind see the sea):
+    #  - the enclosed PROMENADE band (~20-24 m), full length;
+    #  - the MAIN-deck STATEROOM band (~16-18 m) along the deckhouse z -78..92 only (not the open
+    #    forecastle/after-deck bulwarks, which sit at the same height but outside the cabin run).
+    if abs(gx) > 12.0 and nyl < 0.35 and (
+            (20.0 <= h <= 24.5) or (16.3 <= h <= 18.3 and -78.0 <= gz <= 92.0)):
         return 6
     return 5 if nyl > 0.85 else 1
 

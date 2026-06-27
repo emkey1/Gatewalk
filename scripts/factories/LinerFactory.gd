@@ -2539,6 +2539,11 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var wood := _mat(Color(0.34, 0.22, 0.12), 0.5, 0.0)
 	var bedmat := _mat(Color(0.50, 0.28, 0.30), 0.85, 0.0)
+	var seaglass := StandardMaterial3D.new()   # cabin window — see-through, lined up with the model's glass band
+	seaglass.albedo_color = Color(0.20, 0.30, 0.38, 0.40)
+	seaglass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	seaglass.roughness = 0.08
+	seaglass.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var depth: float = 4.2                        # cabin depth (alleyway sits this far inboard of the outboard wall)
 	var dw: float = 1.0
 	var n: int = maxi(1, int(round((z1 - z0) / 5.0)))
@@ -2560,13 +2565,15 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 		if lb > 0.05:
 			_box(root, Vector3(aw, wcy, (zc + dw * 0.5 + zb) * 0.5), Vector3(0.2, wh, lb), white, true)
 		_box(root, Vector3(aw, ya + 2.1 + (ytop - ya - 2.1) * 0.5, zc), Vector3(0.2, ytop - ya - 2.1, dw), white, true)   # lintel
-		# Collidable OUTBOARD wall of the bay (so you can't run through the ship's side) + aft partition.
-		_box(root, Vector3(ow, wcy, zc), Vector3(0.2, wh, dz + 0.06), white, true)
+		# Collidable OUTBOARD wall — GLAZED to the model's stateroom window band so the cabin sees the sea:
+		# a solid sill + a see-through (collidable) glass band + a solid spandrel. (Aft partition is below.)
+		_box(root, Vector3(ow, ya + 0.09, zc), Vector3(0.2, 0.42, dz + 0.06), white, true)      # sill
+		_box(root, Vector3(ow, ya + 1.3, zc), Vector3(0.16, 2.0, dz + 0.06), seaglass, true)    # window glass
+		_box(root, Vector3(ow, ya + 2.575, zc), Vector3(0.2, 0.55, dz + 0.06), white, true)     # spandrel
 		_box(root, Vector3(sgn * (_house_halfw_mesh(za) - 0.5 - depth * 0.5), wcy, za), Vector3(depth, wh, 0.2), white, true)
 		# Ceiling over the cabin + its bit of alleyway (the deck structure void is hidden above it).
 		_box(root, Vector3(sgn * (sw - 3.65), yc, zc), Vector3(7.0, 0.16, dz + 0.06), white, false)
-		# Porthole window on the outboard wall, at eye level.
-		ports.append(Transform3D(face, Vector3(sgn * (sw - 0.62), ya + 1.6, zc)))
+		# (Porthole removed — the glazed window band above is the cabin's view of the sea now.)
 		# Furnish a sample: medallion carpet + a bed against the outboard wall + a wardrobe by the door.
 		if i % furnish_step == 0:
 			_box(root, Vector3(sgn * (sw - 0.5 - depth * 0.5), ya + 0.03, zc), Vector3(depth - 0.5, 0.05, dz - 0.5), _deco_carpet_mat(depth - 0.5, dz - 0.5, 0.5), false)
