@@ -612,6 +612,43 @@ static func _inner_seg(st: SurfaceTool, za: float, zb: float, y: float, hxh: flo
 		_quad_flat(st, Vector3(-wa, y, za), Vector3(wa, y, za), Vector3(wb, y, zb), Vector3(-wb, y, zb))
 
 
+# Clean BULWARK around the open fore/aft weather decks. The model's own bulwark + mooring-fitting tops
+# were low-poly "sawtooth" clutter (stripped in the converter, inc 118); this lofts a proper solid
+# bulwark in their place — a ~1.15 m wall + top cap following the deck edge (_half_beam) at the model
+# Main-deck level, fore (z114 -> stem) + aft (counter -> z-108). Visible + collidable (the fall-stop).
+static func _build_open_bulwark(parent: Node3D, wl: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var y0: float = wl + DECK_MAIN + 0.05
+	var y1: float = y0 + 1.15
+	for seg in [[114.0, HULL_HALF_LEN - 3.0], [-(HULL_HALF_LEN - 3.0), -108.0]]:
+		var z0: float = float(seg[0])
+		var z1: float = float(seg[1])
+		var n: int = 20
+		for i in range(n):
+			var za: float = lerpf(z0, z1, float(i) / float(n))
+			var zb: float = lerpf(z0, z1, float(i + 1) / float(n))
+			var wa: float = maxf(0.4, _half_beam(za) - 0.25)
+			var wb: float = maxf(0.4, _half_beam(zb) - 0.25)
+			for sgn in [-1.0, 1.0]:
+				_quad_flat(st, Vector3(sgn * wa, y0, za), Vector3(sgn * wb, y0, zb), Vector3(sgn * wb, y1, zb), Vector3(sgn * wa, y1, za))
+				_quad_flat(st, Vector3(sgn * wa, y1, za), Vector3(sgn * wb, y1, zb), Vector3(sgn * (wb - 0.3), y1, zb), Vector3(sgn * (wa - 0.3), y1, za))
+	st.generate_normals()
+	var mesh: ArrayMesh = st.commit()
+	var mat := _mat(Color(0.10, 0.10, 0.11), 0.85, 0.0)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	var body := StaticBody3D.new()
+	body.name = "OpenBulwark"
+	body.add_child(mi)
+	var cs := CollisionShape3D.new()
+	cs.shape = mesh.create_trimesh_shape()
+	body.add_child(cs)
+	parent.add_child(body)
+
+
 # A flat enclosed tween-deck floor lofted across the hull at world-y `y`, z0..z1, inset to the hull
 # side at that height (so it tucks against the topside), with an optional central stairwell hole
 # (±hxh over hz0..hz1; pass hz0=NAN for a solid floor). Trimesh collider so the player stands on it.
@@ -1639,6 +1676,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	root.name = "Interior"
 	parent.add_child(root)
 	_build_inner_deck(root, wl)   # visible Main-deck floor (the MainDeck mesh is hidden once the model loads)
+	_build_open_bulwark(root, wl)   # clean fore/aft bulwark (replaces the model's stripped sawtooth bulwark)
 	var L: float = HULL_HALF_LEN
 	var y_main: float = wl + DECK_MAIN
 	var y_prom: float = wl + DECK_PROM
