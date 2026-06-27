@@ -2696,8 +2696,12 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 		var za: float = z0 + dz * float(i)
 		var zb: float = z0 + dz * float(i + 1)
 		var zc: float = (za + zb) * 0.5
-		var sw: float = _house_halfw_mesh(zc)                 # deckhouse-shell half-width (MESH, not the curve)
-		var ow: float = sgn * (sw - 0.5)                      # cabin OUTBOARD wall, just inside the shell
+		# Deckhouse-shell half-width, INSET 0.7 m so the cabin's outboard wall keeps a clear margin from
+		# the model shell instead of butting against it (user guidance: interior room walls should not
+		# touch the ship's outside). The model's own stateroom glass band is the visible ship's side just
+		# outboard of this margin; the gap is floored by the inner deck and reads as the side structure.
+		var sw: float = _house_halfw_mesh(zc) - 0.7
+		var ow: float = sgn * (sw - 0.5)                      # cabin OUTBOARD wall, set in from the shell
 		var aw: float = sgn * (sw - 0.5 - depth)              # alleyway (inboard) wall x
 		# Alleyway / cabin-door wall: two segments leaving a 1.0 m door gap at the bay centre + a lintel.
 		var la: float = (zc - dw * 0.5) - za
@@ -2712,7 +2716,7 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 		_box(root, Vector3(ow, ya + 0.09, zc), Vector3(0.2, 0.42, dz + 0.06), white, true)      # sill
 		_box(root, Vector3(ow, ya + 1.3, zc), Vector3(0.16, 2.0, dz + 0.06), seaglass, true)    # window glass
 		_box(root, Vector3(ow, ya + 2.575, zc), Vector3(0.2, 0.55, dz + 0.06), white, true)     # spandrel
-		_box(root, Vector3(sgn * (_house_halfw_mesh(za) - 0.5 - depth * 0.5), wcy, za), Vector3(depth, wh, 0.2), white, true)
+		_box(root, Vector3(sgn * (_house_halfw_mesh(za) - 1.2 - depth * 0.5), wcy, za), Vector3(depth, wh, 0.2), white, true)
 		# Ceiling over the cabin + its bit of alleyway (the deck structure void is hidden above it).
 		_box(root, Vector3(sgn * (sw - 3.65), yc, zc), Vector3(7.0, 0.16, dz + 0.06), white, false)
 		# (Porthole removed — the glazed window band above is the cabin's view of the sea now.)
@@ -2723,7 +2727,7 @@ static func _build_side_cabins(parent: Node3D, wl: float, z0: float, z1: float, 
 			_box(root, Vector3(ow - sgn * 1.05, ya + 0.62, zc + dz * 0.3), Vector3(1.9, 0.16, 0.4), white, false)
 			_box(root, Vector3(aw + sgn * 0.55, ya + 0.9, zc + dz * 0.32), Vector3(0.8, 1.8, 0.8), wood, true)
 	# Closing partition at the forward end of the run.
-	_box(root, Vector3(sgn * (_house_halfw_mesh(z1) - 0.5 - depth * 0.5), wcy, z1), Vector3(depth, wh, 0.2), white, true)
+	_box(root, Vector3(sgn * (_house_halfw_mesh(z1) - 1.2 - depth * 0.5), wcy, z1), Vector3(depth, wh, 0.2), white, true)
 	# Emissive porthole glazing on the ship's side (reads as lit windows from inside the cabins).
 	var glass := StandardMaterial3D.new()
 	glass.albedo_color = Color(0.70, 0.82, 0.95)
