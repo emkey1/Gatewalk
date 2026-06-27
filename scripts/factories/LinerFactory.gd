@@ -104,7 +104,15 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_portholes(root, wl)
 	_build_flags(root, wl)
 	_build_anchors(root, wl)
+	# Everything built so far is the PROCEDURAL exterior shell. The visible outer shell is now the
+	# translated 1:1 QM.3mf model; the procedural exterior is kept for COLLISION only (StaticBody
+	# collision is unaffected by `visible`), with the interiors built + shown inside it. Capture the
+	# child boundary so we can hide just the procedural exterior meshes after the model loads.
+	var n_ext: int = root.get_child_count()
 	_build_interior(root, wl)
+	if _build_model_exterior(root, wl):
+		for i in n_ext:
+			(root.get_child(i) as Node3D).visible = false
 
 	# --- Four exit gates on the open weather decks, within the deck width and clear of deck gear:
 	# one by the arrival on the narrow forecastle, three on the wider after deck (starboard, clear
@@ -121,6 +129,57 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 		var gx: float = float(spec[0]) + rng.randf_range(-0.4, 0.4)
 		gates.append(Vector3(gx, _sheer_y(gz, wl) + 0.05, gz))
 	return gates
+
+
+# The ship's visible outer shell is the actual 1:1 RMS Queen Mary, TRANSLATED from the user's QM.3mf
+# scale model (object 3, 113842 verts / 227716 tris) into game coordinates by tools (see
+# scratchpad/qm_model/convert.py): scaled to LOA 310.7 m, the flat waterline-model bottom set on the
+# water plane (wl), bow -> +z. assets/qm_model.bin holds verts + per-vertex normals + 5 index surfaces
+# (0 hull / 1 superstructure / 2 funnel-red / 3 funnel-black cap / 4 boot-topping). Visual only — the
+# procedural shell underneath still carries collision and the interiors (to be reconciled to this hull
+# from the deck plans). Returns false if the asset is missing (then the procedural shell stays visible).
+static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
+	var f := FileAccess.open("res://assets/qm_model.bin", FileAccess.READ)
+	if f == null:
+		push_warning("LinerFactory: assets/qm_model.bin missing; keeping procedural exterior")
+		return false
+	var nv := f.get_32()
+	var vf := f.get_buffer(nv * 12).to_float32_array()
+	var nf := f.get_buffer(nv * 12).to_float32_array()
+	var verts := PackedVector3Array(); verts.resize(nv)
+	var norms := PackedVector3Array(); norms.resize(nv)
+	for i in nv:
+		verts[i] = Vector3(vf[i * 3], vf[i * 3 + 1], vf[i * 3 + 2])
+		norms[i] = Vector3(nf[i * 3], nf[i * 3 + 1], nf[i * 3 + 2])
+	var ns := f.get_32()
+	var mesh := ArrayMesh.new()
+	for s in ns:
+		var ni := f.get_32()
+		if ni == 0:
+			continue
+		var idx := f.get_buffer(ni * 4).to_int32_array()
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		arr[Mesh.ARRAY_VERTEX] = verts
+		arr[Mesh.ARRAY_NORMAL] = norms
+		arr[Mesh.ARRAY_INDEX] = idx
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var mats: Array[Material] = [
+		_mat(Color(0.07, 0.07, 0.08), 0.85, 0.0),   # 0 hull (black topside)
+		_mat(COL_SUPER, 0.7, 0.0),                   # 1 superstructure (white)
+		_mat(Color(0.80, 0.27, 0.10), 0.55, 0.0),    # 2 funnel barrel (Cunard red)
+		_mat(Color(0.05, 0.05, 0.06), 0.6, 0.0),     # 3 funnel cap (black)
+		_mat(Color(0.55, 0.15, 0.13), 0.6, 0.0),     # 4 boot-topping (red waterline stripe)
+	]
+	for s in mesh.get_surface_count():
+		var m: BaseMaterial3D = mats[s] if s < mats.size() else mats[1]
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED   # the print mesh has mixed winding; draw both faces
+		mesh.surface_set_material(s, m)
+	var mi := MeshInstance3D.new()
+	mi.name = "ModelExterior"
+	mi.mesh = mesh
+	parent.add_child(mi)
+	return true
 
 
 # Deck arrival / spawn: on the open forecastle, looking forward at the pointed bow — so

@@ -50,12 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# FORWARD superstructure (port) — deckhouse now ends ~+112 (was +121), bridge pulled back, longer forecastle.
-		["fwd_super", Vector3(-62.0, 18.0, 170.0), Vector3(8.0, 12.0, 100.0), Vector3.UP],
-		# Inside the Main Hall (boarding foyer) looking fwd to the entry door at the new +112 wall — boarding intact?
-		["mainhall", Vector3(0.0, 16.2, 97.0), Vector3(0.0, 15.6, 113.0), Vector3.UP],
-		# Full profile — overall silhouette.
-		["profile", Vector3(-245.0, 40.0, 8.0), Vector3(0.0, 22.0, 8.0), Vector3.UP],
+		# Full profile — should now show the TRANSLATED QM model as the exterior (procedural shell hidden).
+		["profile", Vector3(-245.0, 40.0, 8.0), Vector3(0.0, 20.0, 8.0), Vector3.UP],
+		# 3/4 — model exterior + no z-fighting with the hidden procedural shell.
+		["quarter", Vector3(-150.0, 62.0, 150.0), Vector3(0.0, 16.0, 0.0), Vector3.UP],
+		# Dining saloon interior — confirm the interiors are still built + visible inside the model shell.
+		["dining_wide", Vector3(13.0, 9.0, -16.0), Vector3(0.0, 10.0, 16.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
