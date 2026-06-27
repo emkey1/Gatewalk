@@ -1531,9 +1531,14 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	for sgn in [-1.0, 1.0]:
 		_build_side_cabins(root, wl, -78.0, 92.0, sgn, 2)   # the length of the deckhouse, up to the Main Hall
 	_build_pool(root, wl)
-	_build_verandah_grill(root, wl)
-	_build_gymnasium(root, wl)
-	_build_sports_access(root, wl)
+	# TEMP (model fit, inc 104): the Verandah Grill + Gymnasium + their sports-access trunk were built as
+	# continuous CENTRELINE rooms inside my procedural sun-house, but the translated model's aft boat deck
+	# is OPEN at the centreline (side deckhouses only) and TIERS DOWN below their 24.94 m floor (model roof
+	# dips to ~22.9 m at z-72), so the bandstand / wall-bars / trunk poked through the model. Disabled until
+	# re-fitted to the model's actual aft deckhouse layout, then re-enable these three:
+	#_build_verandah_grill(root, wl)
+	#_build_gymnasium(root, wl)
+	#_build_sports_access(root, wl)
 	_build_lower_decks(root, wl, -74.0, -30.0, -42.0, -34.0, "AftLowerDecks")   # aft of the Dining Room
 	_build_lower_decks(root, wl, 84.0, 112.0, 99.0, 107.0, "FwdLowerDecks")     # fwd of the pool, under the Main Hall
 

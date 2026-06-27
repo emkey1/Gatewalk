@@ -50,12 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# BOW end — any procedural interior poking out of the model? (mine sits inboard here, expect clean)
-		["fit_bow", Vector3(-46.0, 19.0, 178.0), Vector3(8.0, 12.0, 100.0), Vector3.UP],
-		# AFT promenade end (z-105) — mine is ~0.7 m wider than the model here; watch for a poke-through.
-		["fit_aft", Vector3(-46.0, 20.0, -150.0), Vector3(6.0, 17.0, -95.0), Vector3.UP],
-		# Stern overall.
-		["fit_stern", Vector3(-58.0, 20.0, -190.0), Vector3(6.0, 12.0, -120.0), Vector3.UP],
+		# Close on the aft sun-house (grill/gym, z -78..-33) — identify the yellow poke precisely.
+		["fit_grill", Vector3(-40.0, 33.0, -88.0), Vector3(2.0, 25.0, -52.0), Vector3.UP],
+		# High over the FWD boat deck — Main Hall / fwd structures vs the model.
+		["fit_fwddeck", Vector3(-95.0, 58.0, 120.0), Vector3(0.0, 24.0, 40.0), Vector3.UP],
+		# Port profile whole ship — any poke along the length.
+		["fit_profile", Vector3(-245.0, 40.0, 8.0), Vector3(0.0, 21.0, 8.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
