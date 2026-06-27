@@ -50,12 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Full profile — should now show the TRANSLATED QM model as the exterior (procedural shell hidden).
-		["profile", Vector3(-245.0, 40.0, 8.0), Vector3(0.0, 20.0, 8.0), Vector3.UP],
-		# 3/4 — model exterior + no z-fighting with the hidden procedural shell.
-		["quarter", Vector3(-150.0, 62.0, 150.0), Vector3(0.0, 16.0, 0.0), Vector3.UP],
-		# Dining saloon interior — confirm the interiors are still built + visible inside the model shell.
-		["dining_wide", Vector3(13.0, 9.0, -16.0), Vector3(0.0, 10.0, 16.0), Vector3.UP],
+		# BOW end — any procedural interior poking out of the model? (mine sits inboard here, expect clean)
+		["fit_bow", Vector3(-46.0, 19.0, 178.0), Vector3(8.0, 12.0, 100.0), Vector3.UP],
+		# AFT promenade end (z-105) — mine is ~0.7 m wider than the model here; watch for a poke-through.
+		["fit_aft", Vector3(-46.0, 20.0, -150.0), Vector3(6.0, 17.0, -95.0), Vector3.UP],
+		# Stern overall.
+		["fit_stern", Vector3(-58.0, 20.0, -190.0), Vector3(6.0, 12.0, -120.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

@@ -1483,7 +1483,9 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# dead-ending amidships (the deckhouse glazing + boat-deck-slab ceiling already span the length).
 	var floor_mat := _mat(Color(0.34, 0.26, 0.18), 0.7, 0.0)
 	_tapered_slab(root, PROM_FWD, 90.0, y_prom, 0.3, 0.0, floor_mat)
-	_tapered_slab(root, -105.0, PROM_AFT, y_prom, 0.3, 0.0, floor_mat)   # aft promenade floor, trimmed to the -105 deckhouse end
+	# (Aft promenade extension REMOVED to fit the translated model: the model's aft is a LOWER single
+	# deck back to the counter, so this full-Prom-height extension poked up through it. The promenade
+	# interior now ends at its core aft bulkhead PROM_AFT (-68); the model provides the exterior aft.)
 
 	# Art Deco lift lobby + switchback grand staircase up from A-deck to the Promenade (replaces the
 	# old straight flight + plain balustrade): two flights round a burl spine, lift bank, etched glass.
@@ -1651,7 +1653,7 @@ static func _build_promenade_rooms(parent: Node3D, wl: float) -> void:
 	var y_wtop: float = y_ceil + 0.1
 	for ez in [62.0, -68.0]:
 		_transverse_door_wall(root, float(ez), rhw, y_prom, y_wtop, 0.4, 0.0, 3.0, 2.3, white)
-	for ez2 in [90.0, -105.0]:
+	for ez2 in [90.0]:   # fwd promenade end bulkhead only; the aft now ends at the core -68 door wall (model provides aft)
 		_box(root, Vector3(0.0, (y_prom - 0.12 + y_wtop) * 0.5, float(ez2)), Vector3(_house_half_w(float(ez2)) * 2.0, y_wtop - y_prom + 0.12, 0.4), white, true)
 	# Warm light in the two promenade extensions.
 	for lz in [76.0, -92.0]:
@@ -1816,12 +1818,7 @@ static func _furnish_promenade_ends(parent: Node3D, wl: float) -> void:
 	bl.shadow_enabled = false
 	root.add_child(bl)
 
-	# Aft promenade lounge (aft extension, -105..-68): settees facing across low tables.
-	_box(root, Vector3(0.0, yp + 0.04, -90.0), Vector3(18.0, 0.08, 30.0), rug, false)
-	for g2 in [[-7.0, -78.0], [7.0, -78.0], [-7.0, -102.0], [7.0, -102.0]]:
-		_box(root, Vector3(float(g2[0]), yp + 0.4, float(g2[1])), Vector3(1.2, 0.5, 1.2), wood, true)
-		for off2 in [-1.6, 1.6]:
-			_box(root, Vector3(float(g2[0]), yp + 0.42, float(g2[1]) + float(off2)), Vector3(1.8, 0.8, 0.85), leather, true)
+	# (Aft promenade lounge furniture removed with the aft extension — it sat on the now-removed aft floor.)
 
 
 # The First Class Dining Saloon: a grand room three decks deep in the hull (C-deck floor up to just
