@@ -50,10 +50,10 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Inside a port stateroom looking OUTBOARD — does the glazed window band now show the sea?
-		["cab_view", Vector3(-12.5, 15.4, 4.0), Vector3(-17.5, 15.2, 4.0), Vector3.UP],
-		# Ship's side 3/4 — the stateroom + promenade glass bands down the white superstructure.
-		["cab_quarter", Vector3(-78.0, 27.0, 95.0), Vector3(0.0, 18.0, 20.0), Vector3.UP],
+		# 1936 AFT superstructure re-added over the model — does the Grill/Gym sun-house sit right?
+		["aft1936", Vector3(-72.0, 38.0, -128.0), Vector3(0.0, 26.0, -55.0), Vector3.UP],
+		# Aft superstructure from the side — junction with the model's mid + the skirt down to the model deck.
+		["aft1936_side", Vector3(-95.0, 28.0, -55.0), Vector3(0.0, 25.0, -60.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

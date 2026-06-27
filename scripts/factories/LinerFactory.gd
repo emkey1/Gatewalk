@@ -113,6 +113,10 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	if _build_model_exterior(root, wl):
 		for i in n_ext:
 			(root.get_child(i) as Node3D).visible = false
+		# The model is the CURRENT QM, whose aft superstructure was cut down; the 1936 ship carried the
+		# Verandah Grill + Gymnasium in an aft boat-deck house there. Re-add it as VISIBLE procedural
+		# structure layered over the model's aft so those (re-enabled) spaces are enclosed + read right.
+		_build_aft_1936(root, wl)
 
 	# --- Four exit gates on the open weather decks, within the deck width and clear of deck gear:
 	# one by the arrival on the narrow forecastle, three on the wider after deck (starboard, clear
@@ -213,6 +217,23 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 	body.add_child(cs)
 	parent.add_child(body)
 	return true
+
+
+# 1936 AFT superstructure, layered over the translated CURRENT-QM model (whose aft was cut down). Re-adds
+# the aft boat-deck slab (Sun deck carried aft) + the Verandah-Grill / Gymnasium sun-house (Sun->Sports),
+# so the re-enabled grill/gym read as the original aft deckhouse. Visual; the model carries the collision.
+static func _build_aft_1936(parent: Node3D, wl: float) -> void:
+	var white := _mat(COL_SUPER, 0.7, 0.0)
+	var glass := _mat(COL_WINDOW, 0.25, 0.3)
+	var deck := _mat(COL_TEAK, 0.9, 0.0)
+	var y_sun: float = wl + DECK_SUN
+	var y_sports: float = wl + DECK_SPORTS
+	# Carry the boat/Sun deck aft over the model, and skirt the gap down to the model's lower after deck.
+	_tapered_slab(parent, -105.0, -33.0, y_sun, 0.35, 0.5, deck)
+	for sx in [-1.0, 1.0]:
+		_box(parent, Vector3(sx * (_house_half_w(-69.0) - 0.2), y_sun - 1.4, -69.0), Vector3(0.3, 2.8, 72.0), white, false)
+	# The Verandah-Grill + Gymnasium sun-house (with the sports-trunk roof hatch), like the original aft house.
+	_upper_house(parent, -78.0, -33.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + DECK_SUN + 0.7, wl + DECK_SUN + 2.0, 1.4, 4.75, 8.25, -58.2, -53.4)
 
 
 # Deck arrival / spawn: on the open forecastle, looking forward at the pointed bow — so
@@ -1569,9 +1590,9 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# is OPEN at the centreline (side deckhouses only) and TIERS DOWN below their 24.94 m floor (model roof
 	# dips to ~22.9 m at z-72), so the bandstand / wall-bars / trunk poked through the model. Disabled until
 	# re-fitted to the model's actual aft deckhouse layout, then re-enable these three:
-	#_build_verandah_grill(root, wl)
-	#_build_gymnasium(root, wl)
-	#_build_sports_access(root, wl)
+	_build_verandah_grill(root, wl)
+	_build_gymnasium(root, wl)
+	_build_sports_access(root, wl)
 	_build_lower_decks(root, wl, -74.0, -30.0, -42.0, -34.0, "AftLowerDecks")   # aft of the Dining Room
 	_build_lower_decks(root, wl, 84.0, 112.0, 99.0, 107.0, "FwdLowerDecks")     # fwd of the pool, under the Main Hall
 
