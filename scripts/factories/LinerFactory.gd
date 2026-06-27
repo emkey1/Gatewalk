@@ -1707,12 +1707,13 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	# continuous CENTRELINE rooms inside my procedural sun-house, but the translated model's aft boat deck
 	# is OPEN at the centreline (side deckhouses only) and TIERS DOWN below their 24.94 m floor (model roof
 	# dips to ~22.9 m at z-72), so the bandstand / wall-bars / trunk poked through the model. Disabled until
-	# re-fitted to the model's actual aft deckhouse layout, then re-enable these three:
-	# Grill/Gym disabled again pending the MODEL-BASED 1936 aft house (baked into the mesh in the converter,
-	# not a procedural Godot overlay). Re-enable these (furnishings) once the model carries the aft shell.
-	#_build_verandah_grill(root, wl)
-	#_build_gymnasium(root, wl)
-	#_build_sports_access(root, wl)
+	# Verandah Grill + Gymnasium FURNISHINGS, fitted inside the model's existing aft deckhouse (the
+	# museum-ship QM RETAINS its aft superstructure to the Sports level out to ~z-72 — it was NOT cut
+	# down, contrary to the earlier assumption; measured from the model). These are furnishings per the
+	# architecture rule; the model carries the aft shell + Sun/Sports decks they sit on.
+	_build_verandah_grill(root, wl)
+	_build_gymnasium(root, wl)
+	_build_sports_access(root, wl)
 	_build_lower_decks(root, wl, -74.0, -30.0, -42.0, -34.0, "AftLowerDecks")   # aft of the Dining Room
 	_build_lower_decks(root, wl, 84.0, 112.0, 99.0, 107.0, "FwdLowerDecks")     # fwd of the pool, under the Main Hall
 
