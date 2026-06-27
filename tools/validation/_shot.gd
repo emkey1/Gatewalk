@@ -23,7 +23,7 @@ func _init() -> void:
 	env.ambient_light_color = Color(0.62, 0.68, 0.76)
 	env.ambient_light_energy = 0.35
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.42
+	env.tonemap_exposure = 0.85
 	we.environment = env
 	world.add_child(we)
 
@@ -52,8 +52,9 @@ func _init() -> void:
 	# Diagnose the player's aft-Promenade area (x-3, z-66): missing floor under columns + room walls
 	# touching the hull. Promenade eye ~20.3, Main eye ~15.9.
 	var shots := [
-		["wm_incab", Vector3(12.5, 15.7, -66.0), Vector3(20.0, 15.2, -66.0), Vector3.UP],
-		["wm_ext", Vector3(-95.0, 14.0, -66.0), Vector3(0.0, 15.0, -66.0), Vector3.UP],
+		["jn_fwd", Vector3(-55.0, 32.0, 108.0), Vector3(6.0, 20.0, 122.0), Vector3.UP],
+		["jn_3q", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
+		["jn_aft", Vector3(-60.0, 34.0, -95.0), Vector3(2.0, 22.0, -112.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

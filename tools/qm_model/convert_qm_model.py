@@ -170,6 +170,23 @@ groups = {m: [] for m in range(7)}
 for a, b, c in TR:
     groups[mat_of(a, b, c)].extend((a, b, c))
 
+# Drop the bow/stern open-deck "fin" clutter: the model's forecastle/poop bulwark caps + mooring-bitt
+# tops are low-poly and read as a white sawtooth + spiky crowns. They're FRONT-facing (not cullable) and
+# fused to the deck by height, but they classify as SUPERSTRUCTURE (white) — and the OPEN weather decks
+# forward of the forecastle break / abaft the poop break carry no real superstructure. So removing every
+# super-classified face out there cleanly strips the clutter while the teak deck + hull stay. A clean
+# deck fit-out (bulwark, mooring fittings, railings) is added procedurally in the factory.
+_g1 = groups[1]; _new1 = []; _drop = 0
+for _k in range(0, len(_g1), 3):
+    a, b, c = _g1[_k], _g1[_k + 1], _g1[_k + 2]
+    _cz = (GV[a][2] + GV[b][2] + GV[c][2]) / 3.0
+    if _cz > 114.0 or _cz < -108.0:
+        _drop += 1
+        continue
+    _new1.extend((a, b, c))
+groups[1] = _new1
+print(f"bow/stern: dropped {_drop} open-deck super (bulwark/fitting) faces")
+
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, 'wb') as f:
     f.write(struct.pack('<I', len(GV)))
