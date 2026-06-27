@@ -170,22 +170,26 @@ groups = {m: [] for m in range(7)}
 for a, b, c in TR:
     groups[mat_of(a, b, c)].extend((a, b, c))
 
-# Drop the bow/stern open-deck "fin" clutter: the model's forecastle/poop bulwark caps + mooring-bitt
-# tops are low-poly and read as a white sawtooth + spiky crowns. They're FRONT-facing (not cullable) and
-# fused to the deck by height, but they classify as SUPERSTRUCTURE (white) — and the OPEN weather decks
-# forward of the forecastle break / abaft the poop break carry no real superstructure. So removing every
-# super-classified face out there cleanly strips the clutter while the teak deck + hull stay. A clean
-# deck fit-out (bulwark, mooring fittings, railings) is added procedurally in the factory.
-_g1 = groups[1]; _new1 = []; _drop = 0
-for _k in range(0, len(_g1), 3):
-    a, b, c = _g1[_k], _g1[_k + 1], _g1[_k + 2]
-    _cz = (GV[a][2] + GV[b][2] + GV[c][2]) / 3.0
-    if _cz > 114.0 or _cz < -108.0:
-        _drop += 1
-        continue
-    _new1.extend((a, b, c))
-groups[1] = _new1
-print(f"bow/stern: dropped {_drop} open-deck super (bulwark/fitting) faces")
+# Strip the model's bow/stern OPEN-DECK detail ENTIRELY (above the freeboard). The forecastle/poop
+# bulwark caps + mooring-bitt tops + deck-edge are low-poly and read as a field of black/white spikes
+# from on-deck (the player spawns here) — front-facing (not cullable) and fused to the deck across all
+# surfaces by height, so no surface/height/orientation rule separates them from the deck. So in the OPEN
+# weather decks only (forward of the forecastle break z>114, abaft the poop break z<-108) drop EVERY
+# face above the freeboard (y>13.8); the hull below stays, and the factory rebuilds a clean procedural
+# weather deck + bulwark (+ fittings) there.
+_drop = 0
+for _m in range(7):
+    _g = groups[_m]; _new = []
+    for _k in range(0, len(_g), 3):
+        a, b, c = _g[_k], _g[_k + 1], _g[_k + 2]
+        _cz = (GV[a][2] + GV[b][2] + GV[c][2]) / 3.0
+        _cy = (GV[a][1] + GV[b][1] + GV[c][1]) / 3.0
+        if (_cz > 114.0 or _cz < -108.0) and _cy > 13.8:
+            _drop += 1
+            continue
+        _new.extend((a, b, c))
+    groups[_m] = _new
+print(f"bow/stern: dropped {_drop} open-deck above-freeboard faces (deck + spiky clutter)")
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, 'wb') as f:
