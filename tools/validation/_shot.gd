@@ -50,14 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Side ELEVATION — whole ship; the aft superstructure now ends ~27 m further forward (-105).
-		["profile", Vector3(-235.0, 42.0, 15.0), Vector3(0.0, 24.0, 15.0), Vector3.UP],
-		# AFT QUARTER from astern-port — the trimmed aft deckhouse end (-105) + the longer open aft deck.
-		["aft_quarter", Vector3(-95.0, 40.0, -188.0), Vector3(0.0, 18.0, -112.0), Vector3.UP],
-		# Inside the aft promenade lounge — the relocated -105 end bulkhead + intact furniture.
-		["aft_lounge", Vector3(0.0, 20.0, -80.0), Vector3(0.0, 19.6, -104.0), Vector3.UP],
-		# Side elevation tighter on the aft third — check no overhang past the trimmed end.
-		["aft_side", Vector3(-150.0, 26.0, -100.0), Vector3(0.0, 19.0, -100.0), Vector3.UP],
+		# Dining grand staircase — now lands cleanly through a ceiling hole (ceiling ~13.5, head ~14.3).
+		["dining", Vector3(8.0, 7.5, 6.0), Vector3(0.0, 11.5, 23.0), Vector3.UP],
+		# Dining wide — the taller triple-height saloon (floor ~3.3 to ceiling ~13.5).
+		["dining_wide", Vector3(13.0, 9.0, -16.0), Vector3(0.0, 10.0, 16.0), Vector3.UP],
+		# Pool — raised galleried ceiling + coved crown kept under the Main deck.
+		["pool", Vector3(8.0, 9.0, 60.0), Vector3(0.0, 10.5, 78.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

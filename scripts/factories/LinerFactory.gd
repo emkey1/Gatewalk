@@ -1767,8 +1767,11 @@ static func _build_dining_room(parent: Node3D, wl: float) -> void:
 	root.name = "DiningRoom"
 	parent.add_child(root)
 	var fy: float = wl + 5.04           # C-deck floor (world ~3.34)
-	var ay: float = wl + DECK_MAIN      # A-deck above (world ~11.86) — the stair head
-	var cy: float = wl + 12.7           # ceiling (world ~11.0), ~3 decks above the floor
+	var ay: float = wl + DECK_MAIN      # Main deck above (world ~14.3) — the grand-stair head
+	# Ceiling tracks the (raised) Main deck, 0.8 m below it: the freeboard rework lifted the Main deck,
+	# so the saloon rises with it into the QM's famous triple-height room (~10 m, floor to just under the
+	# deck) and the grand staircase lands cleanly through the ceiling hole instead of overshooting it.
+	var cy: float = wl + DECK_MAIN - 0.8
 	var hw: float = 15.0
 	var z0: float = -26.0
 	var z1: float = 26.0
@@ -1828,8 +1831,11 @@ static func _build_pool(parent: Node3D, wl: float) -> void:
 	var deck_y: float = wl + 6.5          # raised pool deck (world ~4.8)
 	var basin_y: float = wl + 5.04        # basin floor = carved hull top (world ~3.34)
 	var water_y: float = wl + 6.2         # water surface
-	var ay: float = wl + DECK_MAIN        # A-deck (stair head)
-	var cy: float = wl + 12.0             # ceiling (world ~10.3)
+	var ay: float = wl + DECK_MAIN        # Main deck (stair head)
+	# Ceiling tracks the (raised) Main deck, 1.5 m below it — same head-room over the gallery the pool had
+	# before the freeboard rework (so the grand flight lands as it did), but now a taller galleried void.
+	# 1.5 m (not 0.8 like the dining) keeps the recessed coved crown (cy+1.1) clear under the Main deck.
+	var cy: float = wl + DECK_MAIN - 1.5
 	var z0: float = 38.0
 	var z1: float = 80.0
 	var hw: float = 13.3   # pool room half-width — inside the hull even at the fwd end (z80, ~13.76 at deck level)
