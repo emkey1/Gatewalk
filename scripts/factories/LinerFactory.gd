@@ -170,6 +170,7 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 		_mat(Color(0.80, 0.27, 0.10), 0.55, 0.0),    # 2 funnel barrel (Cunard red)
 		_mat(Color(0.05, 0.05, 0.06), 0.6, 0.0),     # 3 funnel cap (black)
 		_mat(Color(0.55, 0.15, 0.13), 0.6, 0.0),     # 4 boot-topping (red waterline stripe)
+		_mat(COL_TEAK, 0.8, 0.0),                     # 5 walkable decks (teak)
 	]
 	for s in mesh.get_surface_count():
 		var m: BaseMaterial3D = mats[s] if s < mats.size() else mats[1]

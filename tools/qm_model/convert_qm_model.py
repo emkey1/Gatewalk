@@ -63,17 +63,24 @@ def near_funnel(gz, gx):
     return any(abs(gz - cz) < 8.5 and abs(gx) < 9.0 for cz in FUNNEL_Z)
 
 def mat_of(a, b, c):
-    gx = (GV[a][0] + GV[b][0] + GV[c][0]) / 3.0
-    gy = (GV[a][1] + GV[b][1] + GV[c][1]) / 3.0
-    gz = (GV[a][2] + GV[b][2] + GV[c][2]) / 3.0
+    ax, ay, az = GV[a]; bx, by, bz = GV[b]; cx, cy, cz = GV[c]
+    gx = (ax + bx + cx) / 3.0; gy = (ay + by + cy) / 3.0; gz = (az + bz + cz) / 3.0
     h = gy - WL
     if h >= 28.0 and near_funnel(gz, gx):
         return 3 if h >= 41.5 else 2
     if h < 0.85:
         return 4
-    return 0 if h < 15.8 else 1
+    if h < 15.8:
+        return 0
+    # Superstructure: the near-HORIZONTAL faces are the walkable decks -> teak; the rest (walls) -> white.
+    # |normal.y| (winding is mixed, so use abs): deck tops show outside, undersides are hidden inside.
+    nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay)
+    ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)
+    nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+    return 5 if abs(ny) / ln > 0.85 else 1
 
-groups = {m: [] for m in range(5)}
+groups = {m: [] for m in range(6)}
 for a, b, c in TR:
     groups[mat_of(a, b, c)].extend((a, b, c))
 
@@ -84,8 +91,8 @@ with open(OUT, 'wb') as f:
         f.write(struct.pack('<3f', *v))
     for n in nrm:
         f.write(struct.pack('<3f', n[0], n[1], n[2]))
-    f.write(struct.pack('<I', 5))
-    for m in range(5):
+    f.write(struct.pack('<I', 6))
+    for m in range(6):
         idx = groups[m]
         f.write(struct.pack('<I', len(idx)))
         if idx:

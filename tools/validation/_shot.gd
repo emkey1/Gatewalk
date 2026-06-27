@@ -50,12 +50,10 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Close on the aft sun-house (grill/gym, z -78..-33) — identify the yellow poke precisely.
-		["fit_grill", Vector3(-40.0, 33.0, -88.0), Vector3(2.0, 25.0, -52.0), Vector3.UP],
-		# High over the FWD boat deck — Main Hall / fwd structures vs the model.
-		["fit_fwddeck", Vector3(-95.0, 58.0, 120.0), Vector3(0.0, 24.0, 40.0), Vector3.UP],
-		# Port profile whole ship — any poke along the length.
-		["fit_profile", Vector3(-245.0, 40.0, 8.0), Vector3(0.0, 21.0, 8.0), Vector3.UP],
+		# High 3/4 — the walkable decks should now read TEAK (boat/sports/forecastle/promenade) vs white walls.
+		["teak_quarter", Vector3(-120.0, 75.0, 130.0), Vector3(0.0, 22.0, 10.0), Vector3.UP],
+		# High over the boat deck amidships — teak decks between the white deckhouses + funnels.
+		["teak_mid", Vector3(-70.0, 50.0, 40.0), Vector3(0.0, 24.0, 0.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
