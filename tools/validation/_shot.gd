@@ -23,7 +23,7 @@ func _init() -> void:
 	env.ambient_light_color = Color(0.62, 0.68, 0.76)
 	env.ambient_light_energy = 0.35
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.85
+	env.tonemap_exposure = 0.5
 	we.environment = env
 	world.add_child(we)
 
@@ -49,12 +49,11 @@ func _init() -> void:
 	cam.current = true
 	await process_frame   # let the camera enter the tree before look_at
 
-	# Verify the as-built model (CULL_DISABLED, winding-fixed normals): hull solid from every angle
-	# (no interior showing through), interior rooms tucked inside via the model-beam clamp.
+	# Diagnose the player's aft-Promenade area (x-3, z-66): missing floor under columns + room walls
+	# touching the hull. Promenade eye ~20.3, Main eye ~15.9.
 	var shots := [
-		["sd_broadside", Vector3(-150.0, 52.0, 6.0), Vector3(0.0, 13.0, 6.0), Vector3.UP],
-		["sd_quarter", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
-		["sd_lowside", Vector3(-95.0, 8.0, 40.0), Vector3(0.0, 6.0, 40.0), Vector3.UP],
+		["ck_quarter", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
+		["ck_lowside", Vector3(-95.0, 8.0, -66.0), Vector3(0.0, 12.0, -66.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

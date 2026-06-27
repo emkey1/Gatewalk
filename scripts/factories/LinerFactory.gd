@@ -557,6 +557,61 @@ static func _deck_seg(st: SurfaceTool, za: float, zb: float, hxh: float, wl: flo
 		_quad_flat(st, Vector3(-ba, sa, za), Vector3(ba, sa, za), Vector3(bb, sb, zb), Vector3(-ba, sb, zb))
 
 
+# Visible interior floor at the Main-deck level across the deckhouse footprint. The procedural MainDeck
+# mesh the rooms stand on becomes collision-only/HIDDEN once the model loads, so the open Main-deck areas
+# (cabin alleyways, lobbies, the after vestibule) read as an open VOID without this. Flat (interiors are
+# flat, not sheer), lofted to just inside the deckhouse half-width, with the four stairwell wells left
+# open (same openings as _build_main_deck). Collision still comes from the hidden MainDeck mesh below.
+static func _build_inner_deck(parent: Node3D, wl: float) -> void:
+	var root := Node3D.new()
+	root.name = "MainInnerDeck"
+	parent.add_child(root)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var y: float = wl + DECK_MAIN
+	var za: float = SS_AFT * HULL_HALF_LEN + 1.0
+	var zf: float = SS_FWD * HULL_HALF_LEN - 1.0
+	var holes := [[15.0, 25.0, 4.0], [73.0, 79.0, 4.0], [-42.0, -34.0, 4.0], [99.0, 107.0, 4.0]]
+	var nseg: int = maxi(1, int((zf - za) / 3.0))
+	for i in range(nseg):
+		var z0: float = lerpf(za, zf, float(i) / float(nseg))
+		var z1: float = lerpf(za, zf, float(i + 1) / float(nseg))
+		var ha0: float = NAN
+		var ha1: float = NAN
+		var hxh: float = 0.0
+		for h in holes:
+			if z1 > float(h[0]) and z0 < float(h[1]):
+				ha0 = maxf(z0, float(h[0])); ha1 = minf(z1, float(h[1])); hxh = float(h[2]); break
+		if hxh <= 0.0:
+			_inner_seg(st, z0, z1, y, 0.0)
+		else:
+			if ha0 > z0 + 0.01:
+				_inner_seg(st, z0, ha0, y, 0.0)
+			_inner_seg(st, ha0, ha1, y, hxh)
+			if ha1 < z1 - 0.01:
+				_inner_seg(st, ha1, z1, y, 0.0)
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	var mat := _mat(Color(0.50, 0.46, 0.42), 0.9, 0.0)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = mat
+	root.add_child(mi)
+
+
+# One inner-deck floor segment za..zb at world-y `y`, lofted to just inside the deckhouse MESH half-width
+# (so it tucks under the cabin walls without poking through the model superstructure); hxh>0 leaves the
+# centre ±hxh open for a stairwell.
+static func _inner_seg(st: SurfaceTool, za: float, zb: float, y: float, hxh: float) -> void:
+	var wa: float = _house_halfw_mesh(za) - 0.2
+	var wb: float = _house_halfw_mesh(zb) - 0.2
+	if hxh > 0.0:
+		_quad_flat(st, Vector3(-wa, y, za), Vector3(-hxh, y, za), Vector3(-hxh, y, zb), Vector3(-wb, y, zb))
+		_quad_flat(st, Vector3(hxh, y, za), Vector3(wa, y, za), Vector3(wb, y, zb), Vector3(hxh, y, zb))
+	else:
+		_quad_flat(st, Vector3(-wa, y, za), Vector3(wa, y, za), Vector3(wb, y, zb), Vector3(-wb, y, zb))
+
+
 # A flat enclosed tween-deck floor lofted across the hull at world-y `y`, z0..z1, inset to the hull
 # side at that height (so it tucks against the topside), with an optional central stairwell hole
 # (±hxh over hz0..hz1; pass hz0=NAN for a solid floor). Trimesh collider so the player stands on it.
@@ -1583,6 +1638,7 @@ static func _build_interior(parent: Node3D, wl: float) -> void:
 	var root := Node3D.new()
 	root.name = "Interior"
 	parent.add_child(root)
+	_build_inner_deck(root, wl)   # visible Main-deck floor (the MainDeck mesh is hidden once the model loads)
 	var L: float = HULL_HALF_LEN
 	var y_main: float = wl + DECK_MAIN
 	var y_prom: float = wl + DECK_PROM
