@@ -181,7 +181,11 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 	]
 	for s in mesh.get_surface_count():
 		var m: BaseMaterial3D = mats[s] if s < mats.size() else mats[1]
-		m.cull_mode = BaseMaterial3D.CULL_DISABLED   # the print mesh has mixed winding; draw both faces
+		# The model is consistently wound (outward-facing normals), so CULL_BACK hides the INTERNAL
+		# back-faces. Drawing both faces (CULL_DISABLED) was exposing the undersides of the deck-edge
+		# structure as white sawtooth "fins" all along the side. Glass (6) stays double-sided so the
+		# window band still reads from inside the promenade.
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED if s == 6 else BaseMaterial3D.CULL_BACK
 		mesh.surface_set_material(s, m)
 	var mi := MeshInstance3D.new()
 	mi.name = "ModelExterior"

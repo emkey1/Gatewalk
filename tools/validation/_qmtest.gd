@@ -63,10 +63,11 @@ func _init() -> void:
 	var cam := Camera3D.new(); cam.fov = 55.0; world.add_child(cam); cam.current = true
 	await process_frame
 	var shots := [
-		["qm_profile", Vector3(-250.0, 42.0, 8.0), Vector3(0.0, 20.0, 8.0), Vector3.UP],
-		["qm_bow", Vector3(-55.0, 16.0, 195.0), Vector3(6.0, 10.0, 150.0), Vector3.UP],
-		["qm_stern", Vector3(-60.0, 18.0, -200.0), Vector3(4.0, 10.0, -150.0), Vector3.UP],
-		["qm_quarter", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
+		# Culling test: side-on deck-edge view (where the white fins appear) + a profile to spot any holes.
+		["cull_side", Vector3(-120.0, 30.0, 28.0), Vector3(0.0, 22.0, 28.0), Vector3.UP],
+		["cull_sideb", Vector3(-95.0, 27.0, -20.0), Vector3(0.0, 22.0, -20.0), Vector3.UP],
+		["cull_profile", Vector3(-250.0, 42.0, 8.0), Vector3(0.0, 20.0, 8.0), Vector3.UP],
+		["cull_quarter", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
 	]
 	for sh in shots:
 		cam.position = sh[1]; cam.look_at(sh[2], sh[3])
