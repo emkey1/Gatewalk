@@ -226,12 +226,17 @@ static func _build_aft_1936(parent: Node3D, wl: float) -> void:
 	var white := _mat(COL_SUPER, 0.7, 0.0)
 	var glass := _mat(COL_WINDOW, 0.25, 0.3)
 	var deck := _mat(COL_TEAK, 0.9, 0.0)
+	var seaglass := StandardMaterial3D.new()
+	seaglass.albedo_color = Color(0.18, 0.28, 0.36, 0.42)
+	seaglass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	seaglass.roughness = 0.08
+	seaglass.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var y_main: float = wl + DECK_MAIN
 	var y_sun: float = wl + DECK_SUN
 	var y_sports: float = wl + DECK_SPORTS
-	# Carry the boat/Sun deck aft over the model, and skirt the gap down to the model's lower after deck.
-	_tapered_slab(parent, -105.0, -33.0, y_sun, 0.35, 0.5, deck)
-	for sx in [-1.0, 1.0]:
-		_box(parent, Vector3(sx * (_house_half_w(-69.0) - 0.2), y_sun - 1.4, -69.0), Vector3(0.3, 2.8, 72.0), white, false)
+	# Aft deckhouse (Main->Sun): proper hull-following tapered walls + the enclosed-Promenade glazed band +
+	# the oversailing boat-deck slab, replacing the rough first-pass flat slab + raw skirt.
+	_deckhouse_tapered(parent, -105.0, -33.0, y_main, y_sun, white, deck, seaglass, 0.0, wl + DECK_PROM + 1.0, wl + DECK_SUN - 1.0)
 	# The Verandah-Grill + Gymnasium sun-house (with the sports-trunk roof hatch), like the original aft house.
 	_upper_house(parent, -78.0, -33.0, 13.0, 3.0, y_sun, y_sports, white, glass, deck, wl + DECK_SUN + 0.7, wl + DECK_SUN + 2.0, 1.4, 4.75, 8.25, -58.2, -53.4)
 
