@@ -106,6 +106,10 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	_build_lifeboats(root, wl)
 	_build_railings(root, wl)
 	_build_forecastle(root, wl)
+	# The open foredeck is now the translated model + the visible OpenDeck/OpenBulwark (inc 120-121), so
+	# the procedural Forecastle's hidden (collision-only) breakwater + windlass were just an INVISIBLE
+	# WALL out there — strip their collision (the node stays for the subsystem check + future fit-out).
+	_disable_collision(root.get_node_or_null("Forecastle"))
 	_build_deck_details(root, wl)
 	_build_deck_structures(root, wl)
 	_build_sports_deck_fit(root, wl)
@@ -612,6 +616,18 @@ static func _inner_seg(st: SurfaceTool, za: float, zb: float, y: float, hxh: flo
 		_quad_flat(st, Vector3(-wa, y, za), Vector3(wa, y, za), Vector3(wb, y, zb), Vector3(-wb, y, zb))
 
 
+# Recursively strip collision from a node's StaticBody3D descendants (keeps the visuals, removes the
+# colliders) — used to neutralise hidden procedural gear that would otherwise be an invisible wall.
+static func _disable_collision(n: Node) -> void:
+	if n == null:
+		return
+	if n is StaticBody3D:
+		(n as StaticBody3D).collision_layer = 0
+		(n as StaticBody3D).collision_mask = 0
+	for c in n.get_children():
+		_disable_collision(c)
+
+
 # Clean weather DECK across the open fore/aft decks. The model's forecastle/poop deck + its spiky
 # bulwark/bitt clutter were stripped above the freeboard in the converter (inc 120); this lofts a flat
 # teak deck back in their place at the Main-deck level, full hull width, fore (z114 -> stem) + aft
@@ -621,7 +637,8 @@ static func _build_open_deck(parent: Node3D, wl: float) -> void:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_color(COL_TEAK)
 	var y: float = wl + DECK_MAIN
-	for seg in [[113.5, HULL_HALF_LEN - 1.0], [-(HULL_HALF_LEN - 1.0), -107.5]]:
+	# Fore/aft ranges overlap the inner Main-deck (ends ~±111/-104) so there's no gap at the deckhouse.
+	for seg in [[110.0, HULL_HALF_LEN - 1.0], [-(HULL_HALF_LEN - 1.0), -104.0]]:
 		var z0: float = float(seg[0])
 		var z1: float = float(seg[1])
 		var n: int = 26
@@ -657,18 +674,22 @@ static func _build_open_bulwark(parent: Node3D, wl: float) -> void:
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var y0: float = wl + DECK_MAIN - 0.8
 	var y1: float = wl + DECK_MAIN + 1.05
-	for seg in [[114.0, HULL_HALF_LEN - 3.0], [-(HULL_HALF_LEN - 3.0), -108.0]]:
+	for seg in [[114.0, HULL_HALF_LEN - 1.0], [-(HULL_HALF_LEN - 1.0), -108.0]]:
 		var z0: float = float(seg[0])
 		var z1: float = float(seg[1])
-		var n: int = 20
+		var n: int = 22
 		for i in range(n):
 			var za: float = lerpf(z0, z1, float(i) / float(n))
 			var zb: float = lerpf(z0, z1, float(i + 1) / float(n))
-			var wa: float = maxf(0.4, _half_beam(za) - 0.12)
-			var wb: float = maxf(0.4, _half_beam(zb) - 0.12)
+			var wa: float = maxf(0.05, _half_beam(za) - 0.12)
+			var wb: float = maxf(0.05, _half_beam(zb) - 0.12)
 			for sgn in [-1.0, 1.0]:
 				_quad_flat(st, Vector3(sgn * wa, y0, za), Vector3(sgn * wb, y0, zb), Vector3(sgn * wb, y1, zb), Vector3(sgn * wa, y1, za))
 				_quad_flat(st, Vector3(sgn * wa, y1, za), Vector3(sgn * wb, y1, zb), Vector3(sgn * (wb - 0.3), y1, zb), Vector3(sgn * (wa - 0.3), y1, za))
+	# Close the bow stem: a small transverse cap where the converging port/stbd bulwarks meet.
+	var zbow: float = HULL_HALF_LEN - 1.0
+	var wbow: float = maxf(0.25, _half_beam(zbow) - 0.12)
+	_quad_flat(st, Vector3(-wbow, y0, zbow), Vector3(wbow, y0, zbow), Vector3(wbow, y1, zbow), Vector3(-wbow, y1, zbow))
 	st.generate_normals()
 	var mesh: ArrayMesh = st.commit()
 	var mat := _mat(Color(0.10, 0.10, 0.11), 0.85, 0.0)

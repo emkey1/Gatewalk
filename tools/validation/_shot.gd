@@ -52,9 +52,9 @@ func _init() -> void:
 	# Diagnose the player's aft-Promenade area (x-3, z-66): missing floor under columns + room walls
 	# touching the hull. Promenade eye ~20.3, Main eye ~15.9.
 	var shots := [
-		["pl_fwd", Vector3(0.0, 16.0, 121.0), Vector3(0.0, 15.2, 150.0), Vector3.UP],
-		["pl_ext", Vector3(-48.0, 28.0, 132.0), Vector3(2.0, 15.5, 136.0), Vector3.UP],
-		["pl_3q", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
+		["bf_fwd", Vector3(0.0, 16.0, 121.0), Vector3(0.0, 15.0, 153.0), Vector3.UP],
+		["bf_bowext", Vector3(-26.0, 24.0, 148.0), Vector3(3.0, 15.0, 150.0), Vector3.UP],
+		["bf_aft", Vector3(0.0, 16.5, 119.0), Vector3(0.0, 15.6, 104.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
