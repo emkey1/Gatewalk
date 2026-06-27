@@ -50,10 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# 1936 AFT superstructure re-added over the model — does the Grill/Gym sun-house sit right?
-		["aft1936", Vector3(-72.0, 38.0, -128.0), Vector3(0.0, 26.0, -55.0), Vector3.UP],
-		# Aft superstructure from the side — junction with the model's mid + the skirt down to the model deck.
-		["aft1936_side", Vector3(-95.0, 28.0, -55.0), Vector3(0.0, 25.0, -60.0), Vector3.UP],
+		# AUDIT: bow close — stem, forecastle, any model/procedural clash.
+		["aud_bow", Vector3(-48.0, 17.0, 178.0), Vector3(6.0, 12.0, 140.0), Vector3.UP],
+		# AUDIT: the aft 1936 deckhouse junction with the model's mid superstructure (~z-33).
+		["aud_junction", Vector3(-58.0, 27.0, -33.0), Vector3(-6.0, 22.0, -33.0), Vector3.UP],
+		# AUDIT: top-down over the aft boat deck — missing floors / gaps / clashes.
+		["aud_topdown", Vector3(2.0, 80.0, -55.0), Vector3(0.0, 24.0, -55.0), Vector3.UP],
+		# AUDIT: enclosed promenade walkway looking aft — floor continuous? odd intersections?
+		["aud_promwalk", Vector3(-14.0, 22.2, 30.0), Vector3(-14.5, 21.9, -30.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
