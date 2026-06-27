@@ -49,21 +49,18 @@ func _init() -> void:
 	cam.current = true
 	await process_frame   # let the camera enter the tree before look_at
 
+	# Verify the as-built model (CULL_DISABLED, winding-fixed normals): hull solid from every angle
+	# (no interior showing through), interior rooms tucked inside via the model-beam clamp.
 	var shots := [
-		# FIN FIX: side-on deck edge (full build) — the white sawtooth fins should be gone.
-		["fin_side", Vector3(-120.0, 30.0, 28.0), Vector3(0.0, 22.0, 28.0), Vector3.UP],
-		["fin_sideb", Vector3(-95.0, 27.0, -20.0), Vector3(0.0, 22.0, -20.0), Vector3.UP],
-		# 3/4 aerial — confirm no new holes in the shell/decks now that we cull back-faces.
-		["fin_quarter", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
-		# Promenade interior looking outboard — glass band should still read from inside.
-		["fin_prom", Vector3(-14.0, 22.2, 30.0), Vector3(-30.0, 21.6, 30.0), Vector3.UP],
+		["sd_broadside", Vector3(-150.0, 52.0, 6.0), Vector3(0.0, 13.0, 6.0), Vector3.UP],
+		["sd_quarter", Vector3(-150.0, 60.0, 150.0), Vector3(0.0, 15.0, 0.0), Vector3.UP],
+		["sd_lowside", Vector3(-95.0, 8.0, 40.0), Vector3(0.0, 6.0, 40.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
 		cam.look_at(s[2], s[3])
 		for i in range(6):
 			await process_frame
-		var img := root.get_texture().get_image()
-		img.save_png("/tmp/liner_%s.png" % s[0])
+		root.get_texture().get_image().save_png("/tmp/liner_%s.png" % s[0])
 		print("shot %s saved" % s[0])
 	quit()

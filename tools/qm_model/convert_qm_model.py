@@ -47,6 +47,47 @@ print(f"verts={len(MV)} tris={len(TR)} scale={S:.5f} zmin={zmin:.5f}")
 # model (x=half-beam, y=length[bow=-y], z=height[bottom=zmin]) -> game (x, y-up, z-length[bow=+z])
 GV = [(mx * S, (mz - zmin) * S + WL, -my * S) for mx, my, mz in MV]
 
+# --- Make the triangle winding consistent: every face normal points OUTWARD from the hull. ---
+# The source print mesh has MIXED winding (some regions wound inward). Backface culling then either
+# draws internal faces as white "fin" clutter (cull off) OR punches see-through holes in the hull
+# where the outer faces happen to face inward (cull on). A ship's cross-section is ~star-convex about
+# its vertical centreline, so "outward" at a face = away from the centreline point at that face's
+# length/height. Flip any triangle whose geometric normal opposes that. End-cap (bow/stern) faces,
+# whose normals are mostly fore-aft (small horizontal component), are left as-is — the radial test
+# can't judge them and they're already consistent.
+_zc_dz = 8.0
+_zlo = min(v[2] for v in GV)
+_nzc = int((max(v[2] for v in GV) - _zlo) / _zc_dz) + 1
+_ymin = [1e9] * _nzc
+_ymax = [-1e9] * _nzc
+for _gx, _gy, _gz in GV:
+    if _gy >= WL + 15.8:           # HULL band only (exclude the superstructure/funnels, which would
+        continue                   # pull the radial centre too high and mis-orient sloped hull sides)
+    _b = int((_gz - _zlo) / _zc_dz)
+    if _gy < _ymin[_b]:
+        _ymin[_b] = _gy
+    if _gy > _ymax[_b]:
+        _ymax[_b] = _gy
+_yc = [(_ymin[i] + _ymax[i]) * 0.5 if _ymax[i] > -1e8 else WL + 6.0 for i in range(_nzc)]
+def _ycz(gz):
+    return _yc[max(0, min(_nzc - 1, int((gz - _zlo) / _zc_dz)))]
+_flipped = 0
+_TR = []
+for a, b, c in TR:
+    ax, ay, az = GV[a]; bx, by, bz = GV[b]; cx, cy, cz = GV[c]
+    nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay)
+    ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)
+    nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    ox = (ax + bx + cx) / 3.0; oy = (ay + by + cy) / 3.0; oz = (az + bz + cz) / 3.0
+    horiz2 = nx * nx + ny * ny
+    if horiz2 > 0.05 * (horiz2 + nz * nz):                  # skip near-fore/aft end-cap faces
+        if nx * ox + ny * (oy - _ycz(oz)) < 0.0:            # normal faces inward -> flip winding
+            b, c = c, b
+            _flipped += 1
+    _TR.append((a, b, c))
+TR = _TR
+print(f"winding: flipped {_flipped}/{len(TR)} triangles to face outward")
+
 nrm = [[0.0, 0.0, 0.0] for _ in GV]
 for a, b, c in TR:
     ax, ay, az = GV[a]; bx, by, bz = GV[b]; cx, cy, cz = GV[c]

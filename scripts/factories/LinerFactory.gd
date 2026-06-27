@@ -78,6 +78,13 @@ const PROM_AFT: float = -68.0
 const PROM_FWD: float = 62.0
 const PROM_HALF_W: float = 15.5
 
+# Model hull half-beam profile (z-binned max |x| of the translated model's hull shell), loaded once
+# per build so the hull-fitted interior (deck linings, lower-deck floors, portholes) can be clamped to
+# the ACTUAL model hull instead of the procedural loft — see _load_hull_profile / _model_hull_halfw.
+static var _hull_prof: PackedFloat32Array = PackedFloat32Array()
+static var _prof_z0: float = 0.0
+static var _prof_dz: float = 4.0
+
 
 # Build the liner into `parent`. Returns an Array of 4 gate world-positions on the
 # decks (gate 0 sits aft, near the arrival spawn).
@@ -86,6 +93,7 @@ static func build(parent: Node3D, world_seed: int, wl: float) -> Array:
 	root.name = "QueenMary"
 	parent.add_child(root)
 	var rng := StableRng.new(StableRng.mix_string(world_seed, "liner", 1))
+	_load_hull_profile(wl)   # model hull beam profile -> clamps the hull-fitted interior to the real shell
 
 	# Hull carves (each [z0, z1, floor_y]) + Main-deck stairwell openings (each [z0, z1, half_width]).
 	# Dining Room + pool drop to C deck; the aft block is hollowed for the empty A & B accommodation
@@ -181,11 +189,13 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 	]
 	for s in mesh.get_surface_count():
 		var m: BaseMaterial3D = mats[s] if s < mats.size() else mats[1]
-		# The model is consistently wound (outward-facing normals), so CULL_BACK hides the INTERNAL
-		# back-faces. Drawing both faces (CULL_DISABLED) was exposing the undersides of the deck-edge
-		# structure as white sawtooth "fins" all along the side. Glass (6) stays double-sided so the
-		# window band still reads from inside the promenade.
-		m.cull_mode = BaseMaterial3D.CULL_DISABLED if s == 6 else BaseMaterial3D.CULL_BACK
+		# Draw BOTH faces: the QM.3mf is a non-manifold print mesh, so back-face culling either shows
+		# internal deck-edge "fin" faces (cull off) or punches see-through holes in the hull where outer
+		# faces are wound inward (cull on) — neither is clean. A solid hull is the more important property,
+		# so we draw double-sided (no see-through). The converter's winding pass gives every face an
+		# outward NORMAL so the double-sided shell is lit correctly. (The deck-edge fins are removed
+		# model-side by deleting the internal faces in the converter — the proper next step.)
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mesh.surface_set_material(s, m)
 	var mi := MeshInstance3D.new()
 	mi.name = "ModelExterior"
@@ -283,7 +293,76 @@ static func _hull_halfw_at(z: float, y: float, wl: float) -> float:
 	var ky: float = _keel_y(z, wl)
 	var sy: float = _sheer_y(z, wl)
 	var f: float = clampf((y - ky) / maxf(sy - ky, 0.01), 0.0, 1.0)
-	return _beam_mesh(z) * lerpf(0.72, 1.0, f)
+	var proc: float = _beam_mesh(z) * lerpf(0.72, 1.0, f)
+	# Clamp to the ACTUAL model hull beam so hull-fitted interior (linings/floors/portholes) stays
+	# inside the visible model shell instead of poking through it where the model tapers differently
+	# from the procedural loft (worst toward the narrowing bow/stern). Fallback = procedural value.
+	var mh: float = _model_hull_halfw(z, -1.0)
+	return minf(proc, mh - 0.2) if mh > 0.0 else proc
+
+
+# Load the model hull's half-beam profile (z-binned max |x| over the shell band) once per build, so
+# _model_hull_halfw can answer "how wide is the actual hull here". The model is low-poly amidships
+# (long plates with verts only at their z-ends), so many interior bins have no verts even though the
+# hull is solid — those gaps are linearly interpolated from their nearest non-empty neighbours.
+static func _load_hull_profile(wl: float) -> void:
+	_hull_prof = PackedFloat32Array()
+	var f := FileAccess.open("res://assets/qm_model.bin", FileAccess.READ)
+	if f == null:
+		return
+	var nv := f.get_32()
+	var vf := f.get_buffer(nv * 12).to_float32_array()
+	var z0: float = -HULL_HALF_LEN - 5.0
+	var dz: float = 4.0
+	var nb: int = int(ceil((2.0 * (HULL_HALF_LEN + 5.0)) / dz)) + 1
+	var prof := PackedFloat32Array(); prof.resize(nb); prof.fill(0.0)
+	var ylo: float = wl - 0.2
+	var yhi: float = wl + 16.0                 # waterline up through the Main-deck edge (below the superstructure)
+	for i in nv:
+		var y: float = vf[i * 3 + 1]
+		if y >= ylo and y <= yhi:
+			var b: int = int((vf[i * 3 + 2] - z0) / dz)
+			if b >= 0 and b < nb:
+				var ax: float = absf(vf[i * 3])
+				if ax > prof[b]:
+					prof[b] = ax
+	var first: int = -1
+	var last: int = -1
+	for b in nb:
+		if prof[b] > 0.0:
+			if first < 0:
+				first = b
+			last = b
+	if first < 0:
+		return                                  # no hull verts at all -> leave empty (fallback to procedural)
+	var b2: int = first
+	while b2 <= last:
+		if prof[b2] > 0.0:
+			b2 += 1
+			continue
+		var nz: int = b2
+		while nz <= last and prof[nz] <= 0.0:
+			nz += 1
+		for k in range(b2, nz):
+			prof[k] = lerpf(prof[b2 - 1], prof[nz], float(k - b2 + 1) / float(nz - b2 + 1))
+		b2 = nz + 1
+	for b in range(0, first):
+		prof[b] = prof[first]
+	for b in range(last + 1, nb):
+		prof[b] = prof[last]
+	_hull_prof = prof
+	_prof_z0 = z0
+	_prof_dz = dz
+
+
+# Half-beam of the translated MODEL hull at z (lerped between the binned profile), or `fallback` if the
+# profile isn't loaded (model bin missing).
+static func _model_hull_halfw(z: float, fallback: float) -> float:
+	if _hull_prof.is_empty():
+		return fallback
+	var t: float = (z - _prof_z0) / _prof_dz
+	var i: int = clampi(int(floor(t)), 0, _hull_prof.size() - 2)
+	return lerpf(_hull_prof[i], _hull_prof[i + 1], clampf(t - float(i), 0.0, 1.0))
 
 
 # Half-beam of the faceted hull mesh at z (straight loft between the HULL_STATIONS the hull is built
