@@ -50,10 +50,11 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# High 3/4 — the walkable decks should now read TEAK (boat/sports/forecastle/promenade) vs white walls.
-		["teak_quarter", Vector3(-120.0, 75.0, 130.0), Vector3(0.0, 22.0, 10.0), Vector3.UP],
-		# High over the boat deck amidships — teak decks between the white deckhouses + funnels.
-		["teak_mid", Vector3(-70.0, 50.0, 40.0), Vector3(0.0, 24.0, 0.0), Vector3.UP],
+		# PROMENADE interior looking OUTBOARD — does the enclosed promenade still see the sea, or is the
+		# model's opaque superstructure wall blocking it? (key deck-by-deck question).
+		["prom_out", Vector3(-13.0, 22.2, 0.0), Vector3(-19.0, 22.0, 6.0), Vector3.UP],
+		# Promenade looking along the windowed walkway.
+		["prom_along", Vector3(-14.5, 22.2, -20.0), Vector3(-15.5, 22.0, 30.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

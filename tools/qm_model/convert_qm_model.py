@@ -78,9 +78,14 @@ def mat_of(a, b, c):
     ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)
     nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
     ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
-    return 5 if abs(ny) / ln > 0.85 else 1
+    nyl = abs(ny) / ln
+    # The enclosed-promenade window band runs along the ship's SIDES in the ~20-24 m height range; make
+    # those near-vertical side faces transparent GLASS so the promenade (and rooms behind it) see the sea.
+    if 20.0 <= h <= 24.5 and abs(gx) > 12.0 and nyl < 0.35:
+        return 6
+    return 5 if nyl > 0.85 else 1
 
-groups = {m: [] for m in range(6)}
+groups = {m: [] for m in range(7)}
 for a, b, c in TR:
     groups[mat_of(a, b, c)].extend((a, b, c))
 
@@ -91,8 +96,8 @@ with open(OUT, 'wb') as f:
         f.write(struct.pack('<3f', *v))
     for n in nrm:
         f.write(struct.pack('<3f', n[0], n[1], n[2]))
-    f.write(struct.pack('<I', 6))
-    for m in range(6):
+    f.write(struct.pack('<I', 7))
+    for m in range(7):
         idx = groups[m]
         f.write(struct.pack('<I', len(idx)))
         if idx:

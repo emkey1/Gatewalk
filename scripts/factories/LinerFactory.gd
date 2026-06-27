@@ -166,6 +166,10 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 		arr[Mesh.ARRAY_NORMAL] = norms
 		arr[Mesh.ARRAY_INDEX] = idx
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var glass := StandardMaterial3D.new()      # 6 enclosed-promenade glazing — tinted + see-through
+	glass.albedo_color = Color(0.20, 0.30, 0.38, 0.35)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.roughness = 0.08
 	var mats: Array[Material] = [
 		_mat(Color(0.07, 0.07, 0.08), 0.85, 0.0),   # 0 hull (black topside)
 		_mat(COL_SUPER, 0.7, 0.0),                   # 1 superstructure (white)
@@ -173,6 +177,7 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 		_mat(Color(0.05, 0.05, 0.06), 0.6, 0.0),     # 3 funnel cap (black)
 		_mat(Color(0.55, 0.15, 0.13), 0.6, 0.0),     # 4 boot-topping (red waterline stripe)
 		_mat(COL_TEAK, 0.8, 0.0),                     # 5 walkable decks (teak)
+		glass,                                        # 6 promenade window band (sees the sea)
 	]
 	for s in mesh.get_surface_count():
 		var m: BaseMaterial3D = mats[s] if s < mats.size() else mats[1]
