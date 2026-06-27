@@ -47,46 +47,83 @@ print(f"verts={len(MV)} tris={len(TR)} scale={S:.5f} zmin={zmin:.5f}")
 # model (x=half-beam, y=length[bow=-y], z=height[bottom=zmin]) -> game (x, y-up, z-length[bow=+z])
 GV = [(mx * S, (mz - zmin) * S + WL, -my * S) for mx, my, mz in MV]
 
-# --- Make the triangle winding consistent: every face normal points OUTWARD from the hull. ---
-# The source print mesh has MIXED winding (some regions wound inward). Backface culling then either
-# draws internal faces as white "fin" clutter (cull off) OR punches see-through holes in the hull
-# where the outer faces happen to face inward (cull on). A ship's cross-section is ~star-convex about
-# its vertical centreline, so "outward" at a face = away from the centreline point at that face's
-# length/height. Flip any triangle whose geometric normal opposes that. End-cap (bow/stern) faces,
-# whose normals are mostly fore-aft (small horizontal component), are left as-is — the radial test
-# can't judge them and they're already consistent.
-_zc_dz = 8.0
-_zlo = min(v[2] for v in GV)
-_nzc = int((max(v[2] for v in GV) - _zlo) / _zc_dz) + 1
-_ymin = [1e9] * _nzc
-_ymax = [-1e9] * _nzc
-for _gx, _gy, _gz in GV:
-    if _gy >= WL + 15.8:           # HULL band only (exclude the superstructure/funnels, which would
-        continue                   # pull the radial centre too high and mis-orient sloped hull sides)
-    _b = int((_gz - _zlo) / _zc_dz)
-    if _gy < _ymin[_b]:
-        _ymin[_b] = _gy
-    if _gy > _ymax[_b]:
-        _ymax[_b] = _gy
-_yc = [(_ymin[i] + _ymax[i]) * 0.5 if _ymax[i] > -1e8 else WL + 6.0 for i in range(_nzc)]
-def _ycz(gz):
-    return _yc[max(0, min(_nzc - 1, int((gz - _zlo) / _zc_dz)))]
+# --- Orient every triangle to face OUTWARD via a ray-parity (point-in-solid) test. ---
+# The source print mesh has MIXED winding. Backface culling then either draws internal faces as white
+# "fin" clutter (cull off) OR punches see-through holes in the hull (cull on). A simple radial test
+# can't orient the CONCAVE deck-edge overhangs (the outer face and its underside share a position with
+# opposite winding). So instead: for each face take a point just off its front (centroid + normal*eps)
+# and cast a ray along +x — an ODD number of triangle crossings means that point is INSIDE the solid,
+# so +N points inward and the winding is flipped. This is topology-agnostic and orients every face out
+# of the solid, letting the factory backface-cull cleanly (solid hull, no fins, no see-through).
+# Accelerated by a 2-D (y,z) bucket grid, since the cast ray runs along x (only same-(y,z) tris matter).
+EPS = 0.03
+CELL = 1.5
+_ys = [v[1] for v in GV]; _zs = [v[2] for v in GV]
+_YMIN = min(_ys); _ZMIN = min(_zs)
+_NY = int((max(_ys) - _YMIN) / CELL) + 2
+_NZ = int((max(_zs) - _ZMIN) / CELL) + 2
+def _cell(y, z):
+    iy = int((y - _YMIN) / CELL); iz = int((z - _ZMIN) / CELL)
+    iy = 0 if iy < 0 else (_NY - 1 if iy >= _NY else iy)
+    iz = 0 if iz < 0 else (_NZ - 1 if iz >= _NZ else iz)
+    return iy, iz
+_grid = [[] for _ in range(_NY * _NZ)]
+_tv = []                                   # per-tri: (A, B, C, xmax, ylo, yhi, zlo, zhi)
+for _ti, (_a, _b, _c) in enumerate(TR):
+    _A = GV[_a]; _B = GV[_b]; _C = GV[_c]
+    _ylo = min(_A[1], _B[1], _C[1]); _yhi = max(_A[1], _B[1], _C[1])
+    _zlo = min(_A[2], _B[2], _C[2]); _zhi = max(_A[2], _B[2], _C[2])
+    _tv.append((_A, _B, _C, max(_A[0], _B[0], _C[0]), _ylo, _yhi, _zlo, _zhi))
+    _iy0, _iz0 = _cell(_ylo, _zlo); _iy1, _iz1 = _cell(_yhi, _zhi)
+    for _iy in range(_iy0, _iy1 + 1):
+        _row = _iy * _NZ
+        for _iz in range(_iz0, _iz1 + 1):
+            _grid[_row + _iz].append(_ti)
+def _inside(px, py, pz):
+    iy, iz = _cell(py, pz)
+    cnt = 0
+    for ti in _grid[iy * _NZ + iz]:
+        A, B, C, xmax, ylo, yhi, zlo, zhi = _tv[ti]
+        if xmax <= px or py < ylo or py > yhi or pz < zlo or pz > zhi:
+            continue
+        ay = A[1]; az = A[2]
+        v0y = B[1] - ay; v0z = B[2] - az
+        v1y = C[1] - ay; v1z = C[2] - az
+        v2y = py - ay; v2z = pz - az
+        d00 = v0y * v0y + v0z * v0z
+        d01 = v0y * v1y + v0z * v1z
+        d11 = v1y * v1y + v1z * v1z
+        den = d00 * d11 - d01 * d01
+        if den == 0.0:
+            continue
+        d20 = v2y * v0y + v2z * v0z
+        d21 = v2y * v1y + v2z * v1z
+        v = (d11 * d20 - d01 * d21) / den
+        w = (d00 * d21 - d01 * d20) / den
+        if v < 0.0 or w < 0.0 or v + w > 1.0:
+            continue
+        u = 1.0 - v - w
+        if u * A[0] + v * B[0] + w * C[0] > px:
+            cnt += 1
+    return (cnt & 1) == 1
 _flipped = 0
 _TR = []
+_JY = 1.7e-4; _JZ = 1.1e-4                  # tiny oblique ray offset to avoid grazing shared edges
 for a, b, c in TR:
-    ax, ay, az = GV[a]; bx, by, bz = GV[b]; cx, cy, cz = GV[c]
-    nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay)
-    ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)
-    nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
-    ox = (ax + bx + cx) / 3.0; oy = (ay + by + cy) / 3.0; oz = (az + bz + cz) / 3.0
-    horiz2 = nx * nx + ny * ny
-    if horiz2 > 0.05 * (horiz2 + nz * nz):                  # skip near-fore/aft end-cap faces
-        if nx * ox + ny * (oy - _ycz(oz)) < 0.0:            # normal faces inward -> flip winding
-            b, c = c, b
-            _flipped += 1
-    _TR.append((a, b, c))
+    A = GV[a]; B = GV[b]; C = GV[c]
+    nx = (B[1] - A[1]) * (C[2] - A[2]) - (B[2] - A[2]) * (C[1] - A[1])
+    ny = (B[2] - A[2]) * (C[0] - A[0]) - (B[0] - A[0]) * (C[2] - A[2])
+    nz = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0])
+    ln = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+    px = (A[0] + B[0] + C[0]) / 3.0 + nx / ln * EPS
+    py = (A[1] + B[1] + C[1]) / 3.0 + ny / ln * EPS + _JY
+    pz = (A[2] + B[2] + C[2]) / 3.0 + nz / ln * EPS + _JZ
+    if _inside(px, py, pz):                 # +N side is interior -> flip so the normal points OUT
+        _TR.append((a, c, b)); _flipped += 1
+    else:
+        _TR.append((a, b, c))
 TR = _TR
-print(f"winding: flipped {_flipped}/{len(TR)} triangles to face outward")
+print(f"winding: flipped {_flipped}/{len(TR)} triangles to face outward (ray-parity)")
 
 nrm = [[0.0, 0.0, 0.0] for _ in GV]
 for a, b, c in TR:

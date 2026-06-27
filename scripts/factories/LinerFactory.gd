@@ -189,13 +189,13 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 	]
 	for s in mesh.get_surface_count():
 		var m: BaseMaterial3D = mats[s] if s < mats.size() else mats[1]
-		# Draw BOTH faces: the QM.3mf is a non-manifold print mesh, so back-face culling either shows
-		# internal deck-edge "fin" faces (cull off) or punches see-through holes in the hull where outer
-		# faces are wound inward (cull on) — neither is clean. A solid hull is the more important property,
-		# so we draw double-sided (no see-through). The converter's winding pass gives every face an
-		# outward NORMAL so the double-sided shell is lit correctly. (The deck-edge fins are removed
-		# model-side by deleting the internal faces in the converter — the proper next step.)
-		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		# Per-surface culling. The HULL (0) + boot-topping (4) draw double-sided (CULL_DISABLED): the lower
+		# hull resists clean back-face culling, so keep it solid (no waterline see-through). The
+		# SUPERSTRUCTURE (1), funnels (2,3) + teak decks (5) back-face cull (CULL_BACK), which hides the
+		# deck-edge "fin" inner faces — the ray-parity winding makes their OUTER walls correctly
+		# front-facing, so the deckhouse stays solid with no see-through. Glass (6) stays double-sided so
+		# the window band reads from inside the promenade.
+		m.cull_mode = BaseMaterial3D.CULL_BACK if s in [1, 2, 3, 5] else BaseMaterial3D.CULL_DISABLED
 		mesh.surface_set_material(s, m)
 	var mi := MeshInstance3D.new()
 	mi.name = "ModelExterior"
