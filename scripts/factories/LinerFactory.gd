@@ -138,7 +138,9 @@ static func _half_beam(z: float) -> float:
 	var t: float = z / HULL_HALF_LEN          # -1 (stern) .. +1 (bow)
 	if t > 0.30:
 		var f: float = (t - 0.30) / 0.70      # 0..1 over the forward run
-		return maxf(HULL_HALF_BEAM * (1.0 - pow(f, 1.5)), 0.2)   # fine entry running right out to a sharp stem
+		# Fuller entry to match the 1:2000 model (bow half-beam ~13 m at z+105, ~3.3 m near the stem):
+		# (1-f)^0.47 carries more beam through the bow than the old (1 - f^1.5) before fining to the stem.
+		return maxf(HULL_HALF_BEAM * pow(1.0 - f, 0.47), 0.3)
 	if t < -0.40:
 		var a: float = (-t - 0.40) / 0.60     # 0..1 over the aft run
 		# Rounded cruiser stern: carry the beam well aft, then sweep the quarters in to a small rounded
@@ -165,9 +167,13 @@ static func _sheer_y(z: float, wl: float) -> float:
 	var deck: float = wl + DECK_MAIN
 	var t: float = z / HULL_HALF_LEN
 	if t > 0.5:
-		return deck + smoothstep(0.0, 1.0, (t - 0.5) / 0.5) * 2.2
-	if t < -0.7:
-		return deck + smoothstep(0.0, 1.0, (-t - 0.7) / 0.3) * 1.0
+		# Forecastle: nearly FLAT at the main-deck line (the 1:2000 model reads ~16 m to the stem),
+		# only a slight lift toward the bow (was +2.2 m, which over-raised the forecastle).
+		return deck + smoothstep(0.0, 1.0, (t - 0.5) / 0.5) * 0.4
+	if t < -0.77:
+		# Cruiser COUNTER: the after deck sweeps DOWN to a low rounded counter ~11.7 m above the WL at the
+		# stern (the 1:2000 model's defining stern feature), instead of the old slight rise to ~17 m.
+		return lerpf(deck, wl + 11.7, smoothstep(0.0, 1.0, (-t - 0.77) / 0.23))
 	return deck
 
 

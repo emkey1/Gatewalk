@@ -50,12 +50,14 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# Dining grand staircase — now lands cleanly through a ceiling hole (ceiling ~13.5, head ~14.3).
-		["dining", Vector3(8.0, 7.5, 6.0), Vector3(0.0, 11.5, 23.0), Vector3.UP],
-		# Dining wide — the taller triple-height saloon (floor ~3.3 to ceiling ~13.5).
-		["dining_wide", Vector3(13.0, 9.0, -16.0), Vector3(0.0, 10.0, 16.0), Vector3.UP],
-		# Pool — raised galleried ceiling + coved crown kept under the Main deck.
-		["pool", Vector3(8.0, 9.0, 60.0), Vector3(0.0, 10.5, 78.0), Vector3.UP],
+		# BOW profile (port side) — stem rake + forecastle height vs the model (flat 16 m, fuller entry).
+		["bow", Vector3(-58.0, 13.0, 188.0), Vector3(6.0, 8.0, 150.0), Vector3.UP],
+		# STERN profile (port side) — is the low cruiser counter (model ~11.7 m) present? Mine rises to ~17.
+		["stern", Vector3(-58.0, 13.0, -188.0), Vector3(6.0, 8.0, -150.0), Vector3.UP],
+		# Bow head-on-ish from forward — entry fullness.
+		["bow_q", Vector3(-44.0, 16.0, 205.0), Vector3(0.0, 10.0, 150.0), Vector3.UP],
+		# Stern quarter — counter + how the beam carries aft.
+		["stern_q", Vector3(-50.0, 18.0, -205.0), Vector3(0.0, 10.0, -150.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]
