@@ -50,14 +50,12 @@ func _init() -> void:
 	await process_frame   # let the camera enter the tree before look_at
 
 	var shots := [
-		# BOW profile (port side) — stem rake + forecastle height vs the model (flat 16 m, fuller entry).
-		["bow", Vector3(-58.0, 13.0, 188.0), Vector3(6.0, 8.0, 150.0), Vector3.UP],
-		# STERN profile (port side) — is the low cruiser counter (model ~11.7 m) present? Mine rises to ~17.
-		["stern", Vector3(-58.0, 13.0, -188.0), Vector3(6.0, 8.0, -150.0), Vector3.UP],
-		# Bow head-on-ish from forward — entry fullness.
-		["bow_q", Vector3(-44.0, 16.0, 205.0), Vector3(0.0, 10.0, 150.0), Vector3.UP],
-		# Stern quarter — counter + how the beam carries aft.
-		["stern_q", Vector3(-50.0, 18.0, -205.0), Vector3(0.0, 10.0, -150.0), Vector3.UP],
+		# FORWARD superstructure (port) — deckhouse now ends ~+112 (was +121), bridge pulled back, longer forecastle.
+		["fwd_super", Vector3(-62.0, 18.0, 170.0), Vector3(8.0, 12.0, 100.0), Vector3.UP],
+		# Inside the Main Hall (boarding foyer) looking fwd to the entry door at the new +112 wall — boarding intact?
+		["mainhall", Vector3(0.0, 16.2, 97.0), Vector3(0.0, 15.6, 113.0), Vector3.UP],
+		# Full profile — overall silhouette.
+		["profile", Vector3(-245.0, 40.0, 8.0), Vector3(0.0, 22.0, 8.0), Vector3.UP],
 	]
 	for s in shots:
 		cam.position = s[1]

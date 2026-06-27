@@ -64,8 +64,9 @@ const COL_WINDOW := Color(0.10, 0.13, 0.17)    # dark glazing
 # positioned relative to these so they ride with the deckhouse ends.
 const SS_AFT: float = -0.676   # deckhouse aft end ~-105 m, matching the 1:2000 model (was -0.85/-132; the
                                # empty aft shell + aft promenade now end together at -105, with the lounge fitted)
-const SS_FWD: float = 0.78     # deckhouse fwd end ~+121; the Main Hall (boarding foyer) + bridge sit here, so
-                               # the forward trim to the model's +100 is deferred (touches the player's arrival hall)
+const SS_FWD: float = 0.721    # deckhouse fwd end ~+112 m (was 0.78/+121): trimmed the empty fwd shell to the
+                               # Main Hall's forward edge; the bridge rides aft to ~+105 with it, boarding kept.
+                               # The model's full step-down (boat deck back to ~+88) over the foyer is a later tier pass.
 const SS_HALF_W: float = 16.5
 const SS_SIDE_DECK: float = 1.2    # open side-deck margin kept between the deckhouse wall and the hull edge
 const BH_AFT: float = -0.40
@@ -2317,7 +2318,7 @@ static func _build_main_hall(parent: Node3D, wl: float) -> void:
 	glow.emission_energy_multiplier = 0.7
 	_box(root, Vector3(0.0, _sheer_y(108.0, wl) + 3.4, 108.0), Vector3(2.4, 0.5, 2.4), glow, false)
 	# Warm light down the hall (seated above the rising floor).
-	for lz in [98.0, 108.0, 116.0]:
+	for lz in [98.0, 108.0]:   # foyer lamps (the +116 one fell outside the trimmed +112 fwd wall)
 		var lamp := OmniLight3D.new()
 		lamp.position = Vector3(0.0, _sheer_y(float(lz), wl) + 2.6, float(lz))
 		lamp.light_color = Color(1.0, 0.92, 0.78)
