@@ -153,11 +153,13 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 		norms[i] = Vector3(nf[i * 3], nf[i * 3 + 1], nf[i * 3 + 2])
 	var ns := f.get_32()
 	var mesh := ArrayMesh.new()
+	var coll_idx := PackedInt32Array()
 	for s in ns:
 		var ni := f.get_32()
 		if ni == 0:
 			continue
 		var idx := f.get_buffer(ni * 4).to_int32_array()
+		coll_idx.append_array(idx)
 		var arr := []
 		arr.resize(Mesh.ARRAY_MAX)
 		arr[Mesh.ARRAY_VERTEX] = verts
@@ -180,6 +182,31 @@ static func _build_model_exterior(parent: Node3D, wl: float) -> bool:
 	mi.name = "ModelExterior"
 	mi.mesh = mesh
 	parent.add_child(mi)
+	# Collision: a static trimesh of the model shell so the player walks the EXACT model hull/decks/walls.
+	# The model is a closed WATERLINE shell with no interior decks, so the only spot its solid surface
+	# blocks a player path is the forward boarding door -> cut those triangles out. The procedural
+	# collision underneath stays for the interiors + the open-deck stairs/companionways (which the model
+	# doesn't carry), so boarding + the dining/pool descents + deck climbs keep working.
+	var faces := PackedVector3Array()
+	var nt: int = coll_idx.size() / 3
+	for t in nt:
+		var va := verts[coll_idx[t * 3]]
+		var vb := verts[coll_idx[t * 3 + 1]]
+		var vc := verts[coll_idx[t * 3 + 2]]
+		var cx: float = (va.x + vb.x + vc.x) / 3.0
+		var cy: float = (va.y + vb.y + vc.y) / 3.0
+		var cz: float = (va.z + vb.z + vc.z) / 3.0
+		if cz > 106.0 and cz < 117.0 and cx > -7.0 and cx < -1.0 and cy > 12.0 and cy < 19.0:
+			continue   # leave the forward boarding door open through the superstructure wall
+		faces.append(va); faces.append(vb); faces.append(vc)
+	var body := StaticBody3D.new()
+	body.name = "ModelCollision"
+	var cs := CollisionShape3D.new()
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	cs.shape = shape
+	body.add_child(cs)
+	parent.add_child(body)
 	return true
 
 
